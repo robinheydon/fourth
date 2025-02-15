@@ -1,0 +1,77 @@
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const std = @import("std");
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn lookup_symbols(API: type, library_names: []const []const u8) !API {
+    var api: API = undefined;
+
+    const max_libraries = 64;
+
+    var libs: [max_libraries]std.DynLib = undefined;
+
+    if (library_names.len >= max_libraries) {
+        return error.TooManyLibraries;
+    }
+
+    var num_libs: usize = 0;
+    for (library_names) |name| {
+        if (std.DynLib.open(name)) |dl| {
+            libs[num_libs] = dl;
+            num_libs += 1;
+        } else |err| {
+            std.debug.print("{s} {}\n", .{ name, err });
+        }
+    }
+
+    inline for (std.meta.fields(API)) |field| {
+        var found = false;
+        for (libs[0..num_libs]) |*lib| {
+            if (lib.lookup(field.type, field.name)) |fun| {
+                @field(api, field.name) = fun;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            if (@typeInfo(field.type) == .optional) {
+                @field(api, field.name) = null;
+            } else {
+                std.debug.print("Missing {s}\n", .{field.name});
+                return error.MissingRequiredSymbol;
+            }
+        }
+    }
+
+    return api;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn lookup_using(
+    API: type,
+    api: *API,
+    lookup: *const fn ([*:0]const u8) callconv(.c) ?*anyopaque,
+) void {
+    inline for (std.meta.fields(API)) |field| {
+        if (@typeInfo(field.type) == .optional) {
+            if (@field(api, field.name) == null) {
+                if (lookup(field.name)) |fun| {
+                    @field(api, field.name) = @ptrCast(fun);
+                }
+            }
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
