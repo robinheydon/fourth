@@ -26,6 +26,8 @@ pub const lookup_using = api.lookup_using;
 pub const create_window = video.create_window;
 pub const create_shader = video.create_shader;
 pub const create_buffer = video.create_buffer;
+pub const create_pipeline = video.create_pipeline;
+pub const create_bindings = video.create_bindings;
 
 pub const Vec2 = math.Vec2;
 pub const Vec3 = math.Vec3;
@@ -90,6 +92,75 @@ pub fn poll_event() ?Event {
 pub fn rand() f32 {
     const random = prng.random();
     return random.float(f32);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn as_bytes(data: anytype) []u8 {
+    const T = @TypeOf(data);
+    const ti = @typeInfo(T);
+
+    const ptr = std.mem.asBytes(data);
+    var block: []u8 = undefined;
+    block.ptr = @constCast(ptr);
+    block.len = @sizeOf(ti.pointer.child);
+    return block;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "as_bytes" {
+    {
+        const a: u8 = 0x12;
+        const b = as_bytes(&a);
+        std.debug.print("b = {any}\n", .{b});
+    }
+
+    {
+        const a: u16 = 0x1234;
+        const b = as_bytes(&a);
+        std.debug.print("b = {any}\n", .{b});
+    }
+
+    {
+        const a: u32 = 0x12345678;
+        const b = std.mem.asBytes(&a);
+        std.debug.print("b = {any}\n", .{b});
+    }
+
+    {
+        const a: u64 = 0x12345678_9abcdef0;
+        const b = std.mem.asBytes(&a);
+        std.debug.print("b = {any}\n", .{b});
+    }
+
+    {
+        const a: f32 = 3.14;
+        const b = std.mem.asBytes(&a);
+        std.debug.print("b = {any}\n", .{b});
+    }
+
+    {
+        const a: f64 = 3.14;
+        const b = std.mem.asBytes(&a);
+        std.debug.print("b = {any}\n", .{b});
+    }
+
+    {
+        const a: [3]u8 = .{ 1, 2, 3 };
+        const b = std.mem.asBytes(&a);
+        std.debug.print("b = {any}\n", .{b});
+    }
+
+    {
+        const a: [3]f32 = .{ 1, 2, 3 };
+        const b = std.mem.asBytes(&a);
+        std.debug.print("b = {any}\n", .{b});
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

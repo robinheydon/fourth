@@ -31,13 +31,35 @@ pub fn main() !void {
     });
     defer window.close();
 
-    const shader = try ng.create_shader(@import("triangle_shader.zig"));
+    const triangle_shader = @import("triangle_shader.zig");
+    const TriangleVertex = triangle_shader.Vertex;
+
+    const shader = try ng.create_shader(triangle_shader);
     defer shader.delete();
 
-    const buffer = try ng.create_buffer (.{});
-    defer buffer.delete ();
+    const triangle_data = [_]TriangleVertex{
+        .{ .pos = .{ 0.0, 0.5 }, .col = .red },
+        .{ .pos = .{ 0.5, -0.5 }, .col = .blue },
+        .{ .pos = .{ -0.5, -0.5 }, .col = .green },
+    };
 
-    std.debug.print("{}\n", .{shader});
+    const buffer = try ng.create_buffer(.{
+        .label = "Triangle Vertex Data",
+        .data = ng.as_bytes(&triangle_data),
+    });
+    defer buffer.delete();
+
+    const pipeline = try ng.create_pipeline(.{
+        .label = "Triangle Pipeline",
+        .shader = shader,
+        .primitive = .triangle_list,
+    });
+    defer pipeline.delete();
+
+    const bindings = try ng.create_bindings(.{
+        .label = "Triangle Bindings",
+        .vertex_buffers = &.{buffer},
+    });
 
     while (running) {
         while (ng.poll_event()) |event| {
@@ -65,10 +87,15 @@ pub fn main() !void {
         const swapchain_texture = try command_buffer.acquire_swapchain_texture();
         const render_pass = try command_buffer.begin_render_pass(.{
             .texture = swapchain_texture,
-            .clear_color = .black,
+            .clear_color = .@"dark orange",
             .load = .clear,
             .store = .store,
         });
+
+        render_pass.apply_pipeline(pipeline);
+        render_pass.apply_bindings(bindings);
+        render_pass.draw(3);
+
         render_pass.end();
         try command_buffer.submit();
     }

@@ -38,6 +38,8 @@ pub const VideoError = error{
     InvalidShaderIndex,
     UnknownVertexAttribute,
     TooManyBuffers,
+    TooManyPipelines,
+    TooManyBindings,
 };
 
 pub const Platform = struct {
@@ -52,12 +54,21 @@ pub const Platform = struct {
 
     begin_render_pass: *const fn (CommandBuffer, BeginRenderPassInfo) VideoError!RenderPass,
     end_render_pass: *const fn (RenderPass) void,
+    apply_pipeline: *const fn (RenderPass, Pipeline) void,
+    apply_bindings: *const fn (RenderPass, Bindings) void,
+    draw: *const fn (RenderPass, u32) void,
 
     create_shader: *const fn (CreateShaderInfo) VideoError!Shader,
     delete_shader: *const fn (Shader) void,
 
     create_buffer: *const fn (CreateBufferInfo) VideoError!Buffer,
     delete_buffer: *const fn (Buffer) void,
+
+    create_pipeline: *const fn (CreatePipelineInfo) VideoError!Pipeline,
+    delete_pipeline: *const fn (Pipeline) void,
+
+    create_bindings: *const fn (CreateBindingsInfo) VideoError!Bindings,
+    delete_bindings: *const fn (Bindings) void,
 
     poll_event: *const fn () ?ng.Event,
 };
@@ -191,15 +202,28 @@ pub const RenderPass = struct {
     pub fn end(self: RenderPass) void {
         platform.end_render_pass(self);
     }
+
+    pub fn apply_pipeline(self: RenderPass, pipeline: Pipeline) void {
+        platform.apply_pipeline(self, pipeline);
+    }
+
+    pub fn apply_bindings(self: RenderPass, bindings: Bindings) void {
+        platform.apply_bindings(self, bindings);
+    }
+
+    pub fn draw(self: RenderPass, num_vertexes: u32) void {
+        platform.draw(self, num_vertexes);
+    }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const max_vertex_attributes = 32;
+pub const max_vertex_attributes = 32;
 
 pub const CreateShaderInfo = struct {
+    label: ?[]const u8,
     vertex_source: [*:0]const u8,
     fragment_source: [*:0]const u8,
 
@@ -241,6 +265,7 @@ pub const Shader = struct {
 
 pub fn create_shader(shader: anytype) VideoError!Shader {
     var info: CreateShaderInfo = .{
+        .label = shader.label,
         .vertex_source = shader.vertex_source,
         .fragment_source = shader.fragment_source,
     };
@@ -311,6 +336,7 @@ fn attribute_info(comptime T: type) !VertexAttribute {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const CreateBufferInfo = struct {
+    label: ?[]const u8,
     kind: BufferKind = .vertex_data,
     data: ?[]u8 = null,
     update: BufferUpdate = .static,
@@ -339,9 +365,68 @@ pub const Buffer = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn create_buffer (info: CreateBufferInfo) !Buffer
-{
+pub fn create_buffer(info: CreateBufferInfo) !Buffer {
     return platform.create_buffer(info);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const CreatePipelineInfo = struct {
+    label: ?[]const u8 = null,
+    shader: Shader,
+    primitive: Primitive,
+};
+
+pub const Primitive = enum {
+    triangle_list,
+    triangle_strip,
+    line_list,
+    line_strip,
+    point_list,
+};
+
+pub const Pipeline = struct {
+    handle: usize,
+
+    pub fn delete(self: Pipeline) void {
+        platform.delete_pipeline(self);
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn create_pipeline(info: CreatePipelineInfo) !Pipeline {
+    return platform.create_pipeline(info);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const CreateBindingsInfo = struct {
+    label: ?[]const u8 = null,
+    vertex_buffers: ?[]const Buffer = null,
+    index_buffers: ?[]const Buffer = null,
+};
+
+pub const Bindings = struct {
+    handle: usize,
+
+    pub fn delete(self: Bindings) void {
+        platform.delete_bindings(self);
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn create_bindings(info: CreateBindingsInfo) !Bindings {
+    return platform.create_bindings(info);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
