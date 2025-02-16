@@ -1154,7 +1154,7 @@ fn opengl_debug_message(
     _: ?*anyopaque,
 ) callconv(.c) void {
 
-    // if (severity == 0x826b) return; // notification
+    if (severity == 0x826b) return; // notification
 
     const source_name = switch (source) {
         0x8246 => "API",
