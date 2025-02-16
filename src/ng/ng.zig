@@ -33,10 +33,16 @@ pub const Vec2 = math.Vec2;
 pub const Vec3 = math.Vec3;
 pub const Vec4 = math.Vec4;
 pub const Mat4 = math.Mat4;
+pub const mat4_identity = math.mat4_identity;
+pub const ortho = math.ortho;
+pub const mat4_mul = math.mat4_mul;
+pub const Camera2D = math.Camera2D;
 
 pub const Color = color.Color;
 
 pub const Event = event.Event;
+
+pub const elapsed = time.elapsed;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -161,6 +167,32 @@ test "as_bytes" {
         const b = std.mem.asBytes(&a);
         std.debug.print("b = {any}\n", .{b});
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn make_uniform_slots(comptime Uniforms: type) type {
+    var fields : [16]std.builtin.Type.EnumField = undefined;
+
+    var num_fields: usize = 0;
+
+    inline for (std.meta.fields (Uniforms)) |field|
+    {
+        fields[num_fields].value = num_fields;
+        fields[num_fields].name = field.name;
+        num_fields += 1;
+    }
+
+    const info = std.builtin.Type{ .@"enum" = .{
+        .tag_type = u32,
+        .fields = fields[0..num_fields],
+        .decls = &.{},
+        .is_exhaustive = true,
+    } };
+
+    return @Type(info);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

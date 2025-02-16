@@ -47,6 +47,7 @@ pub const Platform = struct {
 
     create_window: *const fn (CreateWindowOptions) VideoError!Window,
     close_window: *const fn (Window) void,
+    get_window_size: *const fn (Window) WindowSize,
 
     acquire_command_buffer: *const fn (Window) VideoError!CommandBuffer,
     submit_command_buffer: *const fn (CommandBuffer) VideoError!void,
@@ -56,6 +57,7 @@ pub const Platform = struct {
     end_render_pass: *const fn (RenderPass) void,
     apply_pipeline: *const fn (RenderPass, Pipeline) void,
     apply_bindings: *const fn (RenderPass, Bindings) void,
+    apply_uniform: *const fn (RenderPass, UniformInfo) void,
     draw: *const fn (RenderPass, u32) void,
 
     create_shader: *const fn (CreateShaderInfo) VideoError!Shader,
@@ -111,9 +113,18 @@ pub const Window = struct {
         platform.close_window(self);
     }
 
+    pub fn get_size (self: Window) WindowSize {
+        return platform.get_window_size (self);
+    }
+
     pub fn acquire_command_buffer(self: Window) !CommandBuffer {
         return platform.acquire_command_buffer(self);
     }
+};
+
+pub const WindowSize = struct {
+    width: f32,
+    height: f32,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -211,9 +222,22 @@ pub const RenderPass = struct {
         platform.apply_bindings(self, bindings);
     }
 
+    pub fn apply_uniform(self: RenderPass, index: anytype, data: anytype) void {
+        const info: UniformInfo = .{
+            .index = @intFromEnum (index),
+            .data = ng.as_bytes(data),
+        };
+        platform.apply_uniform(self, info);
+    }
+
     pub fn draw(self: RenderPass, num_vertexes: u32) void {
         platform.draw(self, num_vertexes);
     }
+};
+
+pub const UniformInfo = struct {
+    index: u32,
+    data: []const u8,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

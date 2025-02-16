@@ -87,6 +87,9 @@ const API = struct {
     glEnable: *const fn (u32) callconv(.c) void,
     glDisable: *const fn (u32) callconv(.c) void,
     glDebugMessageCallback: *const fn (*const fn (u32, u32, u32, u32, usize, [*:0]const u8, ?*anyopaque) callconv(.c) void, ?*anyopaque) callconv(.c) void,
+    glObjectLabel: *const fn (u32, u32, u32, [*c]const u8) callconv(.c) void,
+    glUniformMatrix4fv: *const fn (u32, u32, u32, [*c]const u8) callconv(.c) void,
+    glGetUniformLocation: *const fn (u32, [*:0]const u8) callconv(.c) u32,
 };
 
 var api: API = undefined;
@@ -175,12 +178,14 @@ pub fn init() !video.Platform {
     return .{
         .create_window = create_window,
         .close_window = close_window,
+        .get_window_size = get_window_size,
         .acquire_command_buffer = acquire_command_buffer,
         .acquire_swapchain_texture = acquire_swapchain_texture,
         .begin_render_pass = begin_render_pass,
         .end_render_pass = end_render_pass,
         .apply_pipeline = apply_pipeline,
         .apply_bindings = apply_bindings,
+        .apply_uniform = apply_uniform,
         .draw = draw,
         .submit_command_buffer = submit_command_buffer,
         .deinit = deinit,
@@ -344,6 +349,17 @@ fn close_window(a_window: video.Window) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+fn get_window_size (_: video.Window) video.WindowSize {
+    return .{
+        .width = window_width,
+        .height = window_height,
+    };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const GLX_RGBA = 4;
 const GLX_DOUBLEBUFFER = 5;
 const GLX_RED_SIZE = 8;
@@ -409,6 +425,8 @@ const GL_LINES = 0x0001;
 const GL_LINE_STRIP = 0x0003;
 const GL_TRIANGLES = 0x0004;
 const GL_TRIANGLE_STRIP = 0x0005;
+
+const GL_BUFFER = 0x82E0;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -750,12 +768,10 @@ fn begin_render_pass(self: video.CommandBuffer, info: video.BeginRenderPassInfo)
 
 fn end_render_pass(self: video.RenderPass) void {
     _ = self;
-    api.glBindBuffer (GL_ARRAY_BUFFER, 0);
-    api.glUseProgram (0);
-    for (0..enabled_attributes.len) |i|
-    {
-        if (enabled_attributes[i])
-        {
+    api.glBindBuffer(GL_ARRAY_BUFFER, 0);
+    api.glUseProgram(0);
+    for (0..enabled_attributes.len) |i| {
+        if (enabled_attributes[i]) {
             api.glDisableVertexAttribArray(@intCast(i));
             enabled_attributes[i] = false;
         }
@@ -776,7 +792,7 @@ fn apply_pipeline(self: video.RenderPass, opaque_pipeline: video.Pipeline) void 
     const gl_shader = shader_pool.get(shader.handle) orelse return;
 
     current_shader = shader;
-    api.glUseProgram (gl_shader.program);
+    api.glUseProgram(gl_shader.program);
 
     draw_primitive = switch (pipeline.primitive) {
         .triangle_list => GL_TRIANGLES,
@@ -807,6 +823,16 @@ fn apply_bindings(self: video.RenderPass, opaque_bindings: video.Bindings) void 
     }
 
     apply_shader(current_shader);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
+    _ = self;
+
+    api.glUniformMatrix4fv (info.index, 1, 0, info.data.ptr);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -997,6 +1023,12 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
 
     api.glGenBuffers(1, &buffer_object);
 
+    if (info.label) |label| {
+        api.glBindBuffer(GL_ARRAY_BUFFER, buffer_object);
+        api.glObjectLabel(GL_BUFFER, buffer_object, @intCast(label.len), label.ptr);
+        api.glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
     buffer.* = .{
         .label = info.label,
         .object = buffer_object,
@@ -1153,8 +1185,7 @@ fn opengl_debug_message(
     message: [*:0]const u8,
     _: ?*anyopaque,
 ) callconv(.c) void {
-
-    if (severity == 0x826b) return; // notification
+    if (id == 0x20071) return; // static draw will use video memory
 
     const source_name = switch (source) {
         0x8246 => "API",

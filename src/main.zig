@@ -37,10 +37,12 @@ pub fn main() !void {
     const shader = try ng.create_shader(triangle_shader);
     defer shader.delete();
 
+    const TriangleUniforms = ng.make_uniform_slots(triangle_shader.Uniforms);
+
     const triangle_data = [_]TriangleVertex{
-        .{ .pos = .{ 0.0, 0.5 }, .col = .red },
-        .{ .pos = .{ 0.5, -0.5 }, .col = .green },
-        .{ .pos = .{ -0.5, -0.5 }, .col = .blue },
+        .{ .pos = .{   0,  50 }, .col = .red },
+        .{ .pos = .{  43, -25 }, .col = .green },
+        .{ .pos = .{ -43, -25 }, .col = .blue },
     };
 
     const buffer = try ng.create_buffer(.{
@@ -60,6 +62,8 @@ pub fn main() !void {
         .label = "Triangle Bindings",
         .vertex_buffers = &.{buffer},
     });
+
+    var camera : ng.Camera2D = .identity ();
 
     while (running) {
         while (ng.poll_event()) |event| {
@@ -83,6 +87,17 @@ pub fn main() !void {
             }
         }
 
+        const window_size = window.get_size ();
+        const projection = ng.ortho (window_size.width, window_size.height);
+
+        const now : f32 = @floatCast (ng.elapsed ());
+        camera.zoom = @sin (now / 5) + 2;
+        camera.rotate = @cos (now / 3);
+        camera.origin = .{ window_size.width / 2, window_size.height / 2 };
+        camera.target = .{ @sin (now * 3) * 500, @cos (now * 3) * 500 };
+        const view = camera.get_matrix ();
+        const mvp = ng.mat4_mul (view, projection);
+
         const command_buffer = try window.acquire_command_buffer();
         const swapchain_texture = try command_buffer.acquire_swapchain_texture();
         const render_pass = try command_buffer.begin_render_pass(.{
@@ -94,6 +109,7 @@ pub fn main() !void {
 
         render_pass.apply_pipeline(pipeline);
         render_pass.apply_bindings(bindings);
+        render_pass.apply_uniform(TriangleUniforms.mvp, &mvp);
         render_pass.draw(3);
 
         render_pass.end();
