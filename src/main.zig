@@ -66,6 +66,11 @@ pub fn main() !void {
     var camera : ng.Camera2D = .identity ();
 
     while (running) {
+        const dt = ng.start_frame ();
+        defer ng.end_frame ();
+
+        std.debug.print ("{d} {d}\n", .{dt * 1000, 1 / dt });
+
         while (ng.poll_event()) |event| {
             switch (event) {
                 .quit => {
