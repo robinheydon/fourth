@@ -126,6 +126,7 @@ var pipeline_pool: Pool(GL_Pipeline, 256) = .{};
 var bindings_pool: Pool(GL_Bindings, 256) = .{};
 
 var vao: u32 = 0;
+var enabled_attributes: [video.max_vertex_attributes]bool = .{false} ** video.max_vertex_attributes;
 var draw_primitive: u32 = 0;
 var current_shader: video.Shader = undefined;
 
@@ -772,7 +773,10 @@ fn apply_pipeline(self: video.RenderPass, opaque_pipeline: video.Pipeline) void 
     const pipeline = pipeline_pool.get(index) orelse return;
 
     const shader = pipeline.shader;
+    const gl_shader = shader_pool.get(shader.handle) orelse return;
+
     current_shader = shader;
+    api.glUseProgram (gl_shader.program);
 
     draw_primitive = switch (pipeline.primitive) {
         .triangle_list => GL_TRIANGLES,
@@ -801,6 +805,7 @@ fn apply_bindings(self: video.RenderPass, opaque_bindings: video.Bindings) void 
             }
         }
     }
+
     apply_shader(current_shader);
 }
 
@@ -917,13 +922,9 @@ fn link_shader_parts(vertex: u32, fragment: u32) video.VideoError!u32 {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-var enabled_attributes: [video.max_vertex_attributes]bool = .{false} ** video.max_vertex_attributes;
-
 fn apply_shader(self: video.Shader) void {
     const index = self.handle;
     const shader = shader_pool.get(index) orelse return;
-
-    api.glUseProgram (shader.program);
 
     for (0.., shader.vertex_attrib) |i, attrib| {
         if (attrib.vertex_type != .unknown) {
