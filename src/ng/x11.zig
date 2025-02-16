@@ -1153,6 +1153,9 @@ fn opengl_debug_message(
     message: [*:0]const u8,
     _: ?*anyopaque,
 ) callconv(.c) void {
+
+    if (severity == 0x826b) return; // notification
+
     const source_name = switch (source) {
         0x8246 => "API",
         0x8247 => "Window System",
@@ -1176,7 +1179,8 @@ fn opengl_debug_message(
         0x826B => "Notification",
         else => "Other",
     };
-    std.debug.print("OpenGL: {s} {s} {x} {s} {s}\n", .{
+
+    std.debug.print("OpenGL: {s} {s} {x} {s} : {s}\n", .{
         source_name,
         kind_name,
         id,
