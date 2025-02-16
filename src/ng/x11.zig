@@ -749,6 +749,16 @@ fn begin_render_pass(self: video.CommandBuffer, info: video.BeginRenderPassInfo)
 
 fn end_render_pass(self: video.RenderPass) void {
     _ = self;
+    api.glBindBuffer (GL_ARRAY_BUFFER, 0);
+    api.glUseProgram (0);
+    for (0..enabled_attributes.len) |i|
+    {
+        if (enabled_attributes[i])
+        {
+            api.glDisableVertexAttribArray(@intCast(i));
+            enabled_attributes[i] = false;
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

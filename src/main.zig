@@ -39,8 +39,8 @@ pub fn main() !void {
 
     const triangle_data = [_]TriangleVertex{
         .{ .pos = .{ 0.0, 0.5 }, .col = .red },
-        .{ .pos = .{ 0.5, -0.5 }, .col = .blue },
-        .{ .pos = .{ -0.5, -0.5 }, .col = .green },
+        .{ .pos = .{ 0.5, -0.5 }, .col = .green },
+        .{ .pos = .{ -0.5, -0.5 }, .col = .blue },
     };
 
     const buffer = try ng.create_buffer(.{
@@ -87,7 +87,7 @@ pub fn main() !void {
         const swapchain_texture = try command_buffer.acquire_swapchain_texture();
         const render_pass = try command_buffer.begin_render_pass(.{
             .texture = swapchain_texture,
-            .clear_color = .@"dark orange",
+            .clear_color = .black,
             .load = .clear,
             .store = .store,
         });
