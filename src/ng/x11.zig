@@ -1154,7 +1154,7 @@ fn opengl_debug_message(
     _: ?*anyopaque,
 ) callconv(.c) void {
 
-    if (severity == 0x826b) return; // notification
+    // if (severity == 0x826b) return; // notification
 
     const source_name = switch (source) {
         0x8246 => "API",
@@ -1162,7 +1162,8 @@ fn opengl_debug_message(
         0x8248 => "Shader Compiler",
         0x8249 => "Third Party",
         0x824A => "Application",
-        else => "Other",
+        0x824B => "Other",
+        else => "Unknown",
     };
     const kind_name = switch (kind) {
         0x824C => "Error",
@@ -1170,14 +1171,15 @@ fn opengl_debug_message(
         0x824E => "Undefined Behavior",
         0x824F => "Portability",
         0x8250 => "Performance",
-        else => "Other",
+        0x8251 => "Other",
+        else => "Unknown",
     };
     const severity_name = switch (severity) {
         0x9146 => "High",
         0x9147 => "Medium",
         0x9148 => "Low",
         0x826B => "Notification",
-        else => "Other",
+        else => "Unknown",
     };
 
     std.debug.print("OpenGL: {s} {s} {x} {s} : {s}\n", .{
