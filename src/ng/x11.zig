@@ -1172,6 +1172,9 @@ fn opengl_debug_message(
         0x824F => "Portability",
         0x8250 => "Performance",
         0x8251 => "Other",
+        0x8268 => "Marker",
+        0x8269 => "Push Group",
+        0x826A => "Pop Group",
         else => "Unknown",
     };
     const severity_name = switch (severity) {
