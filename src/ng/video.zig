@@ -48,6 +48,7 @@ pub const Platform = struct {
     create_window: *const fn (CreateWindowOptions) VideoError!Window,
     close_window: *const fn (Window) void,
     get_window_size: *const fn (Window) WindowSize,
+    set_swap_interval: *const fn (Window, SwapInterval) void,
 
     acquire_command_buffer: *const fn (Window) VideoError!CommandBuffer,
     submit_command_buffer: *const fn (CommandBuffer) VideoError!void,
@@ -113,8 +114,12 @@ pub const Window = struct {
         platform.close_window(self);
     }
 
-    pub fn get_size (self: Window) WindowSize {
-        return platform.get_window_size (self);
+    pub fn set_swap_interval(self: Window, interval: SwapInterval) void {
+        platform.set_swap_interval(self, interval);
+    }
+
+    pub fn get_size(self: Window) WindowSize {
+        return platform.get_window_size(self);
     }
 
     pub fn acquire_command_buffer(self: Window) !CommandBuffer {
@@ -125,6 +130,14 @@ pub const Window = struct {
 pub const WindowSize = struct {
     width: f32,
     height: f32,
+};
+
+pub const SwapInterval = enum {
+    fast,
+    lowpower,
+    vsync,
+    double,
+    adaptive,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -224,7 +237,7 @@ pub const RenderPass = struct {
 
     pub fn apply_uniform(self: RenderPass, index: anytype, data: anytype) void {
         const info: UniformInfo = .{
-            .index = @intFromEnum (index),
+            .index = @intFromEnum(index),
             .data = ng.as_bytes(data),
         };
         platform.apply_uniform(self, info);

@@ -12,6 +12,8 @@ const ng = @import("ng");
 
 var running = true;
 
+var average_frame_rate: u32 = 0;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -31,6 +33,8 @@ pub fn main() !void {
     });
     defer window.close();
 
+    window.set_swap_interval(.double);
+
     const triangle_shader = @import("triangle_shader.zig");
     const TriangleVertex = triangle_shader.Vertex;
 
@@ -40,8 +44,8 @@ pub fn main() !void {
     const TriangleUniforms = ng.make_uniform_slots(triangle_shader.Uniforms);
 
     const triangle_data = [_]TriangleVertex{
-        .{ .pos = .{   0,  50 }, .col = .red },
-        .{ .pos = .{  43, -25 }, .col = .green },
+        .{ .pos = .{ 0, 50 }, .col = .red },
+        .{ .pos = .{ 43, -25 }, .col = .green },
         .{ .pos = .{ -43, -25 }, .col = .blue },
     };
 
@@ -63,13 +67,13 @@ pub fn main() !void {
         .vertex_buffers = &.{buffer},
     });
 
-    var camera : ng.Camera2D = .identity ();
+    var camera: ng.Camera2D = .identity();
 
     while (running) {
-        const dt = ng.start_frame ();
-        defer ng.end_frame ();
+        const dt = ng.start_frame();
+        defer ng.end_frame();
 
-        std.debug.print ("{d} {d}\n", .{dt * 1000, 1 / dt });
+        report_fps(dt);
 
         while (ng.poll_event()) |event| {
             switch (event) {
@@ -92,16 +96,16 @@ pub fn main() !void {
             }
         }
 
-        const window_size = window.get_size ();
-        const projection = ng.ortho (window_size.width, window_size.height);
+        const window_size = window.get_size();
+        const projection = ng.ortho(window_size.width, window_size.height);
 
-        const now : f32 = @floatCast (ng.elapsed ());
-        camera.zoom = @sin (now / 5) + 2;
-        camera.rotate = @cos (now / 3);
+        const now: f32 = @floatCast(ng.elapsed());
+        camera.zoom = @sin(now / 5) + 2;
+        camera.rotate = @cos(now / 3);
         camera.origin = .{ window_size.width / 2, window_size.height / 2 };
-        camera.target = .{ @sin (now * 3) * 500, @cos (now * 3) * 500 };
-        const view = camera.get_matrix ();
-        const mvp = ng.mat4_mul (view, projection);
+        camera.target = .{ @sin(now * 3) * 500, @cos(now * 3) * 500 };
+        const view = camera.get_matrix();
+        const mvp = ng.mat4_mul(view, projection);
 
         const command_buffer = try window.acquire_command_buffer();
         const swapchain_texture = try command_buffer.acquire_swapchain_texture();
@@ -119,6 +123,27 @@ pub fn main() !void {
 
         render_pass.end();
         try command_buffer.submit();
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+var all_delta_times: [65536]f32 = undefined;
+var next_dt_index: usize = 0;
+
+fn report_fps(dt: f32) void {
+    all_delta_times[next_dt_index] = dt;
+    next_dt_index = next_dt_index + 1;
+    var total_ft: f32 = 0;
+    for (all_delta_times[0..next_dt_index]) |ft| {
+        total_ft += ft;
+    }
+    if (total_ft >= 1.0 or next_dt_index == all_delta_times.len) {
+        average_frame_rate = @intCast(next_dt_index);
+        std.debug.print("{} Hz\n", .{average_frame_rate});
+        next_dt_index = 0;
     }
 }
 

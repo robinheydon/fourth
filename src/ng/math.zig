@@ -24,7 +24,7 @@ pub const mat4_identity: Mat4 = [16]f32{
     0, 0, 0, 1,
 };
 
-pub fn mat4_translate (x: f32, y: f32, z: f32) Mat4 {
+pub fn mat4_translate(x: f32, y: f32, z: f32) Mat4 {
     return .{
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -33,18 +33,18 @@ pub fn mat4_translate (x: f32, y: f32, z: f32) Mat4 {
     };
 }
 
-pub fn mat4_rotate_z (a: f32) Mat4 {
-    const cos_angle = @cos (a);
-    const sin_angle = @sin (a);
+pub fn mat4_rotate_z(a: f32) Mat4 {
+    const cos_angle = @cos(a);
+    const sin_angle = @sin(a);
     return .{
         cos_angle, -sin_angle, 0, 0,
-        sin_angle, cos_angle, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1,
+        sin_angle, cos_angle,  0, 0,
+        0,         0,          1, 0,
+        0,         0,          0, 1,
     };
 }
 
-pub fn mat4_scale (x: f32, y: f32, z: f32) Mat4 {
+pub fn mat4_scale(x: f32, y: f32, z: f32) Mat4 {
     return .{
         x, 0, 0, 0,
         0, y, 0, 0,
@@ -53,8 +53,8 @@ pub fn mat4_scale (x: f32, y: f32, z: f32) Mat4 {
     };
 }
 
-pub fn mat4_mul (a: Mat4, b: Mat4) Mat4 {
-    var c : Mat4 = undefined;
+pub fn mat4_mul(a: Mat4, b: Mat4) Mat4 {
+    var c: Mat4 = undefined;
 
     c[0] = a[0] * b[0] + a[1] * b[4] + a[2] * b[8] + a[3] * b[12];
     c[1] = a[0] * b[1] + a[1] * b[5] + a[2] * b[9] + a[3] * b[13];
@@ -79,13 +79,12 @@ pub fn mat4_mul (a: Mat4, b: Mat4) Mat4 {
     return c;
 }
 
-pub fn ortho (width: f32, height: f32) Mat4
-{
+pub fn ortho(width: f32, height: f32) Mat4 {
     return .{
-        2 / width, 0, 0, 0,
-        0, 2 / height, 0, 0,
-        0, 0, -2, 0,
-        -1, -1, -1, 1,
+        2 / width, 0,          0,  0,
+        0,         2 / height, 0,  0,
+        0,         0,          -2, 0,
+        -1,        -1,         -1, 1,
     };
 }
 
@@ -99,7 +98,7 @@ pub const Camera2D = struct {
     rotate: f32,
     zoom: f32,
 
-    pub fn identity () Camera2D {
+    pub fn identity() Camera2D {
         return .{
             .target = .{ 0, 0 },
             .origin = .{ 0, 0 },
@@ -108,13 +107,12 @@ pub const Camera2D = struct {
         };
     }
 
-    pub fn get_matrix (self: Camera2D) Mat4
-    {
-        const target = mat4_translate (-self.target[0], -self.target[1], 0);
-        const rotate = mat4_rotate_z (self.rotate);
-        const zoom = mat4_scale (self.zoom, self.zoom, 1);
-        const origin = mat4_translate (self.origin[0], self.origin[1], 0);
-        return mat4_mul (mat4_mul (mat4_mul (zoom, rotate), origin), target);
+    pub fn get_matrix(self: Camera2D) Mat4 {
+        const target = mat4_translate(-self.target[0], -self.target[1], 0);
+        const rotate = mat4_rotate_z(self.rotate);
+        const zoom = mat4_scale(self.zoom, self.zoom, 1);
+        const origin = mat4_translate(self.origin[0], self.origin[1], 0);
+        return mat4_mul(mat4_mul(mat4_mul(zoom, rotate), origin), target);
     }
 };
 

@@ -47,49 +47,51 @@ const API = struct {
     XSetWMProtocols: *const fn (*Display, Window, [*c]XID, u32) callconv(.c) void,
     XStoreName: *const fn (*Display, Window, [*:0]const u8) callconv(.c) void,
     XSync: *const fn (*Display, bool) callconv(.c) void,
-    glXChooseFBConfig: *const fn (*Display, u32, [*c]const u32, *u32) callconv(.c) [*c]c.GLXFBConfig,
-    glXGetVisualFromFBConfig: *const fn (*Display, c.GLXFBConfig) callconv(.c) ?*c.XVisualInfo,
-    glXQueryVersion: *const fn (*Display, *u32, *u32) callconv(.c) bool,
-    glXGetFBConfigAttrib: *const fn (*Display, c.GLXFBConfig, u32, *u32) callconv(.c) void,
-    glXCreateContextAttribsARB: ?*const fn (*Display, c.GLXFBConfig, u32, u32, [*c]const u32) callconv(.c) ?*GLXContext,
-    glXGetProcAddressARB: *const fn ([*:0]const u8) callconv(.c) ?*anyopaque,
-    glXMakeCurrent: *const fn (*Display, Window, *GLXContext) callconv(.c) void,
-    glXSwapBuffers: *const fn (*Display, Window) callconv(.c) void,
-    glClearColor: *const fn (f32, f32, f32, f32) callconv(.c) void,
-    glClear: *const fn (u32) callconv(.c) void,
-    glViewport: *const fn (u32, u32, u32, u32) callconv(.c) void,
-    glScissor: *const fn (u32, u32, u32, u32) callconv(.c) void,
-    glCreateShader: *const fn (u32) callconv(.c) u32,
-    glDeleteShader: *const fn (u32) callconv(.c) void,
-    glShaderSource: *const fn (u32, u32, *const [*:0]const u8, ?*u32) callconv(.c) void,
-    glCompileShader: *const fn (u32) callconv(.c) void,
-    glGetShaderiv: *const fn (u32, u32, *u32) callconv(.c) void,
-    glGetShaderInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
-    glCreateProgram: *const fn () callconv(.c) u32,
-    glGetProgramInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
     glAttachShader: *const fn (u32, u32) callconv(.c) void,
-    glDeleteProgram: *const fn (u32) callconv(.c) void,
-    glUseProgram: *const fn (u32) callconv(.c) void,
-    glLinkProgram: *const fn (u32) callconv(.c) void,
-    glGetProgramiv: *const fn (u32, u32, *u32) callconv(.c) void,
-    glGenBuffers: *const fn (u32, [*c]u32) callconv(.c) void,
-    glDeleteBuffers: *const fn (u32, [*c]u32) callconv(.c) void,
-    glGenVertexArrays: *const fn (u32, [*c]u32) callconv(.c) void,
-    glDeleteVertexArrays: *const fn (u32, [*c]u32) callconv(.c) void,
-    glBindVertexArray: *const fn (u32) callconv(.c) void,
     glBindBuffer: *const fn (u32, u32) callconv(.c) void,
+    glBindVertexArray: *const fn (u32) callconv(.c) void,
     glBufferData: *const fn (u32, usize, *anyopaque, u32) callconv(.c) void,
-    glVertexAttribPointer: *const fn (u32, u32, u32, bool, usize, usize) callconv(.c) void,
-    glEnableVertexAttribArray: *const fn (u32) callconv(.c) void,
+    glClear: *const fn (u32) callconv(.c) void,
+    glClearColor: *const fn (f32, f32, f32, f32) callconv(.c) void,
+    glCompileShader: *const fn (u32) callconv(.c) void,
+    glCreateProgram: *const fn () callconv(.c) u32,
+    glCreateShader: *const fn (u32) callconv(.c) u32,
+    glDebugMessageCallback: *const fn (*const fn (u32, u32, u32, u32, usize, [*:0]const u8, ?*anyopaque) callconv(.c) void, ?*anyopaque) callconv(.c) void,
+    glDeleteBuffers: *const fn (u32, [*c]u32) callconv(.c) void,
+    glDeleteProgram: *const fn (u32) callconv(.c) void,
+    glDeleteShader: *const fn (u32) callconv(.c) void,
+    glDeleteVertexArrays: *const fn (u32, [*c]u32) callconv(.c) void,
+    glDisable: *const fn (u32) callconv(.c) void,
     glDisableVertexAttribArray: *const fn (u32) callconv(.c) void,
     glDrawArrays: *const fn (u32, u32, u32) callconv(.c) void,
     glDrawElements: *const fn (u32, u32, u32) callconv(.c) void,
     glEnable: *const fn (u32) callconv(.c) void,
-    glDisable: *const fn (u32) callconv(.c) void,
-    glDebugMessageCallback: *const fn (*const fn (u32, u32, u32, u32, usize, [*:0]const u8, ?*anyopaque) callconv(.c) void, ?*anyopaque) callconv(.c) void,
-    glObjectLabel: *const fn (u32, u32, u32, [*c]const u8) callconv(.c) void,
-    glUniformMatrix4fv: *const fn (u32, u32, u32, [*c]const u8) callconv(.c) void,
+    glEnableVertexAttribArray: *const fn (u32) callconv(.c) void,
+    glFlush: *const fn () callconv(.c) void,
+    glGenBuffers: *const fn (u32, [*c]u32) callconv(.c) void,
+    glGenVertexArrays: *const fn (u32, [*c]u32) callconv(.c) void,
+    glGetProgramInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
+    glGetProgramiv: *const fn (u32, u32, *u32) callconv(.c) void,
+    glGetShaderInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
+    glGetShaderiv: *const fn (u32, u32, *u32) callconv(.c) void,
     glGetUniformLocation: *const fn (u32, [*:0]const u8) callconv(.c) u32,
+    glLinkProgram: *const fn (u32) callconv(.c) void,
+    glObjectLabel: *const fn (u32, u32, u32, [*c]const u8) callconv(.c) void,
+    glScissor: *const fn (u32, u32, u32, u32) callconv(.c) void,
+    glShaderSource: *const fn (u32, u32, *const [*:0]const u8, ?*u32) callconv(.c) void,
+    glUniformMatrix4fv: *const fn (u32, u32, u32, [*c]const u8) callconv(.c) void,
+    glUseProgram: *const fn (u32) callconv(.c) void,
+    glVertexAttribPointer: *const fn (u32, u32, u32, bool, usize, usize) callconv(.c) void,
+    glViewport: *const fn (u32, u32, u32, u32) callconv(.c) void,
+    glXChooseFBConfig: *const fn (*Display, u32, [*c]const u32, *u32) callconv(.c) [*c]c.GLXFBConfig,
+    glXCreateContextAttribsARB: ?*const fn (*Display, c.GLXFBConfig, u32, u32, [*c]const u32) callconv(.c) ?*GLXContext,
+    glXGetFBConfigAttrib: *const fn (*Display, c.GLXFBConfig, u32, *u32) callconv(.c) void,
+    glXGetProcAddressARB: *const fn ([*:0]const u8) callconv(.c) ?*anyopaque,
+    glXGetVisualFromFBConfig: *const fn (*Display, c.GLXFBConfig) callconv(.c) ?*c.XVisualInfo,
+    glXMakeCurrent: *const fn (*Display, Window, *GLXContext) callconv(.c) void,
+    glXQueryVersion: *const fn (*Display, *u32, *u32) callconv(.c) bool,
+    glXSwapBuffers: *const fn (*Display, Window) callconv(.c) void,
+    glXSwapIntervalEXT: ?*const fn (*Display, Window, i32) callconv(.c) void,
 };
 
 var api: API = undefined;
@@ -132,6 +134,7 @@ var vao: u32 = 0;
 var enabled_attributes: [video.max_vertex_attributes]bool = .{false} ** video.max_vertex_attributes;
 var draw_primitive: u32 = 0;
 var current_shader: video.Shader = undefined;
+var use_glflush: bool = false;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -179,6 +182,7 @@ pub fn init() !video.Platform {
         .create_window = create_window,
         .close_window = close_window,
         .get_window_size = get_window_size,
+        .set_swap_interval = set_swap_interval,
         .acquire_command_buffer = acquire_command_buffer,
         .acquire_swapchain_texture = acquire_swapchain_texture,
         .begin_render_pass = begin_render_pass,
@@ -349,7 +353,7 @@ fn close_window(a_window: video.Window) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn get_window_size (_: video.Window) video.WindowSize {
+fn get_window_size(_: video.Window) video.WindowSize {
     return .{
         .width = window_width,
         .height = window_height,
@@ -357,6 +361,25 @@ fn get_window_size (_: video.Window) video.WindowSize {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn set_swap_interval(a_window: video.Window, interval: video.SwapInterval) void {
+    if (api.glXSwapIntervalEXT) |swap_interval| {
+        const ext_interval: i32 = switch (interval) {
+            .fast => 0,
+            .vsync, .lowpower => 1,
+            .double => 2,
+            .adaptive => -1,
+        };
+        swap_interval(display, a_window.handle, ext_interval);
+    }
+
+    if (interval == .lowpower or interval == .double) {
+        use_glflush = true;
+    } else {
+        use_glflush = false;
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -832,7 +855,7 @@ fn apply_bindings(self: video.RenderPass, opaque_bindings: video.Bindings) void 
 fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
     _ = self;
 
-    api.glUniformMatrix4fv (info.index, 1, 0, info.data.ptr);
+    api.glUniformMatrix4fv(info.index, 1, 0, info.data.ptr);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -853,6 +876,9 @@ fn submit_command_buffer(self: video.CommandBuffer) !void {
     _ = self;
 
     api.glXSwapBuffers(display, window);
+    if (use_glflush) {
+        api.glFlush();
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

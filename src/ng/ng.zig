@@ -174,12 +174,11 @@ test "as_bytes" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn make_uniform_slots(comptime Uniforms: type) type {
-    var fields : [16]std.builtin.Type.EnumField = undefined;
+    var fields: [16]std.builtin.Type.EnumField = undefined;
 
     var num_fields: usize = 0;
 
-    inline for (std.meta.fields (Uniforms)) |field|
-    {
+    inline for (std.meta.fields(Uniforms)) |field| {
         fields[num_fields].value = num_fields;
         fields[num_fields].name = field.name;
         num_fields += 1;
@@ -201,19 +200,19 @@ pub fn make_uniform_slots(comptime Uniforms: type) type {
 
 var last_now: u64 = 0;
 
-pub fn start_frame () f32 {
-    const now = time.elapsed_us ();
+pub fn start_frame() f32 {
+    const now = time.elapsed_us();
     const delta = now - last_now;
     last_now = now;
 
-    return @as (f32, @floatFromInt (delta)) / 1e6;
+    return @as(f32, @floatFromInt(delta)) / 1e6;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn end_frame () void {}
+pub fn end_frame() void {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
