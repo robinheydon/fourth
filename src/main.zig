@@ -33,7 +33,7 @@ pub fn main() !void {
     });
     defer window.close();
 
-    window.set_swap_interval(.double);
+    window.set_swap_interval(.lowpower);
 
     const triangle_shader = @import("triangle_shader.zig");
     const TriangleVertex = triangle_shader.Vertex;
