@@ -25,6 +25,7 @@ const ng = @import("ng.zig");
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const video = @import("video.zig");
+const event = @import("event.zig");
 const Pool = @import("pool.zig").Pool;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -41,6 +42,7 @@ const API = struct {
     XInternAtom: *const fn (*Display, [*:0]const u8, bool) callconv(.c) Atom,
     XMapRaised: *const fn (*Display, Window) callconv(.c) void,
     XNextEvent: *const fn (*Display, *c.XEvent) callconv(.c) void,
+    XKeycodeToKeysym: *const fn (*Display, u32, u32) callconv(.c) u32,
     XOpenDisplay: *const fn ([*c]const u8) callconv(.c) *Display,
     XPending: *const fn (*Display, *c.XEvent) callconv(.c) i32,
     XRootWindowOfScreen: *const fn (*Screen) callconv(.c) Window,
@@ -135,6 +137,8 @@ var enabled_attributes: [video.max_vertex_attributes]bool = .{false} ** video.ma
 var draw_primitive: u32 = 0;
 var current_shader: video.Shader = undefined;
 var use_glflush: bool = false;
+
+var keysyms: [2][256]u32 = undefined;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -334,6 +338,13 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
     if (options.name) |name| {
         api.XStoreName(display, window, name);
+    }
+
+    for (0..256) |i| {
+        const sym0 = api.XKeycodeToKeysym(display, @intCast(i), 0);
+        const sym1 = api.XKeycodeToKeysym(display, @intCast(i), 1);
+        keysyms[0][i] = sym0;
+        keysyms[1][i] = sym1;
     }
 
     return .{
@@ -599,8 +610,8 @@ fn poll_event() ?ng.Event {
 
 fn process_key_press(ev: c.XKeyEvent) ?ng.Event {
     return .{ .key_down = .{
-        .key = ev.keycode,
-        .scan_code = 0,
+        .scan_code = ev.keycode,
+        .key = get_key(ev.keycode),
     } };
 }
 
@@ -609,10 +620,165 @@ fn process_key_press(ev: c.XKeyEvent) ?ng.Event {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_key_release(ev: c.XKeyEvent) ?ng.Event {
-    return .{ .key_down = .{
-        .key = ev.keycode,
-        .scan_code = 0,
+    return .{ .key_up = .{
+        .scan_code = ev.keycode,
+        .key = get_key(ev.keycode),
     } };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const KeySymTable = struct { sym: u32, key: event.Key };
+
+const keysym_table = [_]KeySymTable{
+    .{ .sym = 0x20, .key = .space },
+    .{ .sym = 0x21, .key = .@"!" },
+    .{ .sym = 0x22, .key = .@"\"" },
+    .{ .sym = 0x23, .key = .@"#" },
+    .{ .sym = 0x24, .key = .@"$" },
+    .{ .sym = 0x25, .key = .@"%" },
+    .{ .sym = 0x26, .key = .@"&" },
+    .{ .sym = 0x27, .key = .@"'" },
+    .{ .sym = 0x28, .key = .@"(" },
+    .{ .sym = 0x29, .key = .@")" },
+    .{ .sym = 0x2a, .key = .@"*" },
+    .{ .sym = 0x2b, .key = .@"+" },
+    .{ .sym = 0x2c, .key = .@"," },
+    .{ .sym = 0x2d, .key = .@"-" },
+    .{ .sym = 0x2e, .key = .@"." },
+    .{ .sym = 0x2f, .key = .@"/" },
+    .{ .sym = 0x30, .key = .@"0" },
+    .{ .sym = 0x31, .key = .@"1" },
+    .{ .sym = 0x32, .key = .@"2" },
+    .{ .sym = 0x33, .key = .@"3" },
+    .{ .sym = 0x34, .key = .@"4" },
+    .{ .sym = 0x35, .key = .@"5" },
+    .{ .sym = 0x36, .key = .@"6" },
+    .{ .sym = 0x37, .key = .@"7" },
+    .{ .sym = 0x38, .key = .@"8" },
+    .{ .sym = 0x39, .key = .@"9" },
+    .{ .sym = 0x3a, .key = .@":" },
+    .{ .sym = 0x3b, .key = .@";" },
+    .{ .sym = 0x3c, .key = .@"<" },
+    .{ .sym = 0x3d, .key = .@"=" },
+    .{ .sym = 0x3e, .key = .@">" },
+    .{ .sym = 0x3f, .key = .@"?" },
+    .{ .sym = 0x40, .key = .@"@" },
+    .{ .sym = 0x41, .key = .A },
+    .{ .sym = 0x42, .key = .B },
+    .{ .sym = 0x43, .key = .C },
+    .{ .sym = 0x44, .key = .D },
+    .{ .sym = 0x45, .key = .E },
+    .{ .sym = 0x46, .key = .F },
+    .{ .sym = 0x47, .key = .G },
+    .{ .sym = 0x48, .key = .H },
+    .{ .sym = 0x49, .key = .I },
+    .{ .sym = 0x4a, .key = .J },
+    .{ .sym = 0x4b, .key = .K },
+    .{ .sym = 0x4c, .key = .L },
+    .{ .sym = 0x4d, .key = .M },
+    .{ .sym = 0x4e, .key = .N },
+    .{ .sym = 0x4f, .key = .O },
+    .{ .sym = 0x50, .key = .P },
+    .{ .sym = 0x51, .key = .Q },
+    .{ .sym = 0x52, .key = .R },
+    .{ .sym = 0x53, .key = .S },
+    .{ .sym = 0x54, .key = .T },
+    .{ .sym = 0x55, .key = .U },
+    .{ .sym = 0x56, .key = .V },
+    .{ .sym = 0x57, .key = .W },
+    .{ .sym = 0x58, .key = .X },
+    .{ .sym = 0x59, .key = .Y },
+    .{ .sym = 0x5a, .key = .Z },
+    .{ .sym = 0x5b, .key = .@"[" },
+    .{ .sym = 0x5c, .key = .@"\\" },
+    .{ .sym = 0x5d, .key = .@"]" },
+    .{ .sym = 0x5e, .key = .@"^" },
+    .{ .sym = 0x5f, .key = ._ },
+    .{ .sym = 0x60, .key = .@"`" },
+    .{ .sym = 0x61, .key = .A },
+    .{ .sym = 0x62, .key = .B },
+    .{ .sym = 0x63, .key = .C },
+    .{ .sym = 0x64, .key = .D },
+    .{ .sym = 0x65, .key = .E },
+    .{ .sym = 0x66, .key = .F },
+    .{ .sym = 0x67, .key = .G },
+    .{ .sym = 0x68, .key = .H },
+    .{ .sym = 0x69, .key = .I },
+    .{ .sym = 0x6a, .key = .J },
+    .{ .sym = 0x6b, .key = .K },
+    .{ .sym = 0x6c, .key = .L },
+    .{ .sym = 0x6d, .key = .M },
+    .{ .sym = 0x6e, .key = .N },
+    .{ .sym = 0x6f, .key = .O },
+    .{ .sym = 0x70, .key = .P },
+    .{ .sym = 0x71, .key = .Q },
+    .{ .sym = 0x72, .key = .R },
+    .{ .sym = 0x73, .key = .S },
+    .{ .sym = 0x74, .key = .T },
+    .{ .sym = 0x75, .key = .U },
+    .{ .sym = 0x76, .key = .V },
+    .{ .sym = 0x77, .key = .W },
+    .{ .sym = 0x78, .key = .X },
+    .{ .sym = 0x79, .key = .Y },
+    .{ .sym = 0x7a, .key = .Z },
+    .{ .sym = 0x7b, .key = .@"{" },
+    .{ .sym = 0x7c, .key = .@"|" },
+    .{ .sym = 0x7d, .key = .@"}" },
+    .{ .sym = 0x7e, .key = .@"~" },
+    .{ .sym = 0xff08, .key = .backspace },
+    .{ .sym = 0xff09, .key = .tab },
+    .{ .sym = 0xff0d, .key = .enter },
+    .{ .sym = 0xff13, .key = .pause },
+    .{ .sym = 0xff14, .key = .scroll_lock },
+    .{ .sym = 0xff1b, .key = .escape },
+    .{ .sym = 0xff20, .key = .compose },
+    .{ .sym = 0xff50, .key = .home },
+    .{ .sym = 0xff51, .key = .left },
+    .{ .sym = 0xff52, .key = .up },
+    .{ .sym = 0xff53, .key = .right },
+    .{ .sym = 0xff54, .key = .down },
+    .{ .sym = 0xff55, .key = .pageup },
+    .{ .sym = 0xff56, .key = .pagedown },
+    .{ .sym = 0xff57, .key = .end },
+    .{ .sym = 0xff63, .key = .insert },
+    .{ .sym = 0xff67, .key = .menu },
+    .{ .sym = 0xffbe, .key = .f1 },
+    .{ .sym = 0xffbf, .key = .f2 },
+    .{ .sym = 0xffc0, .key = .f3 },
+    .{ .sym = 0xffc1, .key = .f4 },
+    .{ .sym = 0xffc2, .key = .f5 },
+    .{ .sym = 0xffc3, .key = .f6 },
+    .{ .sym = 0xffc4, .key = .f7 },
+    .{ .sym = 0xffc5, .key = .f8 },
+    .{ .sym = 0xffc6, .key = .f9 },
+    .{ .sym = 0xffc7, .key = .f10 },
+    .{ .sym = 0xffc8, .key = .f11 },
+    .{ .sym = 0xffc9, .key = .f12 },
+    .{ .sym = 0xffe1, .key = .leftshift },
+    .{ .sym = 0xffe2, .key = .rightshift },
+    .{ .sym = 0xffe3, .key = .leftctrl },
+    .{ .sym = 0xffe4, .key = .rightctrl },
+    .{ .sym = 0xffe5, .key = .capslock },
+    .{ .sym = 0xffe6, .key = .shiftlock },
+    .{ .sym = 0xffe7, .key = .leftmeta },
+    .{ .sym = 0xffe8, .key = .rightmeta },
+    .{ .sym = 0xffe9, .key = .leftalt },
+    .{ .sym = 0xffea, .key = .rightalt },
+    .{ .sym = 0xffeb, .key = .leftsuper },
+    .{ .sym = 0xffec, .key = .rightsuper },
+    .{ .sym = 0xffff, .key = .delete },
+};
+
+fn get_key(code: u32) event.Key {
+    const sym = keysyms[0][code];
+    for (keysym_table) |entry| {
+        if (entry.sym == sym) return entry.key;
+    }
+    std.debug.print("Unknown {x} {}\n", .{ sym, code });
+    return .unknown;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -81,10 +81,13 @@ pub fn main() !void {
                     running = false;
                 },
                 .key_down => |key_event| {
-                    if (key_event.key == 9) {
+                    if (key_event.key == .escape) {
                         running = false;
+                    } else {
+                        std.debug.print("{} ({})\n", .{ key_event.key, key_event.scan_code });
                     }
                 },
+                .key_up => {},
                 .resize => {},
                 .enter => {},
                 .leave => {},
