@@ -49,8 +49,6 @@ var debug_scale: f32 = 4;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn init() !void {
-    std.debug.print("debug_text.init\n", .{});
-
     buffer = try ng.create_buffer(.{
         .label = "debug text vertex buffer",
         .kind = .vertex,
@@ -121,8 +119,6 @@ pub fn init() !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn deinit() void {
-    std.debug.print("debug_text.deinit\n", .{});
-
     shader.delete();
     image.delete();
     sampler.delete();

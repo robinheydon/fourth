@@ -132,7 +132,7 @@ pub fn main() !void {
         if (average_frame_rate > 0) {
             ng.debug_print("{} Hz {c}\n", .{
                 average_frame_rate,
-                @as(u8, @intCast((frame_counter / 16) % 255)),
+                @as(u8, @intCast((frame_counter / 30) % 255)),
             });
         }
 
