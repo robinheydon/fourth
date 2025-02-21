@@ -61,23 +61,22 @@ pub fn init() !void {
     shader = try ng.create_shader(debug_text_shader);
 
     for (0..256) |ch| {
-            const tx = ch & 15;
-            const ty = ch / 16;
-            const pitch = 16 * 12;
-            const to = ty * pitch * 20 + tx * 12;
-            for (0..20) |y| {
-                const bits = debug_font[ch * 20 + y];
-                var bit: u12 = 0x800;
-                for (0..12) |x| {
-                    var byte: u8 = 0;
-                    if (bits & bit != 0) {
-                        byte = 255;
-                    }
-                    font_data[to + y * pitch + x] = byte;
-                    bit >>= 1;
+        const tx = ch & 15;
+        const ty = ch / 16;
+        const pitch = 16 * 12;
+        const to = ty * pitch * 20 + tx * 12;
+        for (0..20) |y| {
+            const bits = debug_font[ch * 20 + y];
+            var bit: u12 = 0x800;
+            for (0..12) |x| {
+                var byte: u8 = 0;
+                if (bits & bit != 0) {
+                    byte = 255;
                 }
+                font_data[to + y * pitch + x] = byte;
+                bit >>= 1;
             }
-        
+        }
     }
 
     image = try ng.create_image(.{
@@ -157,8 +156,7 @@ pub fn puts(str: []const u8) void {
         if (ch == '\n') {
             cursor_x = 0;
             cursor_y += 1;
-        } else if (ch < 32) {
-        } else {
+        } else if (ch < 32) {} else {
             if (cursor_y < frame_height) {
                 if (frame_width * cursor_y + cursor_x < frame.len) {
                     frame[frame_width * cursor_y + cursor_x] = ch;

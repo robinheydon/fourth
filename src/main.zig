@@ -130,7 +130,10 @@ pub fn main() !void {
         render_pass.draw(3);
 
         if (average_frame_rate > 0) {
-            ng.debug_print("{} Hz\n", .{average_frame_rate});
+            ng.debug_print("{} Hz {c}\n", .{
+                average_frame_rate,
+                @as(u8, @intCast((frame_counter / 16) % 255)),
+            });
         }
 
         ng.debug_print("-----\n", .{});
@@ -141,6 +144,8 @@ pub fn main() !void {
             }
         }
         ng.debug_print("-----\n", .{});
+
+        ng.debug_print ("o\xe0{} \xe1Hello\xe2 \xe334\xe4 400\xe5m \xe6\n", .{frame_counter});
 
         ng.debug_text_draw();
 
