@@ -62,10 +62,11 @@ pub fn main() !void {
     });
     defer pipeline.delete();
 
-    const bindings = try ng.create_bindings(.{
+    const binding = try ng.create_binding(.{
         .label = "Triangle Bindings",
         .vertex_buffers = &.{buffer},
     });
+    defer binding.delete();
 
     var camera: ng.Camera2D = .identity();
 
@@ -120,9 +121,11 @@ pub fn main() !void {
         });
 
         render_pass.apply_pipeline(pipeline);
-        render_pass.apply_bindings(bindings);
+        render_pass.apply_bindings(binding);
         render_pass.apply_uniform(TriangleUniforms.mvp, &mvp);
         render_pass.draw(3);
+
+        ng.debug_text_draw();
 
         render_pass.end();
         try command_buffer.submit();

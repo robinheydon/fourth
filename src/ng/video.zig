@@ -32,14 +32,17 @@ var initialized = false;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const VideoError = error{
-    CannotOpenWindow,
     CannotCreateShader,
-    TooManyShaders,
+    CannotOpenWindow,
+    InvalidCreateInfo,
     InvalidShaderIndex,
-    UnknownVertexAttribute,
-    TooManyBuffers,
-    TooManyPipelines,
     TooManyBindings,
+    TooManyBuffers,
+    TooManyImages,
+    TooManyPipelines,
+    TooManySamplers,
+    TooManyShaders,
+    UnknownVertexAttribute,
 };
 
 pub const Platform = struct {
@@ -57,7 +60,7 @@ pub const Platform = struct {
     begin_render_pass: *const fn (CommandBuffer, BeginRenderPassInfo) VideoError!RenderPass,
     end_render_pass: *const fn (RenderPass) void,
     apply_pipeline: *const fn (RenderPass, Pipeline) void,
-    apply_bindings: *const fn (RenderPass, Bindings) void,
+    apply_bindings: *const fn (RenderPass, Binding) void,
     apply_uniform: *const fn (RenderPass, UniformInfo) void,
     draw: *const fn (RenderPass, u32) void,
 
@@ -70,8 +73,14 @@ pub const Platform = struct {
     create_pipeline: *const fn (CreatePipelineInfo) VideoError!Pipeline,
     delete_pipeline: *const fn (Pipeline) void,
 
-    create_bindings: *const fn (CreateBindingsInfo) VideoError!Bindings,
-    delete_bindings: *const fn (Bindings) void,
+    create_binding: *const fn (CreateBindingInfo) VideoError!Binding,
+    delete_binding: *const fn (Binding) void,
+
+    create_image: *const fn (CreateImageInfo) VideoError!Image,
+    delete_image: *const fn (Image) void,
+
+    create_sampler: *const fn (CreateSamplerInfo) VideoError!Sampler,
+    delete_sampler: *const fn (Sampler) void,
 
     poll_event: *const fn () ?ng.Event,
 };
@@ -231,7 +240,7 @@ pub const RenderPass = struct {
         platform.apply_pipeline(self, pipeline);
     }
 
-    pub fn apply_bindings(self: RenderPass, bindings: Bindings) void {
+    pub fn apply_bindings(self: RenderPass, bindings: Binding) void {
         platform.apply_bindings(self, bindings);
     }
 
@@ -374,14 +383,15 @@ fn attribute_info(comptime T: type) !VertexAttribute {
 
 pub const CreateBufferInfo = struct {
     label: ?[]const u8,
-    kind: BufferKind = .vertex_data,
+    kind: BufferKind = .vertex,
     data: ?[]u8 = null,
+    size: ?usize = null,
     update: BufferUpdate = .static,
 };
 
 pub const BufferKind = enum {
-    vertex_data,
-    index_data,
+    vertex,
+    index,
 };
 
 pub const BufferUpdate = enum {
@@ -444,17 +454,17 @@ pub fn create_pipeline(info: CreatePipelineInfo) !Pipeline {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const CreateBindingsInfo = struct {
+pub const CreateBindingInfo = struct {
     label: ?[]const u8 = null,
     vertex_buffers: ?[]const Buffer = null,
     index_buffers: ?[]const Buffer = null,
 };
 
-pub const Bindings = struct {
+pub const Binding = struct {
     handle: usize,
 
-    pub fn delete(self: Bindings) void {
-        platform.delete_bindings(self);
+    pub fn delete(self: Binding) void {
+        platform.delete_binding(self);
     }
 };
 
@@ -462,8 +472,140 @@ pub const Bindings = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn create_bindings(info: CreateBindingsInfo) !Bindings {
-    return platform.create_bindings(info);
+pub fn create_binding(info: CreateBindingInfo) !Binding {
+    return platform.create_binding(info);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const CreateImageInfo = struct {
+    label: ?[]const u8 = null,
+    width: ?u32 = null,
+    height: ?u32 = null,
+    format: PixelFormat = .unknown,
+    data: ?[]u8 = null,
+};
+
+pub const PixelFormat = enum {
+    unknown,
+    none,
+    r8,
+    r8sn,
+    r8ui,
+    r8si,
+
+    r16,
+    r16sn,
+    r16ui,
+    r16si,
+    r16f,
+
+    rg8,
+    rg8sn,
+    rg8ui,
+    rg8si,
+
+    r32ui,
+    r32si,
+    r32f,
+    rg16,
+    rg16sn,
+    rg16ui,
+    rg16si,
+    rg16f,
+
+    rgba8,
+    srgb8a8,
+    rgba8sn,
+    rgba8ui,
+
+    bgra8,
+    bgr10a2,
+    rg11b10f,
+    rgb9e5,
+
+    rg32ui,
+    rg32si,
+    rg32f,
+
+    rgba16,
+    rgba16sn,
+    rgba16ui,
+    rgba16si,
+    rgba16f,
+
+    rgba32ui,
+    rgba32si,
+    rgba32f,
+
+    depth,
+    depth_stencil,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const Image = struct {
+    handle: usize,
+
+    pub fn delete(self: Image) void {
+        platform.delete_image(self);
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn create_image(info: CreateImageInfo) !Image {
+    return platform.create_image(info);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const CreateSamplerInfo = struct {
+    label: ?[]const u8 = null,
+    min_filter: SampleFilter = .nearest,
+    mag_filter: SampleFilter = .nearest,
+    wrap_u: SampleWrap = .clamp_to_edge,
+    wrap_v: SampleWrap = .clamp_to_edge,
+};
+
+pub const SampleFilter = enum {
+    nearest,
+    linear,
+};
+
+pub const SampleWrap = enum {
+    repeat,
+    clamp_to_edge,
+    clamp_to_border,
+    mirrored_repeat,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const Sampler = struct {
+    handle: usize,
+
+    pub fn delete(self: Sampler) void {
+        platform.delete_sampler(self);
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn create_sampler(info: CreateSamplerInfo) !Sampler {
+    return platform.create_sampler(info);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

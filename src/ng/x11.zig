@@ -18,15 +18,16 @@ const c = @cImport({
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const ng = @import("ng.zig");
+const ng = @import("ng");
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const video = @import("video.zig");
-const event = @import("event.zig");
-const Pool = @import("pool.zig").Pool;
+const video = ng.video;
+const event = ng.event;
+const debug_text = ng.debug_text;
+const Pool = ng.Pool;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -52,7 +53,7 @@ const API = struct {
     glAttachShader: *const fn (u32, u32) callconv(.c) void,
     glBindBuffer: *const fn (u32, u32) callconv(.c) void,
     glBindVertexArray: *const fn (u32) callconv(.c) void,
-    glBufferData: *const fn (u32, usize, *anyopaque, u32) callconv(.c) void,
+    glBufferData: *const fn (u32, usize, ?*anyopaque, u32) callconv(.c) void,
     glClear: *const fn (u32) callconv(.c) void,
     glClearColor: *const fn (f32, f32, f32, f32) callconv(.c) void,
     glCompileShader: *const fn (u32) callconv(.c) void,
@@ -131,6 +132,8 @@ var shader_pool: Pool(GL_Shader, 256) = .{};
 var buffer_pool: Pool(GL_Buffer, 256) = .{};
 var pipeline_pool: Pool(GL_Pipeline, 256) = .{};
 var bindings_pool: Pool(GL_Bindings, 256) = .{};
+var image_pool: Pool(GL_Image, 256) = .{};
+var sampler_pool: Pool(GL_Sampler, 256) = .{};
 
 var vao: u32 = 0;
 var enabled_attributes: [video.max_vertex_attributes]bool = .{false} ** video.max_vertex_attributes;
@@ -204,8 +207,12 @@ pub fn init() !video.Platform {
         .delete_buffer = delete_buffer,
         .create_pipeline = create_pipeline,
         .delete_pipeline = delete_pipeline,
-        .create_bindings = create_bindings,
-        .delete_bindings = delete_bindings,
+        .create_binding = create_binding,
+        .delete_binding = delete_binding,
+        .create_image = create_image,
+        .delete_image = delete_image,
+        .create_sampler = create_sampler,
+        .delete_sampler = delete_sampler,
     };
 }
 
@@ -215,6 +222,59 @@ pub fn init() !video.Platform {
 
 pub fn deinit() void {
     api.XCloseDisplay(display);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn opengl_debug_message(
+    source: u32,
+    kind: u32,
+    id: u32,
+    severity: u32,
+    length: usize,
+    message: [*:0]const u8,
+    _: ?*anyopaque,
+) callconv(.c) void {
+    if (id == 0x20071) return; // static draw will use video memory
+
+    const source_name = switch (source) {
+        0x8246 => "API",
+        0x8247 => "Window System",
+        0x8248 => "Shader Compiler",
+        0x8249 => "Third Party",
+        0x824A => "Application",
+        0x824B => "Other",
+        else => "Unknown",
+    };
+    const kind_name = switch (kind) {
+        0x824C => "Error",
+        0x824D => "Deprecated Behavior",
+        0x824E => "Undefined Behavior",
+        0x824F => "Portability",
+        0x8250 => "Performance",
+        0x8251 => "Other",
+        0x8268 => "Marker",
+        0x8269 => "Push Group",
+        0x826A => "Pop Group",
+        else => "Unknown",
+    };
+    const severity_name = switch (severity) {
+        0x9146 => "High",
+        0x9147 => "Medium",
+        0x9148 => "Low",
+        0x826B => "Notification",
+        else => "Unknown",
+    };
+
+    std.debug.print("OpenGL: {s} {s} {x} {s} : {s}\n", .{
+        source_name,
+        kind_name,
+        id,
+        severity_name,
+        message[0..length],
+    });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -347,6 +407,8 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
         keysyms[1][i] = sym1;
     }
 
+    try debug_text.init();
+
     return .{
         .handle = window,
     };
@@ -357,6 +419,7 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn close_window(a_window: video.Window) void {
+    debug_text.deinit();
     api.XDestroyWindow(display, a_window.handle);
 }
 
@@ -996,13 +1059,13 @@ fn apply_pipeline(self: video.RenderPass, opaque_pipeline: video.Pipeline) void 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn apply_bindings(self: video.RenderPass, opaque_bindings: video.Bindings) void {
+fn apply_bindings(self: video.RenderPass, opaque_binding: video.Binding) void {
     _ = self;
 
-    const index = opaque_bindings.handle;
-    const bindings = bindings_pool.get(index) orelse return;
+    const index = opaque_binding.handle;
+    const binding = bindings_pool.get(index) orelse return;
 
-    for (0.., bindings.vertex_buffers) |i, optional_buffer| {
+    for (0.., binding.vertex_buffers) |i, optional_buffer| {
         _ = i;
         if (optional_buffer) |buf| {
             if (buffer_pool.get(buf.handle)) |buffer| {
@@ -1199,6 +1262,7 @@ fn delete_shader(self: video.Shader) void {
 const GL_Buffer = struct {
     label: ?[]const u8 = null,
     object: u32 = 0,
+    size: ?usize = null,
     kind: video.BufferKind,
     update: video.BufferUpdate,
 };
@@ -1208,6 +1272,8 @@ const GL_Buffer = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
+    if (info.size != null and info.data != null) return error.InvalidCreateInfo;
+    if (info.size == null and info.data == null) return error.InvalidCreateInfo;
     const index = buffer_pool.create() orelse return error.TooManyBuffers;
     const buffer = buffer_pool.get(index) orelse return error.TooManyBuffers;
 
@@ -1225,28 +1291,29 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
         .label = info.label,
         .object = buffer_object,
         .kind = info.kind,
+        .size = info.size,
         .update = info.update,
     };
 
-    if (info.data) |data| {
-        const gl_update: u32 = switch (info.update) {
-            .static => GL_STATIC_DRAW,
-            .stream => GL_STREAM_DRAW,
-            .dynamic => GL_DYNAMIC_DRAW,
-        };
+    const gl_update: u32 = switch (info.update) {
+        .static => GL_STATIC_DRAW,
+        .stream => GL_STREAM_DRAW,
+        .dynamic => GL_DYNAMIC_DRAW,
+    };
 
-        switch (info.kind) {
-            .vertex_data => {
-                api.glBindBuffer(GL_ARRAY_BUFFER, buffer_object);
-                api.glBufferData(GL_ARRAY_BUFFER, data.len, data.ptr, gl_update);
-                api.glBindBuffer(GL_ARRAY_BUFFER, 0);
-            },
-            .index_data => {
-                api.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer_object);
-                api.glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.len, data.ptr, gl_update);
-                api.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-            },
-        }
+    const kind: u32 = switch (info.kind) {
+        .vertex => GL_ARRAY_BUFFER,
+        .index => GL_ELEMENT_ARRAY_BUFFER,
+    };
+
+    if (info.data) |data| {
+        api.glBindBuffer(kind, buffer_object);
+        api.glBufferData(kind, data.len, data.ptr, gl_update);
+        api.glBindBuffer(kind, 0);
+    } else if (info.size) |size| {
+        api.glBindBuffer(kind, buffer_object);
+        api.glBufferData(kind, size, null, gl_update);
+        api.glBindBuffer(kind, 0);
     }
 
     return .{
@@ -1326,23 +1393,23 @@ const GL_Bindings = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn create_bindings(info: video.CreateBindingsInfo) video.VideoError!video.Bindings {
+fn create_binding(info: video.CreateBindingInfo) video.VideoError!video.Binding {
     const index = bindings_pool.create() orelse return error.TooManyBindings;
-    const bindings = bindings_pool.get(index) orelse return error.TooManyBindings;
+    const binding = bindings_pool.get(index) orelse return error.TooManyBindings;
 
-    bindings.* = .{
+    binding.* = .{
         .label = info.label,
     };
 
     if (info.vertex_buffers) |vertex_buffers| {
         for (0.., vertex_buffers) |i, buf| {
-            bindings.vertex_buffers[i] = buf;
+            binding.vertex_buffers[i] = buf;
         }
     }
 
     if (info.index_buffers) |index_buffers| {
         for (0.., index_buffers) |i, buf| {
-            bindings.index_buffers[i] = buf;
+            binding.index_buffers[i] = buf;
         }
     }
 
@@ -1355,11 +1422,11 @@ fn create_bindings(info: video.CreateBindingsInfo) video.VideoError!video.Bindin
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn delete_bindings(self: video.Bindings) void {
+fn delete_binding(self: video.Binding) void {
     const index = self.handle;
-    const bindings = bindings_pool.get(index) orelse return;
+    const binding = bindings_pool.get(index) orelse return;
 
-    _ = bindings;
+    _ = binding;
 
     bindings_pool.delete(index);
 }
@@ -1368,53 +1435,76 @@ fn delete_bindings(self: video.Bindings) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn opengl_debug_message(
-    source: u32,
-    kind: u32,
-    id: u32,
-    severity: u32,
-    length: usize,
-    message: [*:0]const u8,
-    _: ?*anyopaque,
-) callconv(.c) void {
-    if (id == 0x20071) return; // static draw will use video memory
+const GL_Image = struct {
+    label: ?[]const u8 = null,
+};
 
-    const source_name = switch (source) {
-        0x8246 => "API",
-        0x8247 => "Window System",
-        0x8248 => "Shader Compiler",
-        0x8249 => "Third Party",
-        0x824A => "Application",
-        0x824B => "Other",
-        else => "Unknown",
-    };
-    const kind_name = switch (kind) {
-        0x824C => "Error",
-        0x824D => "Deprecated Behavior",
-        0x824E => "Undefined Behavior",
-        0x824F => "Portability",
-        0x8250 => "Performance",
-        0x8251 => "Other",
-        0x8268 => "Marker",
-        0x8269 => "Push Group",
-        0x826A => "Pop Group",
-        else => "Unknown",
-    };
-    const severity_name = switch (severity) {
-        0x9146 => "High",
-        0x9147 => "Medium",
-        0x9148 => "Low",
-        0x826B => "Notification",
-        else => "Unknown",
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
+    const index = image_pool.create() orelse return error.TooManyImages;
+    const image = image_pool.get(index) orelse return error.TooManyImages;
+
+    image.* = .{
+        .label = info.label,
     };
 
-    std.debug.print("OpenGL: {s} {s} {x} {s} : {s}\n", .{
-        source_name,
-        kind_name,
-        id,
-        severity_name,
-        message[0..length],
-    });
+    return .{
+        .handle = index,
+    };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn delete_image(self: video.Image) void {
+    const index = self.handle;
+    const image = image_pool.get(index) orelse return;
+
+    _ = image;
+
+    image_pool.delete(index);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const GL_Sampler = struct {
+    label: ?[]const u8 = null,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn create_sampler(info: video.CreateSamplerInfo) video.VideoError!video.Sampler {
+    const index = sampler_pool.create() orelse return error.TooManySamplers;
+    const sampler = sampler_pool.get(index) orelse return error.TooManySamplers;
+
+    sampler.* = .{
+        .label = info.label,
+    };
+
+    return .{
+        .handle = index,
+    };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn delete_sampler(self: video.Sampler) void {
+    const index = self.handle;
+    const sampler = sampler_pool.get(index) orelse return;
+
+    _ = sampler;
+
+    sampler_pool.delete(index);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

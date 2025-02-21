@@ -24,6 +24,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    ng_mod.addImport("ng", ng_mod);
 
     exe_mod.addImport("ng", ng_mod);
 
