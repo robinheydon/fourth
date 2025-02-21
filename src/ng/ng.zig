@@ -43,6 +43,7 @@ pub const mat4_identity = math.mat4_identity;
 pub const ortho = math.ortho;
 pub const mat4_mul = math.mat4_mul;
 pub const Camera2D = math.Camera2D;
+pub const Sampler2D = video.Sampler2D;
 
 pub const Color = color.Color;
 
@@ -116,15 +117,48 @@ pub fn rand() f32 {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+pub fn rand_u8() u8 {
+    const random = prng.random();
+    return random.int(u8);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pub fn as_bytes(data: anytype) []u8 {
     const T = @TypeOf(data);
     const ti = @typeInfo(T);
 
-    const ptr = std.mem.asBytes(data);
-    var block: []u8 = undefined;
-    block.ptr = @constCast(ptr);
-    block.len = @sizeOf(ti.pointer.child);
-    return block;
+    switch (ti) {
+        .pointer => |pointer| {
+            switch (pointer.size) {
+                .one => {
+                    const cti = @typeInfo(pointer.child);
+                    if (cti == .pointer) {
+                        @compileError("Cannot as_bytes " ++ @typeName(T));
+                    }
+                    const ptr = std.mem.asBytes(data);
+                    var block: []u8 = undefined;
+                    block.ptr = @constCast(ptr);
+                    block.len = @sizeOf(pointer.child);
+                    return block;
+                },
+                .slice => {
+                    var block: []u8 = undefined;
+                    block.ptr = @constCast(@ptrCast(data.ptr));
+                    block.len = @sizeOf(pointer.child) * data.len;
+                    return block;
+                },
+                else => {
+                    @compileError("Cannot as_bytes " ++ @typeName(T));
+                },
+            }
+        },
+        else => {
+            @compileError("Cannot as_bytes " ++ @typeName(T));
+        },
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -135,49 +169,68 @@ test "as_bytes" {
     {
         const a: u8 = 0x12;
         const b = as_bytes(&a);
-        std.debug.print("b = {any}\n", .{b});
+        try std.testing.expectEqualSlices(u8, &[_]u8{0x12}, b);
     }
 
     {
         const a: u16 = 0x1234;
         const b = as_bytes(&a);
-        std.debug.print("b = {any}\n", .{b});
+        try std.testing.expectEqualSlices(u8, &[_]u8{ 0x34, 0x12 }, b);
     }
 
     {
         const a: u32 = 0x12345678;
-        const b = std.mem.asBytes(&a);
-        std.debug.print("b = {any}\n", .{b});
+        const b = as_bytes(&a);
+        try std.testing.expectEqualSlices(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, b);
     }
 
     {
         const a: u64 = 0x12345678_9abcdef0;
-        const b = std.mem.asBytes(&a);
-        std.debug.print("b = {any}\n", .{b});
+        const b = as_bytes(&a);
+        try std.testing.expectEqualSlices(u8, &[_]u8{ 0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12 }, b);
     }
 
     {
         const a: f32 = 3.14;
-        const b = std.mem.asBytes(&a);
-        std.debug.print("b = {any}\n", .{b});
+        const b = as_bytes(&a);
+        try std.testing.expectEqualSlices(u8, &[_]u8{ 0xc3, 0xf5, 0x48, 0x40 }, b);
     }
 
     {
         const a: f64 = 3.14;
-        const b = std.mem.asBytes(&a);
-        std.debug.print("b = {any}\n", .{b});
+        const b = as_bytes(&a);
+        try std.testing.expectEqualSlices(u8, &[_]u8{ 0x1f, 0x85, 0xeb, 0x51, 0xb8, 0x1e, 0x09, 0x40 }, b);
     }
 
     {
         const a: [3]u8 = .{ 1, 2, 3 };
-        const b = std.mem.asBytes(&a);
-        std.debug.print("b = {any}\n", .{b});
+        const b = as_bytes(&a);
+        try std.testing.expectEqualSlices(u8, &[_]u8{ 0x01, 0x02, 0x03 }, b);
     }
 
     {
         const a: [3]f32 = .{ 1, 2, 3 };
-        const b = std.mem.asBytes(&a);
-        std.debug.print("b = {any}\n", .{b});
+        const b = as_bytes(&a);
+        try std.testing.expectEqualSlices(u8, &[_]u8{ 0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x40, 0x40 }, b);
+    }
+
+    {
+        const Point = extern struct { x: f32, y: f32, c: u32 };
+        const a: [5]Point = .{
+            .{ .x = 1, .y = 2, .c = 3 },
+            .{ .x = 4, .y = 5, .c = 6 },
+            .{ .x = 7, .y = 8, .c = 9 },
+            .{ .x = 10, .y = 11, .c = 12 },
+            .{ .x = 13, .y = 14, .c = 15 },
+        };
+        var c: usize = 1;
+        c += 2;
+        const b = as_bytes(a[0..c]);
+        try std.testing.expectEqualSlices(u8, &[_]u8{
+            0, 0, 128, 63, 0, 0, 0,   64, 3, 0, 0, 0,
+            0, 0, 128, 64, 0, 0, 160, 64, 6, 0, 0, 0,
+            0, 0, 224, 64, 0, 0, 0,   65, 9, 0, 0, 0,
+        }, b);
     }
 }
 
@@ -225,6 +278,23 @@ pub fn start_frame() f32 {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn end_frame() void {}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn debug_reset(window: video.Window) void {
+    const size = window.get_size();
+    debug_text.reset(@intFromFloat(size.width), @intFromFloat(size.height));
+}
+
+pub fn debug_puts(str: []const u8) void {
+    debug_text.puts(str);
+}
+
+pub fn debug_print(comptime fmt: []const u8, args: anytype) void {
+    debug_text.print(fmt, args);
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -37,3 +37,5 @@ pub const Vertex = extern struct {
 pub const Uniforms = extern struct {
     mvp: ng.Mat4,
 };
+
+pub const num_samplers = 0;

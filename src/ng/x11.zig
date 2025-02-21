@@ -41,50 +41,59 @@ const API = struct {
     XDefaultScreenOfDisplay: *const fn (*Display) callconv(.c) *Screen,
     XDestroyWindow: *const fn (*Display, Window) callconv(.c) void,
     XInternAtom: *const fn (*Display, [*:0]const u8, bool) callconv(.c) Atom,
+    XKeycodeToKeysym: *const fn (*Display, u32, u32) callconv(.c) u32,
     XMapRaised: *const fn (*Display, Window) callconv(.c) void,
     XNextEvent: *const fn (*Display, *c.XEvent) callconv(.c) void,
-    XKeycodeToKeysym: *const fn (*Display, u32, u32) callconv(.c) u32,
     XOpenDisplay: *const fn ([*c]const u8) callconv(.c) *Display,
     XPending: *const fn (*Display, *c.XEvent) callconv(.c) i32,
     XRootWindowOfScreen: *const fn (*Screen) callconv(.c) Window,
     XSetWMProtocols: *const fn (*Display, Window, [*c]XID, u32) callconv(.c) void,
     XStoreName: *const fn (*Display, Window, [*:0]const u8) callconv(.c) void,
     XSync: *const fn (*Display, bool) callconv(.c) void,
+    glActiveTexture: *const fn (GL_Enum) callconv(.c) void,
     glAttachShader: *const fn (u32, u32) callconv(.c) void,
-    glBindBuffer: *const fn (u32, u32) callconv(.c) void,
+    glBindBuffer: *const fn (GL_Enum, u32) callconv(.c) void,
+    glBindTexture: *const fn (GL_Enum, u32) callconv(.c) void,
     glBindVertexArray: *const fn (u32) callconv(.c) void,
-    glBufferData: *const fn (u32, usize, ?*anyopaque, u32) callconv(.c) void,
-    glClear: *const fn (u32) callconv(.c) void,
+    glBlendFuncSeparate: *const fn (GL_Enum, GL_Enum, GL_Enum, GL_Enum) callconv(.c) void,
+    glBufferData: *const fn (GL_Enum, usize, ?*const anyopaque, GL_Enum) callconv(.c) void,
+    glBufferSubData: *const fn (GL_Enum, usize, usize, ?*const anyopaque) callconv(.c) void,
+    glClear: *const fn (GL_Enum) callconv(.c) void,
     glClearColor: *const fn (f32, f32, f32, f32) callconv(.c) void,
     glCompileShader: *const fn (u32) callconv(.c) void,
     glCreateProgram: *const fn () callconv(.c) u32,
-    glCreateShader: *const fn (u32) callconv(.c) u32,
+    glCreateShader: *const fn (GL_Enum) callconv(.c) u32,
     glDebugMessageCallback: *const fn (*const fn (u32, u32, u32, u32, usize, [*:0]const u8, ?*anyopaque) callconv(.c) void, ?*anyopaque) callconv(.c) void,
     glDeleteBuffers: *const fn (u32, [*c]u32) callconv(.c) void,
     glDeleteProgram: *const fn (u32) callconv(.c) void,
     glDeleteShader: *const fn (u32) callconv(.c) void,
+    glDeleteTextures: *const fn (u32, [*c]u32) callconv(.c) void,
     glDeleteVertexArrays: *const fn (u32, [*c]u32) callconv(.c) void,
-    glDisable: *const fn (u32) callconv(.c) void,
+    glDisable: *const fn (GL_Enum) callconv(.c) void,
     glDisableVertexAttribArray: *const fn (u32) callconv(.c) void,
-    glDrawArrays: *const fn (u32, u32, u32) callconv(.c) void,
-    glDrawElements: *const fn (u32, u32, u32) callconv(.c) void,
-    glEnable: *const fn (u32) callconv(.c) void,
+    glDrawArrays: *const fn (GL_Primitive, u32, u32) callconv(.c) void,
+    glDrawElements: *const fn (GL_Primitive, u32, u32) callconv(.c) void,
+    glEnable: *const fn (GL_Enum) callconv(.c) void,
     glEnableVertexAttribArray: *const fn (u32) callconv(.c) void,
     glFlush: *const fn () callconv(.c) void,
     glGenBuffers: *const fn (u32, [*c]u32) callconv(.c) void,
+    glGenTextures: *const fn (u32, [*c]u32) callconv(.c) void,
     glGenVertexArrays: *const fn (u32, [*c]u32) callconv(.c) void,
     glGetProgramInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
-    glGetProgramiv: *const fn (u32, u32, *u32) callconv(.c) void,
+    glGetProgramiv: *const fn (u32, GL_Enum, *u32) callconv(.c) void,
     glGetShaderInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
-    glGetShaderiv: *const fn (u32, u32, *u32) callconv(.c) void,
+    glGetShaderiv: *const fn (u32, GL_Enum, *u32) callconv(.c) void,
     glGetUniformLocation: *const fn (u32, [*:0]const u8) callconv(.c) u32,
     glLinkProgram: *const fn (u32) callconv(.c) void,
-    glObjectLabel: *const fn (u32, u32, u32, [*c]const u8) callconv(.c) void,
+    glObjectLabel: *const fn (GL_Enum, u32, u32, [*c]const u8) callconv(.c) void,
     glScissor: *const fn (u32, u32, u32, u32) callconv(.c) void,
     glShaderSource: *const fn (u32, u32, *const [*:0]const u8, ?*u32) callconv(.c) void,
+    glTexImage2D: *const fn (GL_Enum, u32, GL_Enum, usize, usize, u32, GL_Enum, GL_Enum, ?*const anyopaque) callconv(.c) void,
+    glTexParameteri: *const fn (GL_Enum, GL_Enum, GL_Enum) callconv(.c) void,
+    glUniform1i: *const fn (u32, u32) callconv(.c) void,
     glUniformMatrix4fv: *const fn (u32, u32, u32, [*c]const u8) callconv(.c) void,
     glUseProgram: *const fn (u32) callconv(.c) void,
-    glVertexAttribPointer: *const fn (u32, u32, u32, bool, usize, usize) callconv(.c) void,
+    glVertexAttribPointer: *const fn (u32, u32, GL_Enum, bool, usize, usize) callconv(.c) void,
     glViewport: *const fn (u32, u32, u32, u32) callconv(.c) void,
     glXChooseFBConfig: *const fn (*Display, u32, [*c]const u32, *u32) callconv(.c) [*c]c.GLXFBConfig,
     glXCreateContextAttribsARB: ?*const fn (*Display, c.GLXFBConfig, u32, u32, [*c]const u32) callconv(.c) ?*GLXContext,
@@ -98,6 +107,8 @@ const API = struct {
 };
 
 var api: API = undefined;
+
+const debug_api = false;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -137,7 +148,7 @@ var sampler_pool: Pool(GL_Sampler, 256) = .{};
 
 var vao: u32 = 0;
 var enabled_attributes: [video.max_vertex_attributes]bool = .{false} ** video.max_vertex_attributes;
-var draw_primitive: u32 = 0;
+var draw_primitive: GL_Primitive = .GL_TRIANGLES;
 var current_shader: video.Shader = undefined;
 var use_glflush: bool = false;
 
@@ -204,6 +215,7 @@ pub fn init() !video.Platform {
         .create_shader = create_shader,
         .delete_shader = delete_shader,
         .create_buffer = create_buffer,
+        .update_buffer = update_buffer,
         .delete_buffer = delete_buffer,
         .create_pipeline = create_pipeline,
         .delete_pipeline = delete_pipeline,
@@ -301,14 +313,18 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
     var fb_count: u32 = undefined;
     const fbc = api.glXChooseFBConfig(display, screen_id, &glx_attrs, &fb_count) orelse {
-        std.debug.print("glXChooseFBConfig failed\n", .{});
+        if (debug_api) {
+            std.debug.print("glXChooseFBConfig failed\n", .{});
+        }
         return error.CannotOpenWindow;
     };
 
     const fb_config = fbc[0];
 
     const vi = api.glXGetVisualFromFBConfig(display, fb_config) orelse {
-        std.debug.print("glXGetVisualFromFBConfig failed\n", .{});
+        if (debug_api) {
+            std.debug.print("glXGetVisualFromFBConfig failed\n", .{});
+        }
         return error.CannotOpenWindow;
     };
 
@@ -383,8 +399,8 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
     api.glXMakeCurrent(display, window, glx_ctx);
 
-    api.glEnable(GL_DEBUG_OUTPUT);
-    api.glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+    api.glEnable(.GL_DEBUG_OUTPUT);
+    api.glEnable(.GL_DEBUG_OUTPUT_SYNCHRONOUS);
 
     api.glDebugMessageCallback(opengl_debug_message, null);
     // api.glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, null, GL_TRUE);
@@ -394,6 +410,13 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
     api.XMapRaised(display, window);
 
     api.glGenVertexArrays(1, &vao);
+    if (debug_api) {
+        std.debug.print("glGenVertexArrays {} {}\n", .{ 1, vao });
+    }
+
+    if (debug_api) {
+        std.debug.print("glBindVertexArray {}\n", .{vao});
+    }
     api.glBindVertexArray(vao);
 
     if (options.name) |name| {
@@ -435,6 +458,8 @@ fn get_window_size(_: video.Window) video.WindowSize {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn set_swap_interval(a_window: video.Window, interval: video.SwapInterval) void {
     if (api.glXSwapIntervalEXT) |swap_interval| {
@@ -454,6 +479,7 @@ fn set_swap_interval(a_window: video.Window, interval: video.SwapInterval) void 
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -480,53 +506,88 @@ const GLX_CONTEXT_FLAGS_ARB = 0x2094;
 const GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB = 2;
 const GLX_CONTEXT_DEBUG_BIT_ARB = 1;
 
-const GL_DEBUG_OUTPUT = 0x92e0;
-const GL_DEBUG_OUTPUT_SYNCHRONOUS = 0x8242;
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const GL_COLOR_BUFFER_BIT = 0x4000;
+const GL_Primitive = enum(u32) {
+    GL_POINTS = 0x0000,
+    GL_LINES = 0x0001,
+    GL_LINE_STRIP = 0x0003,
+    GL_TRIANGLES = 0x0004,
+    GL_TRIANGLE_STRIP = 0x0005,
+};
 
-const GL_FRAGMENT_SHADER = 0x8b30;
-const GL_VERTEX_SHADER = 0x8b31;
-const GL_COMPILE_STATUS = 0x8b81;
-const GL_LINK_STATUS = 0x8b82;
+const GL_Enum = enum(u32) {
+    GL_ZERO = 0,
+    GL_ONE = 1,
 
-const GL_ARRAY_BUFFER = 0x8892;
-const GL_ELEMENT_ARRAY_BUFFER = 0x8893;
+    GL_COLOR_BUFFER_BIT = 0x4000,
 
-const GL_STREAM_DRAW = 0x88e0;
-const GL_STREAM_READ = 0x88e1;
-const GL_STREAM_COPY = 0x88e2;
-const GL_STATIC_DRAW = 0x88e4;
-const GL_STATIC_READ = 0x88e5;
-const GL_STATIC_COPY = 0x88e6;
-const GL_DYNAMIC_DRAW = 0x88e8;
-const GL_DYNAMIC_READ = 0x88e9;
-const GL_DYNAMIC_COPY = 0x88ea;
+    GL_DEBUG_OUTPUT = 0x92e0,
+    GL_DEBUG_OUTPUT_SYNCHRONOUS = 0x8242,
 
-const GL_BYTE = 0x1400;
-const GL_UNSIGNED_BYTE = 0x1401;
-const GL_SHORT = 0x1402;
-const GL_UNSIGNED_SHORT = 0x1403;
-const GL_INT = 0x1404;
-const GL_UNSIGNED_INT = 0x1405;
-const GL_FLOAT = 0x1406;
-const GL_DOUBLE = 0x140A;
-const GL_HALF_FLOAT = 0x140B;
+    GL_FRAGMENT_SHADER = 0x8b30,
+    GL_VERTEX_SHADER = 0x8b31,
+    GL_COMPILE_STATUS = 0x8b81,
+    GL_LINK_STATUS = 0x8b82,
 
-const GL_POINTS = 0x0000;
-const GL_LINES = 0x0001;
-const GL_LINE_STRIP = 0x0003;
-const GL_TRIANGLES = 0x0004;
-const GL_TRIANGLE_STRIP = 0x0005;
+    GL_ARRAY_BUFFER = 0x8892,
+    GL_ELEMENT_ARRAY_BUFFER = 0x8893,
 
-const GL_BUFFER = 0x82E0;
+    GL_STREAM_DRAW = 0x88e0,
+    GL_STREAM_READ = 0x88e1,
+    GL_STREAM_COPY = 0x88e2,
+    GL_STATIC_DRAW = 0x88e4,
+    GL_STATIC_READ = 0x88e5,
+    GL_STATIC_COPY = 0x88e6,
+    GL_DYNAMIC_DRAW = 0x88e8,
+    GL_DYNAMIC_READ = 0x88e9,
+    GL_DYNAMIC_COPY = 0x88ea,
 
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
+    GL_BYTE = 0x1400,
+    GL_UNSIGNED_BYTE = 0x1401,
+    GL_SHORT = 0x1402,
+    GL_UNSIGNED_SHORT = 0x1403,
+    GL_INT = 0x1404,
+    GL_UNSIGNED_INT = 0x1405,
+    GL_FLOAT = 0x1406,
+    GL_DOUBLE = 0x140A,
+    GL_HALF_FLOAT = 0x140B,
+
+    GL_BUFFER = 0x82E0,
+
+    GL_TEXTURE0 = 0x84C0,
+    GL_TEXTURE1 = 0x84C1,
+    GL_TEXTURE2 = 0x84C2,
+    GL_TEXTURE3 = 0x84C3,
+    GL_TEXTURE4 = 0x84C4,
+    GL_TEXTURE5 = 0x84C5,
+    GL_TEXTURE6 = 0x84C6,
+    GL_TEXTURE7 = 0x84C7,
+
+    GL_TEXTURE_2D = 0x0DE1,
+
+    GL_TEXTURE_MAG_FILTER = 0x2800,
+    GL_TEXTURE_MIN_FILTER = 0x2801,
+    GL_TEXTURE_WRAP_S = 0x2802,
+    GL_TEXTURE_WRAP_T = 0x2803,
+
+    GL_NEAREST = 0x2600,
+    GL_LINEAR = 0x2601,
+
+    GL_REPEAT = 0x2901,
+    GL_CLAMP_TO_EDGE = 0x812F,
+    GL_MIRRORED_REPEAT = 0x8370,
+
+    GL_BLEND = 0x0BE2,
+
+    GL_ONE_MINUS_SRC_ALPHA = 0x0303,
+    GL_SRC_ALPHA = 0x0302,
+
+    GL_R8 = 0x8229,
+    GL_RED = 0x1903,
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -998,15 +1059,27 @@ fn begin_render_pass(self: video.CommandBuffer, info: video.BeginRenderPassInfo)
     if (width == 0) width = 1;
     if (height == 0) height = 1;
 
+    if (debug_api) {
+        std.debug.print("glViewport {} {} {} {}\n", .{ 0, 0, width, height });
+    }
     api.glViewport(0, 0, width, height);
+    if (debug_api) {
+        std.debug.print("glScissor {} {} {} {}\n", .{ 0, 0, width, height });
+    }
     api.glScissor(0, 0, width, height);
 
     // std.debug.print ("{} {}\n", .{width, height});
 
     if (info.load == .clear) {
         const col = info.clear_color.to_vec4();
+        if (debug_api) {
+            std.debug.print("glClearColor {} {} {} {}\n", .{ col[0], col[1], col[2], col[3] });
+        }
         api.glClearColor(col[0], col[1], col[2], col[3]);
-        api.glClear(GL_COLOR_BUFFER_BIT);
+        if (debug_api) {
+            std.debug.print("glClear {}\n", .{.GL_COLOR_BUFFER_BIT});
+        }
+        api.glClear(.GL_COLOR_BUFFER_BIT);
     }
 
     return .{
@@ -1020,10 +1093,19 @@ fn begin_render_pass(self: video.CommandBuffer, info: video.BeginRenderPassInfo)
 
 fn end_render_pass(self: video.RenderPass) void {
     _ = self;
-    api.glBindBuffer(GL_ARRAY_BUFFER, 0);
+    if (debug_api) {
+        std.debug.print("glBindBuffer {} {}\n", .{ GL_Enum.GL_ARRAY_BUFFER, 0 });
+    }
+    api.glBindBuffer(.GL_ARRAY_BUFFER, 0);
+    if (debug_api) {
+        std.debug.print("glUseProgram {}\n", .{0});
+    }
     api.glUseProgram(0);
     for (0..enabled_attributes.len) |i| {
         if (enabled_attributes[i]) {
+            if (debug_api) {
+                std.debug.print("glDisableVertexAttribArray {}\n", .{i});
+            }
             api.glDisableVertexAttribArray(@intCast(i));
             enabled_attributes[i] = false;
         }
@@ -1044,14 +1126,39 @@ fn apply_pipeline(self: video.RenderPass, opaque_pipeline: video.Pipeline) void 
     const gl_shader = shader_pool.get(shader.handle) orelse return;
 
     current_shader = shader;
+    if (debug_api) {
+        std.debug.print("glUseProgram {} {?s}\n", .{ gl_shader.program, gl_shader.label });
+    }
     api.glUseProgram(gl_shader.program);
 
     draw_primitive = switch (pipeline.primitive) {
-        .triangle_list => GL_TRIANGLES,
-        .triangle_strip => GL_TRIANGLE_STRIP,
-        .line_list => GL_LINES,
-        .line_strip => GL_LINE_STRIP,
-        .point_list => GL_POINTS,
+        .triangle_list => .GL_TRIANGLES,
+        .triangle_strip => .GL_TRIANGLE_STRIP,
+        .line_list => .GL_LINES,
+        .line_strip => .GL_LINE_STRIP,
+        .point_list => .GL_POINTS,
+    };
+
+    if (pipeline.blend.enabled) {
+        api.glEnable(.GL_BLEND);
+    } else {
+        api.glDisable(.GL_BLEND);
+    }
+
+    api.glBlendFuncSeparate(
+        gl_blend_factor(pipeline.blend.src_factor_rgb),
+        gl_blend_factor(pipeline.blend.dst_factor_rgb),
+        gl_blend_factor(pipeline.blend.src_factor_alpha),
+        gl_blend_factor(pipeline.blend.dst_factor_alpha),
+    );
+}
+
+fn gl_blend_factor(factor: video.BlendFactor) GL_Enum {
+    return switch (factor) {
+        .one => .GL_ONE,
+        .zero => .GL_ZERO,
+        .one_minus_src_alpha => .GL_ONE_MINUS_SRC_ALPHA,
+        .src_alpha => .GL_SRC_ALPHA,
     };
 }
 
@@ -1069,8 +1176,17 @@ fn apply_bindings(self: video.RenderPass, opaque_binding: video.Binding) void {
         _ = i;
         if (optional_buffer) |buf| {
             if (buffer_pool.get(buf.handle)) |buffer| {
-                api.glBindBuffer(GL_ARRAY_BUFFER, buffer.object);
+                if (debug_api) {
+                    std.debug.print("glBindBuffer {} {}\n", .{ GL_Enum.GL_ARRAY_BUFFER, buffer.object });
+                }
+                api.glBindBuffer(.GL_ARRAY_BUFFER, buffer.object);
             }
+        }
+    }
+
+    if (binding.image) |image| {
+        if (binding.sampler) |sampler| {
+            apply_image(image, sampler);
         }
     }
 
@@ -1084,17 +1200,51 @@ fn apply_bindings(self: video.RenderPass, opaque_binding: video.Binding) void {
 fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
     _ = self;
 
-    api.glUniformMatrix4fv(info.index, 1, 0, info.data.ptr);
+    const gl_shader = shader_pool.get(current_shader.handle) orelse return;
+    const loc = api.glGetUniformLocation(gl_shader.program, info.name);
+    if (loc != info.index) {
+        std.debug.print("Mismatch on uniform {?s} {s} {} = {}\n", .{
+            gl_shader.label,
+            info.name,
+            info.index,
+            loc,
+        });
+        return;
+    }
+
+    switch (info.kind) {
+        .mat4 => {
+            if (debug_api) {
+                std.debug.print("glUniformMatrix4fv {} {} {} {*}\n", .{ info.index, 1, 0, info.data.ptr });
+                const value: *const ng.Mat4 = @alignCast(@ptrCast(info.data.ptr));
+                std.debug.print("  {d:0.2}\n", .{value.*});
+            }
+            api.glUniformMatrix4fv(info.index, 1, 0, info.data.ptr);
+        },
+        .u32 => {
+            const value: *const u32 = @alignCast(@ptrCast(info.data.ptr));
+            if (debug_api) {
+                std.debug.print("glUniform1i {} {}\n", .{ info.index, value.* });
+            }
+            api.glUniform1i(info.index, value.*);
+        },
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw(self: video.RenderPass, num_vertexes: u32) void {
+fn draw(self: video.RenderPass, num_vertexes: usize) void {
     _ = self;
 
-    api.glDrawArrays(draw_primitive, 0, num_vertexes);
+    if (debug_api) {
+        std.debug.print("glDrawArrays {} {} {}\n", .{ draw_primitive, 0, num_vertexes });
+    }
+    api.glDrawArrays(draw_primitive, 0, @intCast(num_vertexes));
+    if (debug_api) {
+        std.debug.print("     -----\n", .{});
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1104,6 +1254,11 @@ fn draw(self: video.RenderPass, num_vertexes: u32) void {
 fn submit_command_buffer(self: video.CommandBuffer) !void {
     _ = self;
 
+    if (debug_api) {
+        std.debug.print("glXSwapBuffers\n", .{});
+        std.debug.print("glFlush\n", .{});
+        std.debug.print("--------------------------------------------------------------------------------\n", .{});
+    }
     api.glXSwapBuffers(display, window);
     if (use_glflush) {
         api.glFlush();
@@ -1125,8 +1280,8 @@ const GL_Shader = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn create_shader(info: video.CreateShaderInfo) video.VideoError!video.Shader {
-    const vertex = try compile_shader_part(GL_VERTEX_SHADER, info.vertex_source);
-    const fragment = try compile_shader_part(GL_FRAGMENT_SHADER, info.fragment_source);
+    const vertex = try compile_shader_part(.GL_VERTEX_SHADER, info.vertex_source);
+    const fragment = try compile_shader_part(.GL_FRAGMENT_SHADER, info.fragment_source);
 
     defer api.glDeleteShader(vertex);
     defer api.glDeleteShader(fragment);
@@ -1153,7 +1308,7 @@ fn create_shader(info: video.CreateShaderInfo) video.VideoError!video.Shader {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn compile_shader_part(part: u32, source: [*:0]const u8) video.VideoError!u32 {
+fn compile_shader_part(part: GL_Enum, source: [*:0]const u8) video.VideoError!u32 {
     const shader = api.glCreateShader(part);
     if (shader == 0) return error.CannotCreateShader;
     errdefer api.glDeleteShader(shader);
@@ -1162,7 +1317,7 @@ fn compile_shader_part(part: u32, source: [*:0]const u8) video.VideoError!u32 {
     api.glCompileShader(shader);
 
     var status: u32 = undefined;
-    api.glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+    api.glGetShaderiv(shader, .GL_COMPILE_STATUS, &status);
     if (status == 0) {
         var info_log: [2048]u8 = undefined;
         var length: u32 = undefined;
@@ -1187,7 +1342,7 @@ fn link_shader_parts(vertex: u32, fragment: u32) video.VideoError!u32 {
     api.glLinkProgram(program);
 
     var status: u32 = undefined;
-    api.glGetProgramiv(program, GL_LINK_STATUS, &status);
+    api.glGetProgramiv(program, .GL_LINK_STATUS, &status);
     if (status == 0) {
         var info_log: [2048]u8 = undefined;
         var length: u32 = undefined;
@@ -1210,6 +1365,13 @@ fn apply_shader(self: video.Shader) void {
     for (0.., shader.vertex_attrib) |i, attrib| {
         if (attrib.vertex_type != .unknown) {
             const gl_type = get_gl_vertex_type(attrib.vertex_type);
+            if (debug_api) {
+                std.debug.print("glEnableVertexAttribArray {}\n", .{i});
+            }
+            api.glEnableVertexAttribArray(@intCast(i));
+            if (debug_api) {
+                std.debug.print("glVertexAttribPointer {} {} {} {} {} {}\n", .{ i, attrib.size, gl_type, attrib.normalize, attrib.stride, attrib.offset });
+            }
             api.glVertexAttribPointer(
                 @intCast(i),
                 @intCast(attrib.size),
@@ -1218,27 +1380,29 @@ fn apply_shader(self: video.Shader) void {
                 attrib.stride,
                 attrib.offset,
             );
-            api.glEnableVertexAttribArray(@intCast(i));
             enabled_attributes[i] = true;
         } else if (enabled_attributes[i]) {
+            if (debug_api) {
+                std.debug.print("glDisableVertexAttribArray {}\n", .{i});
+            }
             api.glDisableVertexAttribArray(@intCast(i));
             enabled_attributes[i] = false;
         }
     }
 }
 
-fn get_gl_vertex_type(vt: video.VertexType) u32 {
+fn get_gl_vertex_type(vt: video.VertexType) GL_Enum {
     return switch (vt) {
         .unknown => unreachable,
-        .u8 => GL_UNSIGNED_BYTE,
-        .i8 => GL_BYTE,
-        .u16 => GL_UNSIGNED_SHORT,
-        .i16 => GL_SHORT,
-        .u32 => GL_UNSIGNED_INT,
-        .i32 => GL_INT,
-        .f32 => GL_FLOAT,
-        .f64 => GL_DOUBLE,
-        .f16 => GL_HALF_FLOAT,
+        .u8 => .GL_UNSIGNED_BYTE,
+        .i8 => .GL_BYTE,
+        .u16 => .GL_UNSIGNED_SHORT,
+        .i16 => .GL_SHORT,
+        .u32 => .GL_UNSIGNED_INT,
+        .i32 => .GL_INT,
+        .f32 => .GL_FLOAT,
+        .f64 => .GL_DOUBLE,
+        .f16 => .GL_HALF_FLOAT,
     };
 }
 
@@ -1280,11 +1444,14 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
     var buffer_object: u32 = undefined;
 
     api.glGenBuffers(1, &buffer_object);
+    if (debug_api) {
+        std.debug.print("glGenBuffers {} {}\n", .{ 1, buffer_object });
+    }
 
     if (info.label) |label| {
-        api.glBindBuffer(GL_ARRAY_BUFFER, buffer_object);
-        api.glObjectLabel(GL_BUFFER, buffer_object, @intCast(label.len), label.ptr);
-        api.glBindBuffer(GL_ARRAY_BUFFER, 0);
+        api.glBindBuffer(.GL_ARRAY_BUFFER, buffer_object);
+        api.glObjectLabel(.GL_BUFFER, buffer_object, @intCast(label.len), label.ptr);
+        api.glBindBuffer(.GL_ARRAY_BUFFER, 0);
     }
 
     buffer.* = .{
@@ -1295,30 +1462,75 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
         .update = info.update,
     };
 
-    const gl_update: u32 = switch (info.update) {
-        .static => GL_STATIC_DRAW,
-        .stream => GL_STREAM_DRAW,
-        .dynamic => GL_DYNAMIC_DRAW,
+    const gl_update: GL_Enum = switch (info.update) {
+        .static => .GL_STATIC_DRAW,
+        .stream => .GL_STREAM_DRAW,
+        .dynamic => .GL_DYNAMIC_DRAW,
     };
 
-    const kind: u32 = switch (info.kind) {
-        .vertex => GL_ARRAY_BUFFER,
-        .index => GL_ELEMENT_ARRAY_BUFFER,
+    const kind: GL_Enum = switch (info.kind) {
+        .vertex => .GL_ARRAY_BUFFER,
+        .index => .GL_ELEMENT_ARRAY_BUFFER,
     };
 
     if (info.data) |data| {
+        if (debug_api) {
+            std.debug.print("glBindBuffer {} {}\n", .{ kind, buffer_object });
+        }
         api.glBindBuffer(kind, buffer_object);
+        if (debug_api) {
+            std.debug.print("glBufferData {} {} {*} {}\n", .{ kind, data.len, data.ptr, gl_update });
+        }
         api.glBufferData(kind, data.len, data.ptr, gl_update);
+        if (debug_api) {
+            std.debug.print("glBindBuffer {} {}\n", .{ kind, 0 });
+        }
         api.glBindBuffer(kind, 0);
     } else if (info.size) |size| {
+        if (debug_api) {
+            std.debug.print("glBindBuffer {} {}\n", .{ kind, buffer_object });
+        }
         api.glBindBuffer(kind, buffer_object);
+        if (debug_api) {
+            std.debug.print("glBufferData {} {} {} {}\n", .{ kind, size, null, gl_update });
+        }
         api.glBufferData(kind, size, null, gl_update);
+        if (debug_api) {
+            std.debug.print("glBindBuffer {} {}\n", .{ kind, 0 });
+        }
         api.glBindBuffer(kind, 0);
     }
 
     return .{
         .handle = index,
     };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn update_buffer(self: video.Buffer, data: []const u8) void {
+    const index = self.handle;
+    const buffer = buffer_pool.get(index) orelse return;
+
+    const kind: GL_Enum = switch (buffer.kind) {
+        .vertex => .GL_ARRAY_BUFFER,
+        .index => .GL_ELEMENT_ARRAY_BUFFER,
+    };
+
+    if (debug_api) {
+        std.debug.print("glBindBuffer {} {}\n", .{ kind, buffer.object });
+    }
+    api.glBindBuffer(kind, buffer.object);
+    if (debug_api) {
+        std.debug.print("glBufferSubData {} {} {} {*}\n", .{ kind, 0, data.len, data.ptr });
+    }
+    api.glBufferSubData(kind, 0, data.len, data.ptr);
+    if (debug_api) {
+        std.debug.print("glBindBuffer {} {}\n", .{ kind, 0 });
+    }
+    api.glBindBuffer(kind, 0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1342,6 +1554,7 @@ const GL_Pipeline = struct {
     label: ?[]const u8 = null,
     shader: video.Shader,
     primitive: video.Primitive,
+    blend: video.BlendInfo,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1356,6 +1569,7 @@ fn create_pipeline(info: video.CreatePipelineInfo) video.VideoError!video.Pipeli
         .label = info.label,
         .shader = info.shader,
         .primitive = info.primitive,
+        .blend = info.blend,
     };
 
     return .{
@@ -1387,6 +1601,8 @@ const GL_Bindings = struct {
     label: ?[]const u8 = null,
     vertex_buffers: [max_vertex_buffers]?video.Buffer = .{null} ** max_vertex_buffers,
     index_buffers: [max_index_buffers]?video.Buffer = .{null} ** max_index_buffers,
+    image: ?video.Image = null,
+    sampler: ?video.Sampler = null,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1413,6 +1629,9 @@ fn create_binding(info: video.CreateBindingInfo) video.VideoError!video.Binding 
         }
     }
 
+    binding.image = info.image;
+    binding.sampler = info.sampler;
+
     return .{
         .handle = index,
     };
@@ -1437,6 +1656,7 @@ fn delete_binding(self: video.Binding) void {
 
 const GL_Image = struct {
     label: ?[]const u8 = null,
+    object: u32 = 0,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1447,8 +1667,55 @@ fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
     const index = image_pool.create() orelse return error.TooManyImages;
     const image = image_pool.get(index) orelse return error.TooManyImages;
 
+    var image_object: u32 = undefined;
+
+    api.glGenTextures(1, &image_object);
+    if (debug_api) {
+        std.debug.print("glGenTextures {} {}\n", .{ 1, image_object });
+    }
+
+    if (debug_api) {
+        std.debug.print("glBindTexture {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, image_object });
+    }
+    api.glBindTexture(.GL_TEXTURE_2D, image_object);
+
+    const format = gl_image_format(info.format);
+
+    if (info.data) |data| {
+        if (debug_api) {
+            std.debug.print("glTexImage2D {} {} {} {} {} {} {} {} {?*}\n", .{
+                GL_Enum.GL_TEXTURE_2D,
+                0, // level
+                format.internal,
+                info.width,
+                info.height,
+                0, // border
+                format.format,
+                format.type,
+                data,
+            });
+        }
+        api.glTexImage2D(
+            .GL_TEXTURE_2D,
+            0, // level
+            format.internal,
+            info.width,
+            info.height,
+            0, // border
+            format.format,
+            format.type,
+            @ptrCast(data),
+        );
+    }
+
+    if (debug_api) {
+        std.debug.print("glBindTexture {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, 0 });
+    }
+    api.glBindTexture(.GL_TEXTURE_2D, 0);
+
     image.* = .{
         .label = info.label,
+        .object = image_object,
     };
 
     return .{
@@ -1460,11 +1727,70 @@ fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+fn gl_image_format(format: video.PixelFormat) GL_ImageFormat {
+    return switch (format) {
+        .r8 => return .{ .internal = .GL_RED, .format = .GL_RED, .type = .GL_UNSIGNED_BYTE },
+        else => return .{ .internal = .GL_RED, .format = .GL_RED, .type = .GL_UNSIGNED_BYTE },
+    };
+}
+
+const GL_ImageFormat = struct {
+    internal: GL_Enum,
+    format: GL_Enum,
+    type: GL_Enum,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn apply_image(self: video.Image, a_sampler: video.Sampler) void {
+    const index = self.handle;
+    const image = image_pool.get(index) orelse return;
+
+    const sampler_index = a_sampler.handle;
+    const sampler = sampler_pool.get(sampler_index) orelse return;
+
+    if (debug_api) {
+        std.debug.print("glActiveTexture {}\n", .{GL_Enum.GL_TEXTURE0});
+    }
+    api.glActiveTexture(.GL_TEXTURE0);
+
+    if (debug_api) {
+        std.debug.print("glBindTexture {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, image.object });
+    }
+    api.glBindTexture(.GL_TEXTURE_2D, image.object);
+
+    if (debug_api) {
+        std.debug.print("glTexParameteri {} {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, GL_Enum.GL_TEXTURE_MIN_FILTER, sampler.min_filter });
+    }
+    api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_MIN_FILTER, sampler.min_filter);
+
+    if (debug_api) {
+        std.debug.print("glTexParameteri {} {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, GL_Enum.GL_TEXTURE_MAG_FILTER, sampler.mag_filter });
+    }
+    api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_MAG_FILTER, sampler.mag_filter);
+
+    if (debug_api) {
+        std.debug.print("glTexParameteri {} {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, GL_Enum.GL_TEXTURE_WRAP_S, sampler.wrap_s });
+    }
+    api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_WRAP_S, sampler.wrap_s);
+
+    if (debug_api) {
+        std.debug.print("glTexParameteri {} {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, GL_Enum.GL_TEXTURE_WRAP_T, sampler.wrap_t });
+    }
+    api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_WRAP_T, sampler.wrap_t);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 fn delete_image(self: video.Image) void {
     const index = self.handle;
     const image = image_pool.get(index) orelse return;
 
-    _ = image;
+    api.glDeleteTextures(1, &image.object);
 
     image_pool.delete(index);
 }
@@ -1475,6 +1801,10 @@ fn delete_image(self: video.Image) void {
 
 const GL_Sampler = struct {
     label: ?[]const u8 = null,
+    min_filter: GL_Enum,
+    mag_filter: GL_Enum,
+    wrap_s: GL_Enum,
+    wrap_t: GL_Enum,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1487,10 +1817,29 @@ fn create_sampler(info: video.CreateSamplerInfo) video.VideoError!video.Sampler 
 
     sampler.* = .{
         .label = info.label,
+        .min_filter = gl_filter(info.min_filter),
+        .mag_filter = gl_filter(info.mag_filter),
+        .wrap_s = gl_wrap(info.wrap_u),
+        .wrap_t = gl_wrap(info.wrap_v),
     };
 
     return .{
         .handle = index,
+    };
+}
+
+fn gl_filter(filter: video.SampleFilter) GL_Enum {
+    return switch (filter) {
+        .nearest => .GL_NEAREST,
+        .linear => .GL_LINEAR,
+    };
+}
+
+fn gl_wrap(wrap: video.SampleWrap) GL_Enum {
+    return switch (wrap) {
+        .repeat => .GL_REPEAT,
+        .clamp_to_edge => .GL_CLAMP_TO_EDGE,
+        .mirrored_repeat => .GL_MIRRORED_REPEAT,
     };
 }
 

@@ -13,6 +13,7 @@ const ng = @import("ng.zig");
 const event = @import("event.zig");
 const x11 = @import("x11.zig");
 const color = @import("color.zig");
+const math = @import("math.zig");
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -62,12 +63,13 @@ pub const Platform = struct {
     apply_pipeline: *const fn (RenderPass, Pipeline) void,
     apply_bindings: *const fn (RenderPass, Binding) void,
     apply_uniform: *const fn (RenderPass, UniformInfo) void,
-    draw: *const fn (RenderPass, u32) void,
+    draw: *const fn (RenderPass, usize) void,
 
     create_shader: *const fn (CreateShaderInfo) VideoError!Shader,
     delete_shader: *const fn (Shader) void,
 
     create_buffer: *const fn (CreateBufferInfo) VideoError!Buffer,
+    update_buffer: *const fn (Buffer, data: []const u8) void,
     delete_buffer: *const fn (Buffer) void,
 
     create_pipeline: *const fn (CreatePipelineInfo) VideoError!Pipeline,
@@ -244,22 +246,41 @@ pub const RenderPass = struct {
         platform.apply_bindings(self, bindings);
     }
 
-    pub fn apply_uniform(self: RenderPass, index: anytype, data: anytype) void {
+    pub fn apply_uniform_mat4(self: RenderPass, index: anytype, data: math.Mat4) void {
         const info: UniformInfo = .{
             .index = @intFromEnum(index),
-            .data = ng.as_bytes(data),
+            .name = @tagName(index),
+            .kind = .mat4,
+            .data = ng.as_bytes(&data),
         };
         platform.apply_uniform(self, info);
     }
 
-    pub fn draw(self: RenderPass, num_vertexes: u32) void {
+    pub fn apply_uniform_u32(self: RenderPass, index: anytype, data: u32) void {
+        const info: UniformInfo = .{
+            .index = @intFromEnum(index),
+            .name = @tagName(index),
+            .kind = .u32,
+            .data = ng.as_bytes(&data),
+        };
+        platform.apply_uniform(self, info);
+    }
+
+    pub fn draw(self: RenderPass, num_vertexes: usize) void {
         platform.draw(self, num_vertexes);
     }
 };
 
 pub const UniformInfo = struct {
     index: u32,
+    name: [*:0]const u8,
+    kind: UniformKind,
     data: []const u8,
+};
+
+pub const UniformKind = enum {
+    u32,
+    mat4,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -384,7 +405,7 @@ fn attribute_info(comptime T: type) !VertexAttribute {
 pub const CreateBufferInfo = struct {
     label: ?[]const u8,
     kind: BufferKind = .vertex,
-    data: ?[]u8 = null,
+    data: ?[]const u8 = null,
     size: ?usize = null,
     update: BufferUpdate = .static,
 };
@@ -402,6 +423,10 @@ pub const BufferUpdate = enum {
 
 pub const Buffer = struct {
     handle: usize,
+
+    pub fn update(self: Buffer, data: []const u8) void {
+        platform.update_buffer(self, data);
+    }
 
     pub fn delete(self: Buffer) void {
         platform.delete_buffer(self);
@@ -424,6 +449,7 @@ pub const CreatePipelineInfo = struct {
     label: ?[]const u8 = null,
     shader: Shader,
     primitive: Primitive,
+    blend: BlendInfo = .{},
 };
 
 pub const Primitive = enum {
@@ -432,6 +458,21 @@ pub const Primitive = enum {
     line_list,
     line_strip,
     point_list,
+};
+
+pub const BlendInfo = struct {
+    enabled: bool = false,
+    src_factor_rgb: BlendFactor = .one,
+    dst_factor_rgb: BlendFactor = .zero,
+    src_factor_alpha: BlendFactor = .one,
+    dst_factor_alpha: BlendFactor = .zero,
+};
+
+pub const BlendFactor = enum {
+    one,
+    zero,
+    one_minus_src_alpha,
+    src_alpha,
 };
 
 pub const Pipeline = struct {
@@ -458,6 +499,8 @@ pub const CreateBindingInfo = struct {
     label: ?[]const u8 = null,
     vertex_buffers: ?[]const Buffer = null,
     index_buffers: ?[]const Buffer = null,
+    image: ?Image = null,
+    sampler: ?Sampler = null,
 };
 
 pub const Binding = struct {
@@ -482,10 +525,10 @@ pub fn create_binding(info: CreateBindingInfo) !Binding {
 
 pub const CreateImageInfo = struct {
     label: ?[]const u8 = null,
-    width: ?u32 = null,
-    height: ?u32 = null,
-    format: PixelFormat = .unknown,
-    data: ?[]u8 = null,
+    width: u32,
+    height: u32,
+    format: PixelFormat,
+    data: ?[]const u8 = null,
 };
 
 pub const PixelFormat = enum {
@@ -584,7 +627,6 @@ pub const SampleFilter = enum {
 pub const SampleWrap = enum {
     repeat,
     clamp_to_edge,
-    clamp_to_border,
     mirrored_repeat,
 };
 
@@ -607,6 +649,12 @@ pub const Sampler = struct {
 pub fn create_sampler(info: CreateSamplerInfo) !Sampler {
     return platform.create_sampler(info);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const Sampler2D = struct {};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////

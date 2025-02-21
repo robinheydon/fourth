@@ -12,6 +12,7 @@ const ng = @import("ng");
 
 var running = true;
 
+var frame_counter: usize = 0;
 var average_frame_rate: u32 = 0;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -37,11 +38,10 @@ pub fn main() !void {
 
     const triangle_shader = @import("triangle_shader.zig");
     const TriangleVertex = triangle_shader.Vertex;
+    const TriangleUniforms = ng.make_uniform_slots(triangle_shader.Uniforms);
 
     const shader = try ng.create_shader(triangle_shader);
     defer shader.delete();
-
-    const TriangleUniforms = ng.make_uniform_slots(triangle_shader.Uniforms);
 
     const triangle_data = [_]TriangleVertex{
         .{ .pos = .{ 0, 50 }, .col = .red },
@@ -71,8 +71,12 @@ pub fn main() !void {
     var camera: ng.Camera2D = .identity();
 
     while (running) {
+        frame_counter +%= 1;
+
         const dt = ng.start_frame();
         defer ng.end_frame();
+
+        ng.debug_reset(window);
 
         report_fps(dt);
 
@@ -122,8 +126,21 @@ pub fn main() !void {
 
         render_pass.apply_pipeline(pipeline);
         render_pass.apply_bindings(binding);
-        render_pass.apply_uniform(TriangleUniforms.mvp, &mvp);
+        render_pass.apply_uniform_mat4(TriangleUniforms.mvp, mvp);
         render_pass.draw(3);
+
+        if (average_frame_rate > 0) {
+            ng.debug_print("{} Hz\n", .{average_frame_rate});
+        }
+
+        ng.debug_print("-----\n", .{});
+        for (32..256) |ch| {
+            ng.debug_print("{c}", .{@as(u8, @intCast(ch))});
+            if (ch % 32 == 31) {
+                ng.debug_print("\n", .{});
+            }
+        }
+        ng.debug_print("-----\n", .{});
 
         ng.debug_text_draw();
 
@@ -148,7 +165,6 @@ fn report_fps(dt: f32) void {
     }
     if (total_ft >= 1.0 or next_dt_index == all_delta_times.len) {
         average_frame_rate = @intCast(next_dt_index);
-        std.debug.print("{} Hz\n", .{average_frame_rate});
         next_dt_index = 0;
     }
 }
