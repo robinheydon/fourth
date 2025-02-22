@@ -28,8 +28,8 @@ pub fn main() !void {
 
     const window = try ng.create_window(.{
         .name = "Fourth",
-        .width = 1920,
-        .height = 1080,
+        .width = 1280,
+        .height = 720,
         .resizable = true,
     });
     defer window.close();
@@ -78,7 +78,11 @@ pub fn main() !void {
 
         ng.debug_reset(window);
 
-        report_fps(dt);
+        if (average_frame_rate > 0) {
+            ng.debug_print("{} Hz\n", .{average_frame_rate});
+        }
+
+        update_fps(dt);
 
         while (ng.poll_event()) |event| {
             switch (event) {
@@ -88,6 +92,8 @@ pub fn main() !void {
                 .key_down => |key_event| {
                     if (key_event.key == .escape) {
                         running = false;
+                    } else if (key_event.key == .f11) {
+                        window.toggle_fullscreen();
                     } else {
                         std.debug.print("{} ({})\n", .{ key_event.key, key_event.scan_code });
                     }
@@ -129,24 +135,6 @@ pub fn main() !void {
         render_pass.apply_uniform_mat4(TriangleUniforms.mvp, mvp);
         render_pass.draw(3);
 
-        if (average_frame_rate > 0) {
-            ng.debug_print("{} Hz {c}\n", .{
-                average_frame_rate,
-                @as(u8, @intCast((frame_counter / 30) % 255)),
-            });
-        }
-
-        ng.debug_print("-----\n", .{});
-        for (32..256) |ch| {
-            ng.debug_print("{c}", .{@as(u8, @intCast(ch))});
-            if (ch % 32 == 31) {
-                ng.debug_print("\n", .{});
-            }
-        }
-        ng.debug_print("-----\n", .{});
-
-        ng.debug_print ("o\xe0{} \xe1Hello\xe2 \xe334\xe4 400\xe5m \xe6\n", .{frame_counter});
-
         ng.debug_text_draw();
 
         render_pass.end();
@@ -161,7 +149,7 @@ pub fn main() !void {
 var all_delta_times: [65536]f32 = undefined;
 var next_dt_index: usize = 0;
 
-fn report_fps(dt: f32) void {
+fn update_fps(dt: f32) void {
     all_delta_times[next_dt_index] = dt;
     next_dt_index = next_dt_index + 1;
     var total_ft: f32 = 0;

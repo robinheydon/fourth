@@ -34,12 +34,14 @@ const Pool = ng.Pool;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const API = struct {
+    XChangeProperty: *const fn (*Display, Window, Atom, u32, u32, u32, [*c]const Atom, u32) callconv(.c) void,
     XCloseDisplay: *const fn (*Display) callconv(.c) void,
     XCreateColormap: *const fn (*Display, Window, *c.Visual, u32) callconv(.c) Colormap,
     XCreateWindow: *const fn (*Display, Window, u32, u32, u32, u32, u32, c_int, u32, *c.Visual, CWValueMask, *XSetWindowAttributes) callconv(.c) Window,
     XDefaultScreen: *const fn (*Display) callconv(.c) u32,
     XDefaultScreenOfDisplay: *const fn (*Display) callconv(.c) *Screen,
     XDestroyWindow: *const fn (*Display, Window) callconv(.c) void,
+    XSendEvent: *const fn (*Display, Window, bool, u32, [*c]const c.XEvent) callconv(.c) void,
     XInternAtom: *const fn (*Display, [*:0]const u8, bool) callconv(.c) Atom,
     XKeycodeToKeysym: *const fn (*Display, u32, u32) callconv(.c) u32,
     XMapRaised: *const fn (*Display, Window) callconv(.c) void,
@@ -138,6 +140,7 @@ var window: Window = undefined;
 
 var window_width: f32 = 0;
 var window_height: f32 = 0;
+var window_fullscreen: bool = false;
 
 var shader_pool: Pool(GL_Shader, 256) = .{};
 var buffer_pool: Pool(GL_Buffer, 256) = .{};
@@ -158,7 +161,22 @@ var keysyms: [2][256]u32 = undefined;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const XA_ATOM : Atom = 4;
+const PropModeReplace = 0;
+const PropModePrepend = 1;
+const PropModeAppend = 2;
+const SubstructureNotifyMask = 1<<19;
+const SubstructureRedirectMask = 1<<20;
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 var WM_DELETE_WINDOW: Atom = undefined;
+var _NET_WM_STATE_ADD: Atom = undefined;
+var _NET_WM_STATE_REMOVE: Atom = undefined;
+var _NET_WM_STATE: Atom = undefined;
+var _NET_WM_STATE_FULLSCREEN: Atom = undefined;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -172,6 +190,9 @@ pub fn init() !video.Platform {
         "libGL.so",
     });
 
+    std.debug.print ("sizeof Atom = {}\n", .{@sizeOf (Atom)});
+    std.debug.print ("sizeof Atom = {}\n", .{@sizeOf (c.Atom)});
+
     display = api.XOpenDisplay(null);
 
     screen = api.XDefaultScreenOfDisplay(display);
@@ -180,6 +201,10 @@ pub fn init() !video.Platform {
     root_window = api.XRootWindowOfScreen(screen);
 
     WM_DELETE_WINDOW = api.XInternAtom(display, "WM_DELETE_WINDOW", false);
+    _NET_WM_STATE = api.XInternAtom(display, "_NET_WM_STATE", false);
+    _NET_WM_STATE_ADD = api.XInternAtom(display, "_NET_WM_STATE_ADD", false);
+    _NET_WM_STATE_REMOVE = api.XInternAtom(display, "_NET_WM_STATE_REMOVE", false);
+    _NET_WM_STATE_FULLSCREEN = api.XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", false);
 
     var glx_major: u32 = 0;
     var glx_minor: u32 = 0;
@@ -202,6 +227,7 @@ pub fn init() !video.Platform {
         .get_window_size = get_window_size,
         .set_swap_interval = set_swap_interval,
         .acquire_command_buffer = acquire_command_buffer,
+        .toggle_fullscreen = toggle_fullscreen,
         .acquire_swapchain_texture = acquire_swapchain_texture,
         .begin_render_pass = begin_render_pass,
         .end_render_pass = end_render_pass,
@@ -476,6 +502,51 @@ fn set_swap_interval(a_window: video.Window, interval: video.SwapInterval) void 
         use_glflush = true;
     } else {
         use_glflush = false;
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn toggle_fullscreen(_: video.Window) void {
+    if (window_fullscreen) {
+        std.debug.print("Fullscreen\n", .{});
+
+        var e: c.XEvent = undefined;
+
+        e.xany.type = c.ClientMessage;
+        e.xclient.message_type = _NET_WM_STATE;
+        e.xclient.format = 32;
+        e.xclient.window = window;
+        e.xclient.data.l[0] = @intCast (_NET_WM_STATE_REMOVE);
+        e.xclient.data.l[1] = @intCast (_NET_WM_STATE_FULLSCREEN);
+        e.xclient.data.l[2] = 0;
+        e.xclient.data.l[3] = 0;
+
+        api.XSendEvent(display, root_window, false,
+                       SubstructureNotifyMask | SubstructureRedirectMask, &e);
+
+    } else {
+        std.debug.print("Not Fullscreen\n", .{});
+
+        api.XSync(display, false);
+
+        var e: c.XEvent = undefined;
+
+        e.xany.type = c.ClientMessage;
+        e.xclient.message_type = _NET_WM_STATE;
+        e.xclient.format = 32;
+        e.xclient.window = window;
+        e.xclient.data.l[0] = @intCast (_NET_WM_STATE_ADD);
+        e.xclient.data.l[1] = @intCast (_NET_WM_STATE_FULLSCREEN);
+        e.xclient.data.l[2] = 0;
+        e.xclient.data.l[3] = 0;
+
+        api.XSendEvent(display, root_window, false,
+                       SubstructureNotifyMask | SubstructureRedirectMask, &e);
+
+        api.XSync(display, false);
     }
 }
 

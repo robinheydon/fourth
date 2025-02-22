@@ -53,6 +53,7 @@ pub const Platform = struct {
     close_window: *const fn (Window) void,
     get_window_size: *const fn (Window) WindowSize,
     set_swap_interval: *const fn (Window, SwapInterval) void,
+    toggle_fullscreen: *const fn (Window) void,
 
     acquire_command_buffer: *const fn (Window) VideoError!CommandBuffer,
     submit_command_buffer: *const fn (CommandBuffer) VideoError!void,
@@ -135,6 +136,10 @@ pub const Window = struct {
 
     pub fn acquire_command_buffer(self: Window) !CommandBuffer {
         return platform.acquire_command_buffer(self);
+    }
+
+    pub fn toggle_fullscreen(self: Window) void {
+        platform.toggle_fullscreen(self);
     }
 };
 
