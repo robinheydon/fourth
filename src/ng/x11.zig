@@ -527,6 +527,7 @@ fn toggle_fullscreen(_: video.Window) void {
         api.XSendEvent(display, root_window, false,
                        SubstructureNotifyMask | SubstructureRedirectMask, &e);
 
+        window_fullscreen = false;
     } else {
         std.debug.print("Not Fullscreen\n", .{});
 
@@ -547,6 +548,8 @@ fn toggle_fullscreen(_: video.Window) void {
                        SubstructureNotifyMask | SubstructureRedirectMask, &e);
 
         api.XSync(display, false);
+
+        window_fullscreen = true;
     }
 }
 
