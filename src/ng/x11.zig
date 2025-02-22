@@ -161,20 +161,18 @@ var keysyms: [2][256]u32 = undefined;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const XA_ATOM : Atom = 4;
+const XA_ATOM: Atom = 4;
 const PropModeReplace = 0;
 const PropModePrepend = 1;
 const PropModeAppend = 2;
-const SubstructureNotifyMask = 1<<19;
-const SubstructureRedirectMask = 1<<20;
+const SubstructureNotifyMask = 1 << 19;
+const SubstructureRedirectMask = 1 << 20;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 var WM_DELETE_WINDOW: Atom = undefined;
-var _NET_WM_STATE_ADD: Atom = undefined;
-var _NET_WM_STATE_REMOVE: Atom = undefined;
 var _NET_WM_STATE: Atom = undefined;
 var _NET_WM_STATE_FULLSCREEN: Atom = undefined;
 
@@ -190,9 +188,6 @@ pub fn init() !video.Platform {
         "libGL.so",
     });
 
-    std.debug.print ("sizeof Atom = {}\n", .{@sizeOf (Atom)});
-    std.debug.print ("sizeof Atom = {}\n", .{@sizeOf (c.Atom)});
-
     display = api.XOpenDisplay(null);
 
     screen = api.XDefaultScreenOfDisplay(display);
@@ -202,8 +197,6 @@ pub fn init() !video.Platform {
 
     WM_DELETE_WINDOW = api.XInternAtom(display, "WM_DELETE_WINDOW", false);
     _NET_WM_STATE = api.XInternAtom(display, "_NET_WM_STATE", false);
-    _NET_WM_STATE_ADD = api.XInternAtom(display, "_NET_WM_STATE_ADD", false);
-    _NET_WM_STATE_REMOVE = api.XInternAtom(display, "_NET_WM_STATE_REMOVE", false);
     _NET_WM_STATE_FULLSCREEN = api.XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", false);
 
     var glx_major: u32 = 0;
@@ -509,48 +502,48 @@ fn set_swap_interval(a_window: video.Window, interval: video.SwapInterval) void 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const WM_StateAction = enum(u32) {
+    _NET_WM_STATE_REMOVE = 0,
+    _NET_WM_STATE_ADD = 1,
+    _NET_WM_STATE_TOGGLE = 2,
+};
+
 fn toggle_fullscreen(_: video.Window) void {
+    var action: WM_StateAction = undefined;
+
     if (window_fullscreen) {
-        std.debug.print("Fullscreen\n", .{});
-
-        var e: c.XEvent = undefined;
-
-        e.xany.type = c.ClientMessage;
-        e.xclient.message_type = _NET_WM_STATE;
-        e.xclient.format = 32;
-        e.xclient.window = window;
-        e.xclient.data.l[0] = @intCast (_NET_WM_STATE_REMOVE);
-        e.xclient.data.l[1] = @intCast (_NET_WM_STATE_FULLSCREEN);
-        e.xclient.data.l[2] = 0;
-        e.xclient.data.l[3] = 0;
-
-        api.XSendEvent(display, root_window, false,
-                       SubstructureNotifyMask | SubstructureRedirectMask, &e);
-
+        action = ._NET_WM_STATE_TOGGLE;
         window_fullscreen = false;
     } else {
-        std.debug.print("Not Fullscreen\n", .{});
-
-        api.XSync(display, false);
-
-        var e: c.XEvent = undefined;
-
-        e.xany.type = c.ClientMessage;
-        e.xclient.message_type = _NET_WM_STATE;
-        e.xclient.format = 32;
-        e.xclient.window = window;
-        e.xclient.data.l[0] = @intCast (_NET_WM_STATE_ADD);
-        e.xclient.data.l[1] = @intCast (_NET_WM_STATE_FULLSCREEN);
-        e.xclient.data.l[2] = 0;
-        e.xclient.data.l[3] = 0;
-
-        api.XSendEvent(display, root_window, false,
-                       SubstructureNotifyMask | SubstructureRedirectMask, &e);
-
-        api.XSync(display, false);
-
+        action = ._NET_WM_STATE_TOGGLE;
         window_fullscreen = true;
     }
+
+    api.XSync(display, false);
+
+    var e: c.XEvent = undefined;
+
+    e.xany.type = c.ClientMessage;
+    e.xclient.serial = 0;
+    e.xclient.send_event = c.True;
+    e.xclient.message_type = _NET_WM_STATE;
+    e.xclient.format = 32;
+    e.xclient.window = window;
+    e.xclient.data.l[0] = @intFromEnum(action);
+    e.xclient.data.l[1] = @intCast(_NET_WM_STATE_FULLSCREEN);
+    e.xclient.data.l[2] = 0;
+    e.xclient.data.l[3] = 1;
+    e.xclient.data.l[4] = 0;
+
+    api.XSendEvent(
+        display,
+        root_window,
+        false,
+        SubstructureNotifyMask | SubstructureRedirectMask,
+        &e,
+    );
+
+    api.XSync(display, false);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -43,7 +43,7 @@ var frame_dy: f32 = 0;
 var frame_offset_x: f32 = 0.5;
 var frame_offset_y: f32 = 0.5;
 
-var debug_scale: f32 = 4;
+var debug_scale: f32 = 1;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -86,22 +86,17 @@ pub fn init() !void {
         for (0..20) |y| {
             for (0..12) |x| {
                 const this_byte = font_data[to + y * pitch + x];
-                if (this_byte == 0)
-                {
-                    if (y > 0 and font_data[to + (y-1) * pitch + x] == 255)
-                    {
+                if (this_byte == 0) {
+                    if (y > 0 and font_data[to + (y - 1) * pitch + x] == 255) {
                         font_data[to + y * pitch + x] = 128;
                     }
-                    if (y < 19 and font_data[to + (y+1) * pitch + x] == 255)
-                    {
+                    if (y < 19 and font_data[to + (y + 1) * pitch + x] == 255) {
                         font_data[to + y * pitch + x] = 128;
                     }
-                    if (x > 0 and font_data[to + y * pitch + (x-1)] == 255)
-                    {
+                    if (x > 0 and font_data[to + y * pitch + (x - 1)] == 255) {
                         font_data[to + y * pitch + x] = 128;
                     }
-                    if (x < 11 and font_data[to + y * pitch + (x+1)] == 255)
-                    {
+                    if (x < 11 and font_data[to + y * pitch + (x + 1)] == 255) {
                         font_data[to + y * pitch + x] = 128;
                     }
                 }

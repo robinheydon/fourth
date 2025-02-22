@@ -135,9 +135,8 @@ pub fn main() !void {
         render_pass.apply_uniform_mat4(TriangleUniforms.mvp, mvp);
         render_pass.draw(3);
 
-        for (32..255) |ch|
-        {
-            ng.debug_print ("{c}", .{@as (u8, @intCast (ch))});
+        for (32..255) |ch| {
+            ng.debug_print("{c}", .{@as(u8, @intCast(ch))});
         }
 
         ng.debug_text_draw();
