@@ -85,7 +85,7 @@ pub const Platform = struct {
     create_sampler: *const fn (CreateSamplerInfo) VideoError!Sampler,
     delete_sampler: *const fn (Sampler) void,
 
-    poll_event: *const fn () ?ng.Event,
+    generate_events: *const fn () void,
 };
 
 var platform: Platform = undefined;
@@ -180,8 +180,8 @@ pub const CreateWindowOptions = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn poll_event() ?Event {
-    return platform.poll_event();
+pub fn generate_events() void {
+    platform.generate_events();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

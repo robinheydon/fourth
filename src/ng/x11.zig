@@ -41,7 +41,6 @@ const API = struct {
     XDefaultScreen: *const fn (*Display) callconv(.c) u32,
     XDefaultScreenOfDisplay: *const fn (*Display) callconv(.c) *Screen,
     XDestroyWindow: *const fn (*Display, Window) callconv(.c) void,
-    XSendEvent: *const fn (*Display, Window, bool, u32, [*c]const c.XEvent) callconv(.c) void,
     XInternAtom: *const fn (*Display, [*:0]const u8, bool) callconv(.c) Atom,
     XKeycodeToKeysym: *const fn (*Display, u32, u32) callconv(.c) u32,
     XMapRaised: *const fn (*Display, Window) callconv(.c) void,
@@ -49,9 +48,18 @@ const API = struct {
     XOpenDisplay: *const fn ([*c]const u8) callconv(.c) *Display,
     XPending: *const fn (*Display, *c.XEvent) callconv(.c) i32,
     XRootWindowOfScreen: *const fn (*Screen) callconv(.c) Window,
+    XSendEvent: *const fn (*Display, Window, bool, u32, [*c]const c.XEvent) callconv(.c) void,
+    XSetLocaleModifiers: *const fn ([*c]const u8) callconv(.c) [*c]const u8,
     XSetWMProtocols: *const fn (*Display, Window, [*c]XID, u32) callconv(.c) void,
     XStoreName: *const fn (*Display, Window, [*:0]const u8) callconv(.c) void,
+    XOpenIM: *const fn (*Display, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) c.XIM,
     XSync: *const fn (*Display, bool) callconv(.c) void,
+    XGetIMValues: *const fn (c.XIM, ...) callconv(.c) [*c]const u8,
+    XFree: *const fn (*anyopaque) callconv(.c) void,
+    XCreateIC: *const fn (c.XIM, [*c]const u8, c.XIMStyle, ?*anyopaque) callconv(.c) c.XIC,
+    XSetICValues: *const fn (c.XIC, [*c]const u8, Window, ?*anyopaque) callconv(.c) void,
+    Xutf8LookupString: *const fn (c.XIC, *const c.XKeyEvent, [*c]u8, u32, ?*anyopaque, ?*anyopaque) callconv(.c) u32,
+    XFilterEvent: *const fn (*const c.XKeyEvent, Window) callconv(.c) bool,
     glActiveTexture: *const fn (GL_Enum) callconv(.c) void,
     glAttachShader: *const fn (u32, u32) callconv(.c) void,
     glBindBuffer: *const fn (GL_Enum, u32) callconv(.c) void,
@@ -137,6 +145,8 @@ var screen_id: u32 = undefined;
 var root_window: Window = undefined;
 var glx_ctx: *GLXContext = undefined;
 var window: Window = undefined;
+var xim: c.XIM = undefined;
+var xic: c.XIC = undefined;
 
 var window_width: f32 = 0;
 var window_height: f32 = 0;
@@ -230,7 +240,7 @@ pub fn init() !video.Platform {
         .draw = draw,
         .submit_command_buffer = submit_command_buffer,
         .deinit = deinit,
-        .poll_event = poll_event,
+        .generate_events = generate_events,
         .create_shader = create_shader,
         .delete_shader = delete_shader,
         .create_buffer = create_buffer,
@@ -337,6 +347,7 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
         }
         return error.CannotOpenWindow;
     };
+    defer api.XFree(@ptrCast(fbc));
 
     const fb_config = fbc[0];
 
@@ -346,6 +357,7 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
         }
         return error.CannotOpenWindow;
     };
+    defer api.XFree(vi);
 
     const colormap = api.XCreateColormap(display, root_window, vi.visual, c.AllocNone);
 
@@ -451,6 +463,8 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
     try debug_text.init();
 
+    try init_keyboard();
+
     return .{
         .handle = window,
     };
@@ -464,7 +478,6 @@ fn close_window(a_window: video.Window) void {
     debug_text.deinit();
     api.XDestroyWindow(display, a_window.handle);
 }
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -544,6 +557,70 @@ fn toggle_fullscreen(_: video.Window) void {
     );
 
     api.XSync(display, false);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn init_keyboard() !void {
+    var buffer: [256:0]u8 = undefined;
+    const old_locale = std.c.setlocale(std.c.LC.CTYPE, null);
+
+    if (old_locale) |loc| {
+        for (0..buffer.len, loc) |i, ch| {
+            buffer[i] = ch;
+            if (ch == 0x00) {
+                break;
+            }
+        }
+        buffer[255] = 0x01;
+    }
+
+    if (std.c.setlocale(std.c.LC.CTYPE, "") == null) {
+        std.debug.print("Cannot set locale\n", .{});
+    }
+
+    if (api.XSetLocaleModifiers("@im=none") == null) {
+        std.debug.print("Cannot set local modifiers\n", .{});
+    }
+
+    xim = api.XOpenIM(display, null, null, null);
+
+    if (old_locale) |_| {
+        _ = std.c.setlocale(std.c.LC.CTYPE, &buffer);
+    }
+
+    var xim_style: c.XIMStyle = 0;
+
+    if (xim) |im| {
+        var xim_styles: ?*c.XIMStyles = undefined;
+        if (api.XGetIMValues(im, c.XNQueryInputStyle, &xim_styles, @as(
+            [*c]const u8,
+            null,
+        )) != null or xim_styles == null) {
+            std.debug.print("Cannot query input style\n", .{});
+        }
+
+        if (xim_styles) |styles| {
+            for (0..@intCast(styles.count_styles)) |i| {
+                if (styles.supported_styles[i] == c.XIMPreeditNothing | c.XIMStatusNothing) {
+                    xim_style = styles.supported_styles[i];
+                }
+            }
+            defer api.XFree(styles);
+        }
+
+        if (xim_style == 0) {
+            std.debug.print("Cannot find supported style\n", .{});
+        } else {
+            xic = api.XCreateIC(xim, c.XNInputStyle, xim_style, null);
+        }
+    }
+
+    if (xic) |ic| {
+        api.XSetICValues(ic, c.XNClientWindow, window, null);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -738,7 +815,7 @@ const EventMask = packed struct(c_long) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn poll_event() ?ng.Event {
+fn generate_events() void {
     var ev: c.XEvent = undefined;
 
     while (api.XPending(display, &ev) > 0) {
@@ -746,75 +823,102 @@ fn poll_event() ?ng.Event {
 
         switch (ev.type) {
             c.KeyPress => {
-                if (process_key_press(ev.xkey)) |nev| return nev;
+                process_key_press(&ev.xkey);
             },
             c.KeyRelease => {
-                if (process_key_release(ev.xkey)) |nev| return nev;
+                process_key_release(ev.xkey);
             },
             c.ButtonPress => {
-                if (process_button_press(ev.xbutton)) |nev| return nev;
+                process_button_press(ev.xbutton);
             },
             c.ButtonRelease => {
-                if (process_button_release(ev.xbutton)) |nev| return nev;
+                process_button_release(ev.xbutton);
             },
             c.EnterNotify => {
-                if (process_enter_window(ev.xcrossing)) |nev| return nev;
+                process_enter_window(ev.xcrossing);
             },
             c.LeaveNotify => {
-                if (process_leave_window(ev.xcrossing)) |nev| return nev;
+                process_leave_window(ev.xcrossing);
             },
             c.FocusIn => {
-                if (process_focus_in(ev.xfocus)) |nev| return nev;
+                process_focus_in(ev.xfocus);
             },
             c.FocusOut => {
-                if (process_focus_out(ev.xfocus)) |nev| return nev;
+                process_focus_out(ev.xfocus);
             },
             c.MotionNotify => {
-                if (process_motion_notify(ev.xmotion)) |nev| return nev;
+                process_motion_notify(ev.xmotion);
             },
             c.ClientMessage => {
-                if (process_client_message(ev.xclient)) |nev| return nev;
+                process_client_message(ev.xclient);
             },
             c.Expose => {
-                if (process_expose(ev.xexpose)) |nev| return nev;
+                process_expose(ev.xexpose);
             },
             c.MapNotify => {
-                if (process_map_notify(ev.xmap)) |nev| return nev;
+                process_map_notify(ev.xmap);
             },
             c.ConfigureNotify => {
-                if (process_configure_notify(ev.xconfigure)) |nev| return nev;
+                process_configure_notify(ev.xconfigure);
             },
             c.ReparentNotify => {
-                if (process_reparent_notify(ev.xreparent)) |nev| return nev;
+                process_reparent_notify(ev.xreparent);
             },
             else => {
                 std.debug.print("Unknown x11 event type: {}\n", .{ev.type});
             },
         }
     }
-    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_key_press(ev: c.XKeyEvent) ?ng.Event {
-    return .{ .key_down = .{
-        .scan_code = ev.keycode,
-        .key = get_key(ev.keycode),
-    } };
+fn process_key_press(ev: *const c.XKeyEvent) void {
+    if (ev.keycode > 0) {
+        ng.send_event(.{ .key_down = .{
+            .scan_code = ev.keycode,
+            .key = get_key(ev.keycode),
+        } });
+    }
+
+    var utf8_buffer: [16]u8 = undefined;
+    var utf8_len: u32 = 0;
+
+    if (xic) |ic| {
+        utf8_len = api.Xutf8LookupString(ic, ev, &utf8_buffer, utf8_buffer.len, null, null);
+    }
+
+    if (api.XFilterEvent(ev, window)) {
+        return;
+    }
+
+    if (utf8_len == 0) {
+        return;
+    }
+
+    const view = std.unicode.Utf8View.init(utf8_buffer[0..utf8_len]) catch {
+        return;
+    };
+
+    var iter = view.iterator();
+    while (iter.nextCodepoint()) |cp| {
+        ng.send_event(.{ .text = .{
+            .cp = cp,
+        } });
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_key_release(ev: c.XKeyEvent) ?ng.Event {
-    return .{ .key_up = .{
+fn process_key_release(ev: c.XKeyEvent) void {
+    ng.send_event(.{ .key_up = .{
         .scan_code = ev.keycode,
         .key = get_key(ev.keycode),
-    } };
+    } });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -976,118 +1080,110 @@ fn get_key(code: u32) event.Key {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_button_press(ev: c.XButtonEvent) ?ng.Event {
+fn process_button_press(ev: c.XButtonEvent) void {
     _ = ev;
-    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_button_release(ev: c.XButtonEvent) ?ng.Event {
+fn process_button_release(ev: c.XButtonEvent) void {
     _ = ev;
-    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_motion_notify(ev: c.XMotionEvent) ?ng.Event {
+fn process_motion_notify(ev: c.XMotionEvent) void {
     _ = ev;
-    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_enter_window(ev: c.XCrossingEvent) ?ng.Event {
+fn process_enter_window(ev: c.XCrossingEvent) void {
     _ = ev;
-    return .{ .enter = .{} };
+    ng.send_event(.{ .enter = .{} });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_leave_window(ev: c.XCrossingEvent) ?ng.Event {
+fn process_leave_window(ev: c.XCrossingEvent) void {
     _ = ev;
-    return .{ .leave = .{} };
+    ng.send_event(.{ .leave = .{} });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_focus_in(ev: c.XFocusChangeEvent) ?ng.Event {
+fn process_focus_in(ev: c.XFocusChangeEvent) void {
     _ = ev;
-    return .{ .focus = .{} };
+    ng.send_event(.{ .focus = .{} });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_focus_out(ev: c.XFocusChangeEvent) ?ng.Event {
+fn process_focus_out(ev: c.XFocusChangeEvent) void {
     _ = ev;
-    return .{ .unfocus = .{} };
+    ng.send_event(.{ .unfocus = .{} });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_map_notify(ev: c.XMapEvent) ?ng.Event {
+fn process_map_notify(ev: c.XMapEvent) void {
     _ = ev;
-    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_configure_notify(ev: c.XConfigureEvent) ?ng.Event {
+fn process_configure_notify(ev: c.XConfigureEvent) void {
     window_width = @floatFromInt(ev.width);
     window_height = @floatFromInt(ev.height);
 
-    return .{
+    ng.send_event(.{
         .resize = .{
             .width = window_width,
             .height = window_height,
         },
-    };
+    });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_reparent_notify(ev: c.XReparentEvent) ?ng.Event {
+fn process_reparent_notify(ev: c.XReparentEvent) void {
     _ = ev;
-    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_client_message(ev: c.XClientMessageEvent) ?ng.Event {
+fn process_client_message(ev: c.XClientMessageEvent) void {
     if (ev.data.l[0] == WM_DELETE_WINDOW) {
-        return .{ .quit = .{} };
+        ng.send_event(.{ .quit = .{} });
     }
-
-    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn process_expose(ev: c.XExposeEvent) ?ng.Event {
+fn process_expose(ev: c.XExposeEvent) void {
     _ = ev;
-    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1118,7 +1214,10 @@ fn acquire_swapchain_texture(self: video.CommandBuffer) !video.GPUTexture {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn begin_render_pass(self: video.CommandBuffer, info: video.BeginRenderPassInfo) !video.RenderPass {
+fn begin_render_pass(
+    self: video.CommandBuffer,
+    info: video.BeginRenderPassInfo,
+) !video.RenderPass {
     _ = self;
 
     var width: u32 = @intFromFloat(window_width);
@@ -1244,7 +1343,10 @@ fn apply_bindings(self: video.RenderPass, opaque_binding: video.Binding) void {
         if (optional_buffer) |buf| {
             if (buffer_pool.get(buf.handle)) |buffer| {
                 if (debug_api) {
-                    std.debug.print("glBindBuffer {} {}\n", .{ GL_Enum.GL_ARRAY_BUFFER, buffer.object });
+                    std.debug.print("glBindBuffer {} {}\n", .{
+                        GL_Enum.GL_ARRAY_BUFFER,
+                        buffer.object,
+                    });
                 }
                 api.glBindBuffer(.GL_ARRAY_BUFFER, buffer.object);
             }
@@ -1282,7 +1384,12 @@ fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
     switch (info.kind) {
         .mat4 => {
             if (debug_api) {
-                std.debug.print("glUniformMatrix4fv {} {} {} {*}\n", .{ info.index, 1, 0, info.data.ptr });
+                std.debug.print("glUniformMatrix4fv {} {} {} {*}\n", .{
+                    info.index,
+                    1,
+                    0,
+                    info.data.ptr,
+                });
                 const value: *const ng.Mat4 = @alignCast(@ptrCast(info.data.ptr));
                 std.debug.print("  {d:0.2}\n", .{value.*});
             }
@@ -1324,7 +1431,7 @@ fn submit_command_buffer(self: video.CommandBuffer) !void {
     if (debug_api) {
         std.debug.print("glXSwapBuffers\n", .{});
         std.debug.print("glFlush\n", .{});
-        std.debug.print("--------------------------------------------------------------------------------\n", .{});
+        std.debug.print("----------------------------------------\n", .{});
     }
     api.glXSwapBuffers(display, window);
     if (use_glflush) {
@@ -1437,7 +1544,14 @@ fn apply_shader(self: video.Shader) void {
             }
             api.glEnableVertexAttribArray(@intCast(i));
             if (debug_api) {
-                std.debug.print("glVertexAttribPointer {} {} {} {} {} {}\n", .{ i, attrib.size, gl_type, attrib.normalize, attrib.stride, attrib.offset });
+                std.debug.print("glVertexAttribPointer {} {} {} {} {} {}\n", .{
+                    i,
+                    attrib.size,
+                    gl_type,
+                    attrib.normalize,
+                    attrib.stride,
+                    attrib.offset,
+                });
             }
             api.glVertexAttribPointer(
                 @intCast(i),
@@ -1546,7 +1660,12 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
         }
         api.glBindBuffer(kind, buffer_object);
         if (debug_api) {
-            std.debug.print("glBufferData {} {} {*} {}\n", .{ kind, data.len, data.ptr, gl_update });
+            std.debug.print("glBufferData {} {} {*} {}\n", .{
+                kind,
+                data.len,
+                data.ptr,
+                gl_update,
+            });
         }
         api.glBufferData(kind, data.len, data.ptr, gl_update);
         if (debug_api) {
@@ -1829,22 +1948,38 @@ fn apply_image(self: video.Image, a_sampler: video.Sampler) void {
     api.glBindTexture(.GL_TEXTURE_2D, image.object);
 
     if (debug_api) {
-        std.debug.print("glTexParameteri {} {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, GL_Enum.GL_TEXTURE_MIN_FILTER, sampler.min_filter });
+        std.debug.print("glTexParameteri {} {} {}\n", .{
+            GL_Enum.GL_TEXTURE_2D,
+            GL_Enum.GL_TEXTURE_MIN_FILTER,
+            sampler.min_filter,
+        });
     }
     api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_MIN_FILTER, sampler.min_filter);
 
     if (debug_api) {
-        std.debug.print("glTexParameteri {} {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, GL_Enum.GL_TEXTURE_MAG_FILTER, sampler.mag_filter });
+        std.debug.print("glTexParameteri {} {} {}\n", .{
+            GL_Enum.GL_TEXTURE_2D,
+            GL_Enum.GL_TEXTURE_MAG_FILTER,
+            sampler.mag_filter,
+        });
     }
     api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_MAG_FILTER, sampler.mag_filter);
 
     if (debug_api) {
-        std.debug.print("glTexParameteri {} {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, GL_Enum.GL_TEXTURE_WRAP_S, sampler.wrap_s });
+        std.debug.print("glTexParameteri {} {} {}\n", .{
+            GL_Enum.GL_TEXTURE_2D,
+            GL_Enum.GL_TEXTURE_WRAP_S,
+            sampler.wrap_s,
+        });
     }
     api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_WRAP_S, sampler.wrap_s);
 
     if (debug_api) {
-        std.debug.print("glTexParameteri {} {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, GL_Enum.GL_TEXTURE_WRAP_T, sampler.wrap_t });
+        std.debug.print("glTexParameteri {} {} {}\n", .{
+            GL_Enum.GL_TEXTURE_2D,
+            GL_Enum.GL_TEXTURE_WRAP_T,
+            sampler.wrap_t,
+        });
     }
     api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_WRAP_T, sampler.wrap_t);
 }

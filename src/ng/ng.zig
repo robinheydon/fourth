@@ -57,7 +57,12 @@ pub const elapsed = time.elapsed;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub var prng: std.Random.DefaultPrng = undefined;
+var prng: std.Random.DefaultPrng = undefined;
+
+var event_queue: [256]Event = undefined;
+var event_queue_count: usize = 0;
+var event_queue_write_index: usize = 0;
+var event_queue_read_index: usize = 0;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -101,7 +106,23 @@ pub fn deinit() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn poll_event() ?Event {
-    return video.poll_event();
+    video.generate_events();
+
+    if (event_queue_count > 0) {
+        const ev = event_queue[event_queue_read_index];
+        event_queue_read_index = (event_queue_read_index + 1) % event_queue.len;
+        event_queue_count -= 1;
+        return ev;
+    }
+    return null;
+}
+
+pub fn send_event(ev: Event) void {
+    if (event_queue_count < event_queue.len) {
+        event_queue[event_queue_write_index] = ev;
+        event_queue_write_index = (event_queue_write_index + 1) % event_queue.len;
+        event_queue_count += 1;
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
