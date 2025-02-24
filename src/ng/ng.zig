@@ -42,12 +42,20 @@ pub const Mat4 = math.Mat4;
 pub const mat4_identity = math.mat4_identity;
 pub const ortho = math.ortho;
 pub const mat4_mul = math.mat4_mul;
+pub const mat4_invert = math.mat4_invert;
+pub const mat4_transform = math.mat4_transform;
 pub const Camera2D = math.Camera2D;
 pub const Sampler2D = video.Sampler2D;
+pub const Window = video.Window;
+pub const WindowSize = video.WindowSize;
 
 pub const Color = color.Color;
 
 pub const Event = event.Event;
+pub const KeyEvent = event.KeyEvent;
+pub const MoveEvent = event.MoveEvent;
+pub const MouseEvent = event.MouseEvent;
+pub const WheelEvent = event.WheelEvent;
 
 pub const Pool = pool.Pool;
 

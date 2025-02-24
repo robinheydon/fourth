@@ -165,6 +165,14 @@ var draw_primitive: GL_Primitive = .GL_TRIANGLES;
 var current_shader: video.Shader = undefined;
 var use_glflush: bool = false;
 
+var mouse_buttons: ng.event.MouseButtons = .{};
+var mouse_last_click: ng.event.MouseButton = .none;
+var mouse_last_click_time: u64 = 0;
+var mouse_last_click_x: f32 = 0;
+var mouse_last_click_y: f32 = 0;
+var mouse_last_x: f32 = 0;
+var mouse_last_y: f32 = 0;
+
 var keysyms: [2][256]u32 = undefined;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1081,7 +1089,96 @@ fn get_key(code: u32) event.Key {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_button_press(ev: c.XButtonEvent) void {
-    _ = ev;
+    switch (ev.button) {
+        1 => {
+            mouse_buttons.left = true;
+            const now = ng.time.elapsed_us();
+            if (mouse_last_click == .left) {
+                const elapsed = now - mouse_last_click_time;
+                if (elapsed < 500_000) // 500 ms double click time
+                {
+                    ng.send_event(.{ .mouse_double_click = .{
+                        .button = .left,
+                        .x = mouse_last_x,
+                        .y = mouse_last_y,
+                    } });
+                    mouse_last_click = .none;
+                    mouse_last_click_time = 0;
+                    return;
+                }
+            }
+            ng.send_event(.{ .mouse_down = .{
+                .button = .left,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+            mouse_last_click = .left;
+            mouse_last_click_time = now;
+            mouse_last_click_x = mouse_last_x;
+            mouse_last_click_y = mouse_last_y;
+        },
+        2 => {
+            mouse_buttons.middle = true;
+            ng.send_event(.{ .mouse_down = .{
+                .button = .middle,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+            mouse_last_click = .none;
+            mouse_last_click_time = 0;
+        },
+        3 => {
+            mouse_buttons.right = true;
+            ng.send_event(.{ .mouse_down = .{
+                .button = .right,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+            mouse_last_click = .none;
+            mouse_last_click_time = 0;
+        },
+        4 => {
+            ng.send_event(.{ .mouse_wheel = .{
+                .dy = 1,
+            } });
+        },
+        5 => {
+            ng.send_event(.{ .mouse_wheel = .{
+                .dy = -1,
+            } });
+        },
+        6 => {
+            ng.send_event(.{ .mouse_wheel = .{
+                .dx = 1,
+            } });
+        },
+        7 => {
+            ng.send_event(.{ .mouse_wheel = .{
+                .dx = -1,
+            } });
+        },
+        8 => {
+            mouse_buttons.x1 = true;
+            ng.send_event(.{ .mouse_down = .{
+                .button = .x1,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+            mouse_last_click = .none;
+            mouse_last_click_time = 0;
+        },
+        9 => {
+            mouse_buttons.x2 = true;
+            ng.send_event(.{ .mouse_down = .{
+                .button = .x2,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+            mouse_last_click = .none;
+            mouse_last_click_time = 0;
+        },
+        else => {},
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1089,7 +1186,49 @@ fn process_button_press(ev: c.XButtonEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_button_release(ev: c.XButtonEvent) void {
-    _ = ev;
+    switch (ev.button) {
+        1 => {
+            mouse_buttons.left = false;
+            ng.send_event(.{ .mouse_up = .{
+                .button = .left,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+        },
+        2 => {
+            mouse_buttons.middle = false;
+            ng.send_event(.{ .mouse_up = .{
+                .button = .middle,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+        },
+        3 => {
+            mouse_buttons.right = false;
+            ng.send_event(.{ .mouse_up = .{
+                .button = .right,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+        },
+        8 => {
+            mouse_buttons.x1 = false;
+            ng.send_event(.{ .mouse_up = .{
+                .button = .x1,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+        },
+        9 => {
+            mouse_buttons.x2 = false;
+            ng.send_event(.{ .mouse_up = .{
+                .button = .x2,
+                .x = mouse_last_x,
+                .y = mouse_last_y,
+            } });
+        },
+        else => {},
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1097,7 +1236,22 @@ fn process_button_release(ev: c.XButtonEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_motion_notify(ev: c.XMotionEvent) void {
-    _ = ev;
+    const x: f32 = @floatFromInt(ev.x);
+    const y: f32 = @floatFromInt(ev.y);
+    ng.send_event(.{ .mouse_move = .{
+        .x = x,
+        .y = y,
+        .buttons = mouse_buttons,
+    } });
+
+    if (mouse_last_click == .left) {
+        if (@abs(mouse_last_click_x - x) > 8 or @abs(mouse_last_click_y - y) > 8) {
+            mouse_last_click = .none;
+        }
+    }
+
+    mouse_last_x = x;
+    mouse_last_y = y;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
