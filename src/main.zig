@@ -129,10 +129,9 @@ pub fn main() !void {
         const window_size = state.window.get_size();
         const projection = ng.ortho(window_size.width, window_size.height);
 
-        const now: f32 = @floatCast(ng.elapsed());
         var camera: ng.Camera2D = .identity();
         camera.zoom = state.map_zoom;
-        camera.rotate = now / 10;
+        camera.rotate = 0;
         camera.origin = .{ window_size.width / 2, window_size.height / 2 };
         camera.target = state.map_center;
         const view = camera.get_matrix();
@@ -260,13 +259,11 @@ fn update_fps(dt: f32) void {
 
 fn debug_map_state(mat: ng.Mat4, window_size: ng.WindowSize) void {
     const inv_mat = ng.mat4_invert(mat);
-    ng.debug_print("{} {d:8.5}\n", .{ state.map_state, mat });
-    ng.debug_print("{} {d:8.5}\n", .{ state.map_state, inv_mat });
 
     const x = 2 * state.map_last[0] / window_size.width - 1;
     const y = 1 - 2 * state.map_last[1] / window_size.height;
 
-    const world_position = ng.mat4_transform(inv_mat, .{ x, y, 0, 1 });
+    const world_position = ng.mat4_transform2(inv_mat, .{ x, y });
     ng.debug_print("{d:8.5}\n", .{world_position});
 }
 

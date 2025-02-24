@@ -44,6 +44,7 @@ pub const ortho = math.ortho;
 pub const mat4_mul = math.mat4_mul;
 pub const mat4_invert = math.mat4_invert;
 pub const mat4_transform = math.mat4_transform;
+pub const mat4_transform2 = math.mat4_transform2;
 pub const Camera2D = math.Camera2D;
 pub const Sampler2D = video.Sampler2D;
 pub const Window = video.Window;
