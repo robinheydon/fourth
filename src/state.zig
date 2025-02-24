@@ -44,6 +44,17 @@ pub var map_start_click_x: f32 = 0;
 pub var map_start_click_y: f32 = 0;
 pub var map_state: MapState = .none;
 
+pub var key_quit: ng.Key = .escape;
+pub var key_toggle_fullscreen: ng.Key = .f11;
+pub var key_move_up: ng.Key = .W;
+pub var key_move_down: ng.Key = .S;
+pub var key_move_left: ng.Key = .A;
+pub var key_move_right: ng.Key = .D;
+pub var key_move_up2: ng.Key = .up;
+pub var key_move_down2: ng.Key = .down;
+pub var key_move_left2: ng.Key = .left;
+pub var key_move_right2: ng.Key = .right;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -171,10 +171,10 @@ pub fn mat4_invert(a: Mat4) Mat4 {
 
 pub fn ortho(width: f32, height: f32) Mat4 {
     return .{
-        2 / width, 0,          0,  0,
+        2 / width, 0,           0,  0,
         0,         -2 / height, 0,  0,
-        0,         0,          -2, 0,
-        -1,        1,         1,  1,
+        0,         0,           -2, 0,
+        -1,        1,           1,  1,
     };
 }
 
@@ -205,8 +205,8 @@ pub const Camera2D = struct {
         return mat4_mul(mat4_mul(origin, mat4_mul(zoom, rotate)), target);
     }
 
-    pub fn to_world (self: Camera2D, pos: Vec2) Vec2 {
-        const mat = mat4_invert (self.get_matrix ());
+    pub fn to_world(self: Camera2D, pos: Vec2) Vec2 {
+        const mat = mat4_invert(self.get_matrix());
         return mat4_transform2(mat, pos);
     }
 };

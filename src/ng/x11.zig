@@ -29,6 +29,8 @@ const event = ng.event;
 const debug_text = ng.debug_text;
 const Pool = ng.Pool;
 
+const log = ng.Logger(.ng_x11);
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -223,7 +225,7 @@ pub fn init() !video.Platform {
         if (glx_major == 1 and glx_minor < 3) {
             return error.GLXVersionInvalid;
         }
-        // std.debug.print("GLX v{}.{}\n", .{ glx_major, glx_minor });
+        log.note("GLX v{}.{}", .{ glx_major, glx_minor });
     }
 
     ng.lookup_using(API, &api, api.glXGetProcAddressARB);
@@ -317,14 +319,53 @@ fn opengl_debug_message(
         0x826B => "Notification",
         else => "Unknown",
     };
-
-    std.debug.print("OpenGL: {s} {s} {x} {s} : {s}\n", .{
-        source_name,
-        kind_name,
-        id,
-        severity_name,
-        message[0..length],
-    });
+    switch (severity) {
+        0x9146 => {
+            log.err ("OpenGL: {s} {s} {x} {s} : {s}", .{
+                source_name,
+                kind_name,
+                id,
+                severity_name,
+                message[0..length],
+            });
+        },
+        0x9147 => {
+            log.warn ("OpenGL: {s} {s} {x} {s} : {s}", .{
+                source_name,
+                kind_name,
+                id,
+                severity_name,
+                message[0..length],
+            });
+        },
+        0x9148 => {
+            log.info ("OpenGL: {s} {s} {x} {s} : {s}", .{
+                source_name,
+                kind_name,
+                id,
+                severity_name,
+                message[0..length],
+            });
+        },
+        0x826B => {
+            log.note ("OpenGL: {s} {s} {x} {s} : {s}", .{
+                source_name,
+                kind_name,
+                id,
+                severity_name,
+                message[0..length],
+            });
+        },
+        else => {
+            log.debug ("OpenGL: {s} {s} {x} {s} : {s}", .{
+                source_name,
+                kind_name,
+                id,
+                severity_name,
+                message[0..length],
+            });
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -352,7 +393,7 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
     var fb_count: u32 = undefined;
     const fbc = api.glXChooseFBConfig(display, screen_id, &glx_attrs, &fb_count) orelse {
         if (debug_api) {
-            std.debug.print("glXChooseFBConfig failed\n", .{});
+            log.err("glXChooseFBConfig failed", .{});
         }
         return error.CannotOpenWindow;
     };
@@ -362,7 +403,7 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
     const vi = api.glXGetVisualFromFBConfig(display, fb_config) orelse {
         if (debug_api) {
-            std.debug.print("glXGetVisualFromFBConfig failed\n", .{});
+            log.err("glXGetVisualFromFBConfig failed", .{});
         }
         return error.CannotOpenWindow;
     };
@@ -431,7 +472,7 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
         c.True,
         &context_attribs,
     ) orelse {
-        std.debug.print("glXCreateContextAttribsARB failed\n", .{});
+        log.err("glXCreateContextAttribsARB failed", .{});
         return error.CannotOpenWindow;
     };
 
@@ -451,11 +492,11 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
     api.glGenVertexArrays(1, &vao);
     if (debug_api) {
-        std.debug.print("glGenVertexArrays {} {}\n", .{ 1, vao });
+        log.debug("glGenVertexArrays {} {}", .{ 1, vao });
     }
 
     if (debug_api) {
-        std.debug.print("glBindVertexArray {}\n", .{vao});
+        log.debug("glBindVertexArray {}", .{vao});
     }
     api.glBindVertexArray(vao);
 
@@ -572,7 +613,7 @@ fn toggle_fullscreen(_: video.Window) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn acknowledge_resize (_: video.Window) void {
+fn acknowledge_resize(_: video.Window) void {
     api.XSync(display, false);
     api.glFlush();
 }
@@ -596,11 +637,11 @@ fn init_keyboard() !void {
     }
 
     if (std.c.setlocale(std.c.LC.CTYPE, "") == null) {
-        std.debug.print("Cannot set locale\n", .{});
+        log.warn("Cannot set locale", .{});
     }
 
     if (api.XSetLocaleModifiers("@im=none") == null) {
-        std.debug.print("Cannot set local modifiers\n", .{});
+        log.warn("Cannot set local modifiers", .{});
     }
 
     xim = api.XOpenIM(display, null, null, null);
@@ -617,7 +658,7 @@ fn init_keyboard() !void {
             [*c]const u8,
             null,
         )) != null or xim_styles == null) {
-            std.debug.print("Cannot query input style\n", .{});
+            log.warn("Cannot query input style", .{});
         }
 
         if (xim_styles) |styles| {
@@ -630,7 +671,7 @@ fn init_keyboard() !void {
         }
 
         if (xim_style == 0) {
-            std.debug.print("Cannot find supported style\n", .{});
+            log.warn("Cannot find supported style", .{});
         } else {
             xic = api.XCreateIC(xim, c.XNInputStyle, xim_style, null);
         }
@@ -883,7 +924,7 @@ fn generate_events() void {
                 process_reparent_notify(ev.xreparent);
             },
             else => {
-                std.debug.print("Unknown x11 event type: {}\n", .{ev.type});
+                log.debug("Unknown x11 event type: {}", .{ev.type});
             },
         }
     }
@@ -895,9 +936,14 @@ fn generate_events() void {
 
 fn process_key_press(ev: *const c.XKeyEvent) void {
     if (ev.keycode > 0) {
+        const key = get_key (ev.keycode);
+
+        ng.key_pressed[@intFromEnum (key)] = true;
+        ng.key_down[@intFromEnum (key)] = true;
+
         ng.send_event(.{ .key_down = .{
             .scan_code = ev.keycode,
-            .key = get_key(ev.keycode),
+            .key = key,
         } });
     }
 
@@ -933,9 +979,13 @@ fn process_key_press(ev: *const c.XKeyEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_key_release(ev: c.XKeyEvent) void {
+    const key = get_key (ev.keycode);
+
+    ng.key_down[@intFromEnum (key)] = false;
+
     ng.send_event(.{ .key_up = .{
         .scan_code = ev.keycode,
-        .key = get_key(ev.keycode),
+        .key = key,
     } });
 }
 
@@ -1090,7 +1140,7 @@ fn get_key(code: u32) event.Key {
     for (keysym_table) |entry| {
         if (entry.sym == sym) return entry.key;
     }
-    std.debug.print("Unknown {x} {}\n", .{ sym, code });
+    log.debug("Unknown {x} {}", .{ sym, code });
     return .unknown;
 }
 
@@ -1390,24 +1440,22 @@ fn begin_render_pass(
     if (height == 0) height = 1;
 
     if (debug_api) {
-        std.debug.print("glViewport {} {} {} {}\n", .{ 0, 0, width, height });
+        log.debug("glViewport {} {} {} {}", .{ 0, 0, width, height });
     }
     api.glViewport(0, 0, width, height);
     if (debug_api) {
-        std.debug.print("glScissor {} {} {} {}\n", .{ 0, 0, width, height });
+        log.debug("glScissor {} {} {} {}", .{ 0, 0, width, height });
     }
     api.glScissor(0, 0, width, height);
-
-    // std.debug.print ("{} {}\n", .{width, height});
 
     if (info.load == .clear) {
         const col = info.clear_color.to_vec4();
         if (debug_api) {
-            std.debug.print("glClearColor {} {} {} {}\n", .{ col[0], col[1], col[2], col[3] });
+            log.debug("glClearColor {} {} {} {}", .{ col[0], col[1], col[2], col[3] });
         }
         api.glClearColor(col[0], col[1], col[2], col[3]);
         if (debug_api) {
-            std.debug.print("glClear {}\n", .{.GL_COLOR_BUFFER_BIT});
+            log.debug("glClear {}", .{.GL_COLOR_BUFFER_BIT});
         }
         api.glClear(.GL_COLOR_BUFFER_BIT);
     }
@@ -1424,17 +1472,17 @@ fn begin_render_pass(
 fn end_render_pass(self: video.RenderPass) void {
     _ = self;
     if (debug_api) {
-        std.debug.print("glBindBuffer {} {}\n", .{ GL_Enum.GL_ARRAY_BUFFER, 0 });
+        log.debug("glBindBuffer {} {}", .{ GL_Enum.GL_ARRAY_BUFFER, 0 });
     }
     api.glBindBuffer(.GL_ARRAY_BUFFER, 0);
     if (debug_api) {
-        std.debug.print("glUseProgram {}\n", .{0});
+        log.debug("glUseProgram {}", .{0});
     }
     api.glUseProgram(0);
     for (0..enabled_attributes.len) |i| {
         if (enabled_attributes[i]) {
             if (debug_api) {
-                std.debug.print("glDisableVertexAttribArray {}\n", .{i});
+                log.debug("glDisableVertexAttribArray {}", .{i});
             }
             api.glDisableVertexAttribArray(@intCast(i));
             enabled_attributes[i] = false;
@@ -1457,7 +1505,7 @@ fn apply_pipeline(self: video.RenderPass, opaque_pipeline: video.Pipeline) void 
 
     current_shader = shader;
     if (debug_api) {
-        std.debug.print("glUseProgram {} {?s}\n", .{ gl_shader.program, gl_shader.label });
+        log.debug("glUseProgram {} {?s}", .{ gl_shader.program, gl_shader.label });
     }
     api.glUseProgram(gl_shader.program);
 
@@ -1507,7 +1555,7 @@ fn apply_bindings(self: video.RenderPass, opaque_binding: video.Binding) void {
         if (optional_buffer) |buf| {
             if (buffer_pool.get(buf.handle)) |buffer| {
                 if (debug_api) {
-                    std.debug.print("glBindBuffer {} {}\n", .{
+                    log.debug("glBindBuffer {} {}", .{
                         GL_Enum.GL_ARRAY_BUFFER,
                         buffer.object,
                     });
@@ -1536,7 +1584,7 @@ fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
     const gl_shader = shader_pool.get(current_shader.handle) orelse return;
     const loc = api.glGetUniformLocation(gl_shader.program, info.name);
     if (loc != info.index) {
-        std.debug.print("Mismatch on uniform {?s} {s} {} = {}\n", .{
+        log.err("Mismatch on uniform {?s} {s} {} = {}", .{
             gl_shader.label,
             info.name,
             info.index,
@@ -1548,21 +1596,21 @@ fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
     switch (info.kind) {
         .mat4 => {
             if (debug_api) {
-                std.debug.print("glUniformMatrix4fv {} {} {} {*}\n", .{
+                log.debug("glUniformMatrix4fv {} {} {} {*}", .{
                     info.index,
                     1,
                     0,
                     info.data.ptr,
                 });
                 const value: *const ng.Mat4 = @alignCast(@ptrCast(info.data.ptr));
-                std.debug.print("  {d:0.2}\n", .{value.*});
+                log.debug("  {d:0.2}", .{value.*});
             }
             api.glUniformMatrix4fv(info.index, 1, 0, info.data.ptr);
         },
         .u32 => {
             const value: *const u32 = @alignCast(@ptrCast(info.data.ptr));
             if (debug_api) {
-                std.debug.print("glUniform1i {} {}\n", .{ info.index, value.* });
+                log.debug("glUniform1i {} {}", .{ info.index, value.* });
             }
             api.glUniform1i(info.index, value.*);
         },
@@ -1577,11 +1625,11 @@ fn draw(self: video.RenderPass, num_vertexes: usize) void {
     _ = self;
 
     if (debug_api) {
-        std.debug.print("glDrawArrays {} {} {}\n", .{ draw_primitive, 0, num_vertexes });
+        log.debug("glDrawArrays {} {} {}", .{ draw_primitive, 0, num_vertexes });
     }
     api.glDrawArrays(draw_primitive, 0, @intCast(num_vertexes));
     if (debug_api) {
-        std.debug.print("     -----\n", .{});
+        log.debug("     -----", .{});
     }
 }
 
@@ -1593,9 +1641,9 @@ fn submit_command_buffer(self: video.CommandBuffer) !void {
     _ = self;
 
     if (debug_api) {
-        std.debug.print("glXSwapBuffers\n", .{});
-        std.debug.print("glFlush\n", .{});
-        std.debug.print("----------------------------------------\n", .{});
+        log.debug("glXSwapBuffers", .{});
+        log.debug("glFlush", .{});
+        log.debug("----------------------------------------", .{});
     }
     api.glXSwapBuffers(display, window);
     if (use_glflush) {
@@ -1660,7 +1708,7 @@ fn compile_shader_part(part: GL_Enum, source: [*:0]const u8) video.VideoError!u3
         var info_log: [2048]u8 = undefined;
         var length: u32 = undefined;
         api.glGetShaderInfoLog(shader, info_log.len, &length, &info_log);
-        std.debug.print("{s}\n", .{info_log[0..length]});
+        log.debug("{s}", .{info_log[0..length]});
         return error.CannotCreateShader;
     }
 
@@ -1685,7 +1733,7 @@ fn link_shader_parts(vertex: u32, fragment: u32) video.VideoError!u32 {
         var info_log: [2048]u8 = undefined;
         var length: u32 = undefined;
         api.glGetProgramInfoLog(program, info_log.len, &length, &info_log);
-        std.debug.print("{s}\n", .{info_log[0..length]});
+        log.err("{s}", .{info_log[0..length]});
         return error.CannotCreateShader;
     }
 
@@ -1704,11 +1752,11 @@ fn apply_shader(self: video.Shader) void {
         if (attrib.vertex_type != .unknown) {
             const gl_type = get_gl_vertex_type(attrib.vertex_type);
             if (debug_api) {
-                std.debug.print("glEnableVertexAttribArray {}\n", .{i});
+                log.debug("glEnableVertexAttribArray {}", .{i});
             }
             api.glEnableVertexAttribArray(@intCast(i));
             if (debug_api) {
-                std.debug.print("glVertexAttribPointer {} {} {} {} {} {}\n", .{
+                log.debug("glVertexAttribPointer {} {} {} {} {} {}", .{
                     i,
                     attrib.size,
                     gl_type,
@@ -1728,7 +1776,7 @@ fn apply_shader(self: video.Shader) void {
             enabled_attributes[i] = true;
         } else if (enabled_attributes[i]) {
             if (debug_api) {
-                std.debug.print("glDisableVertexAttribArray {}\n", .{i});
+                log.debug("glDisableVertexAttribArray {}", .{i});
             }
             api.glDisableVertexAttribArray(@intCast(i));
             enabled_attributes[i] = false;
@@ -1790,7 +1838,7 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
 
     api.glGenBuffers(1, &buffer_object);
     if (debug_api) {
-        std.debug.print("glGenBuffers {} {}\n", .{ 1, buffer_object });
+        log.debug("glGenBuffers {} {}", .{ 1, buffer_object });
     }
 
     if (info.label) |label| {
@@ -1820,11 +1868,11 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
 
     if (info.data) |data| {
         if (debug_api) {
-            std.debug.print("glBindBuffer {} {}\n", .{ kind, buffer_object });
+            log.debug("glBindBuffer {} {}", .{ kind, buffer_object });
         }
         api.glBindBuffer(kind, buffer_object);
         if (debug_api) {
-            std.debug.print("glBufferData {} {} {*} {}\n", .{
+            log.debug("glBufferData {} {} {*} {}", .{
                 kind,
                 data.len,
                 data.ptr,
@@ -1833,20 +1881,20 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
         }
         api.glBufferData(kind, data.len, data.ptr, gl_update);
         if (debug_api) {
-            std.debug.print("glBindBuffer {} {}\n", .{ kind, 0 });
+            log.debug("glBindBuffer {} {}", .{ kind, 0 });
         }
         api.glBindBuffer(kind, 0);
     } else if (info.size) |size| {
         if (debug_api) {
-            std.debug.print("glBindBuffer {} {}\n", .{ kind, buffer_object });
+            log.debug("glBindBuffer {} {}", .{ kind, buffer_object });
         }
         api.glBindBuffer(kind, buffer_object);
         if (debug_api) {
-            std.debug.print("glBufferData {} {} {} {}\n", .{ kind, size, null, gl_update });
+            log.debug("glBufferData {} {} {} {}", .{ kind, size, null, gl_update });
         }
         api.glBufferData(kind, size, null, gl_update);
         if (debug_api) {
-            std.debug.print("glBindBuffer {} {}\n", .{ kind, 0 });
+            log.debug("glBindBuffer {} {}", .{ kind, 0 });
         }
         api.glBindBuffer(kind, 0);
     }
@@ -1870,15 +1918,15 @@ fn update_buffer(self: video.Buffer, data: []const u8) void {
     };
 
     if (debug_api) {
-        std.debug.print("glBindBuffer {} {}\n", .{ kind, buffer.object });
+        log.debug("glBindBuffer {} {}", .{ kind, buffer.object });
     }
     api.glBindBuffer(kind, buffer.object);
     if (debug_api) {
-        std.debug.print("glBufferSubData {} {} {} {*}\n", .{ kind, 0, data.len, data.ptr });
+        log.debug("glBufferSubData {} {} {} {*}", .{ kind, 0, data.len, data.ptr });
     }
     api.glBufferSubData(kind, 0, data.len, data.ptr);
     if (debug_api) {
-        std.debug.print("glBindBuffer {} {}\n", .{ kind, 0 });
+        log.debug("glBindBuffer {} {}", .{ kind, 0 });
     }
     api.glBindBuffer(kind, 0);
 }
@@ -2021,11 +2069,11 @@ fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
 
     api.glGenTextures(1, &image_object);
     if (debug_api) {
-        std.debug.print("glGenTextures {} {}\n", .{ 1, image_object });
+        log.debug("glGenTextures {} {}", .{ 1, image_object });
     }
 
     if (debug_api) {
-        std.debug.print("glBindTexture {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, image_object });
+        log.debug("glBindTexture {} {}", .{ GL_Enum.GL_TEXTURE_2D, image_object });
     }
     api.glBindTexture(.GL_TEXTURE_2D, image_object);
 
@@ -2033,7 +2081,7 @@ fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
 
     if (info.data) |data| {
         if (debug_api) {
-            std.debug.print("glTexImage2D {} {} {} {} {} {} {} {} {?*}\n", .{
+            log.debug("glTexImage2D {} {} {} {} {} {} {} {} {?*}", .{
                 GL_Enum.GL_TEXTURE_2D,
                 0, // level
                 format.internal,
@@ -2059,7 +2107,7 @@ fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
     }
 
     if (debug_api) {
-        std.debug.print("glBindTexture {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, 0 });
+        log.debug("glBindTexture {} {}", .{ GL_Enum.GL_TEXTURE_2D, 0 });
     }
     api.glBindTexture(.GL_TEXTURE_2D, 0);
 
@@ -2102,17 +2150,17 @@ fn apply_image(self: video.Image, a_sampler: video.Sampler) void {
     const sampler = sampler_pool.get(sampler_index) orelse return;
 
     if (debug_api) {
-        std.debug.print("glActiveTexture {}\n", .{GL_Enum.GL_TEXTURE0});
+        log.debug("glActiveTexture {}", .{GL_Enum.GL_TEXTURE0});
     }
     api.glActiveTexture(.GL_TEXTURE0);
 
     if (debug_api) {
-        std.debug.print("glBindTexture {} {}\n", .{ GL_Enum.GL_TEXTURE_2D, image.object });
+        log.debug("glBindTexture {} {}", .{ GL_Enum.GL_TEXTURE_2D, image.object });
     }
     api.glBindTexture(.GL_TEXTURE_2D, image.object);
 
     if (debug_api) {
-        std.debug.print("glTexParameteri {} {} {}\n", .{
+        log.debug("glTexParameteri {} {} {}", .{
             GL_Enum.GL_TEXTURE_2D,
             GL_Enum.GL_TEXTURE_MIN_FILTER,
             sampler.min_filter,
@@ -2121,7 +2169,7 @@ fn apply_image(self: video.Image, a_sampler: video.Sampler) void {
     api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_MIN_FILTER, sampler.min_filter);
 
     if (debug_api) {
-        std.debug.print("glTexParameteri {} {} {}\n", .{
+        log.debug("glTexParameteri {} {} {}", .{
             GL_Enum.GL_TEXTURE_2D,
             GL_Enum.GL_TEXTURE_MAG_FILTER,
             sampler.mag_filter,
@@ -2130,7 +2178,7 @@ fn apply_image(self: video.Image, a_sampler: video.Sampler) void {
     api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_MAG_FILTER, sampler.mag_filter);
 
     if (debug_api) {
-        std.debug.print("glTexParameteri {} {} {}\n", .{
+        log.debug("glTexParameteri {} {} {}", .{
             GL_Enum.GL_TEXTURE_2D,
             GL_Enum.GL_TEXTURE_WRAP_S,
             sampler.wrap_s,
@@ -2139,7 +2187,7 @@ fn apply_image(self: video.Image, a_sampler: video.Sampler) void {
     api.glTexParameteri(.GL_TEXTURE_2D, .GL_TEXTURE_WRAP_S, sampler.wrap_s);
 
     if (debug_api) {
-        std.debug.print("glTexParameteri {} {} {}\n", .{
+        log.debug("glTexParameteri {} {} {}", .{
             GL_Enum.GL_TEXTURE_2D,
             GL_Enum.GL_TEXTURE_WRAP_T,
             sampler.wrap_t,

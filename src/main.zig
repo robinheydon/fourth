@@ -11,12 +11,17 @@ const ng = @import("ng");
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const state = @import("state.zig");
+pub const log = ng.Logger (.main);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
+    log.set_min_level (.note);
+    log.info ("starting", .{});
+    defer log.info ("ending", .{});
+
     try ng.init(.{
         .video = true,
         .audio = true,
@@ -86,7 +91,7 @@ pub fn main() !void {
         ng.debug_reset(state.window);
 
         if (state.average_frame_rate > 0) {
-            ng.debug_print("{} Hz\n", .{state.average_frame_rate});
+            ng.debug_print("{} Hz", .{state.average_frame_rate});
         }
 
         update_fps(dt);
@@ -116,16 +121,33 @@ pub fn main() !void {
                     process_wheel_event(wheel_event);
                 },
                 .resize => {
-                    state.window.acknowledge_resize ();
+                    state.window.acknowledge_resize();
                 },
                 .enter => {},
                 .leave => {},
                 .focus => {},
                 .unfocus => {},
                 else => {
-                    std.debug.print("{}\n", .{event});
+                    log.debug("{}", .{event});
                 },
             }
+        }
+
+        if (ng.is_key_down (state.key_move_down) or ng.is_key_down (state.key_move_down2))
+        {
+            state.map_center[1] -= 10 / state.map_zoom;
+        }
+        if (ng.is_key_down (state.key_move_up) or ng.is_key_down (state.key_move_up2))
+        {
+            state.map_center[1] += 10 / state.map_zoom;
+        }
+        if (ng.is_key_down (state.key_move_left) or ng.is_key_down (state.key_move_left2))
+        {
+            state.map_center[0] -= 10 / state.map_zoom;
+        }
+        if (ng.is_key_down (state.key_move_right) or ng.is_key_down (state.key_move_right2))
+        {
+            state.map_center[0] += 10 / state.map_zoom;
         }
 
         const window_size = state.window.get_size();
@@ -167,16 +189,17 @@ pub fn main() !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_key_down(event: ng.KeyEvent) void {
-    if (event.key == .escape) {
+    if (event.key == state.key_quit)
+    {
         state.running = false;
-    } else if (event.key == .left) {
-        state.map_rotate -= 0.1;
-    } else if (event.key == .right) {
-        state.map_rotate += 0.1;
-    } else if (event.key == .f11) {
+    }
+    else if (event.key == state.key_toggle_fullscreen)
+    {
         state.window.toggle_fullscreen();
-    } else {
-        std.debug.print("{} ({})\n", .{ event.key, event.scan_code });
+    }
+    else
+    {
+        // log.debug("{} ({})", .{ event.key, event.scan_code });
     }
 }
 
@@ -195,8 +218,8 @@ fn process_mouse_move(event: ng.MoveEvent) void {
     }
 
     if (state.map_state == .dragging) {
-        const start_position = state.camera.to_world (state.map_last_mouse);
-        const end_position = state.camera.to_world (.{event.x, event.y});
+        const start_position = state.camera.to_world(state.map_last_mouse);
+        const end_position = state.camera.to_world(.{ event.x, event.y });
         const delta_pos = start_position - end_position;
 
         state.map_center += delta_pos;
@@ -210,7 +233,7 @@ fn process_mouse_move(event: ng.MoveEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_mouse_double_click(event: ng.MouseEvent) void {
-    _ = event; // std.debug.print("double click {}\n", .{event.button});
+    _ = event; // log.info("double click {}", .{event.button});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -218,7 +241,7 @@ fn process_mouse_double_click(event: ng.MouseEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_mouse_down(event: ng.MouseEvent) void {
-    std.debug.print("down {} {d} {d}\n", .{ event.button, event.x, event.y });
+    log.info("down {} {d} {d}", .{ event.button, event.x, event.y });
     if (event.button == .left) {
         state.map_state = .clicked;
         state.map_start_click_x = event.x;
@@ -270,9 +293,9 @@ fn update_fps(dt: f32) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn debug_map_state() void {
-    const position = state.camera.to_world (state.map_last_mouse);
+    const position = state.camera.to_world(state.map_last_mouse);
 
-    ng.debug_print("{d:8.5} -> {d:8.5}\n", .{state.map_last_mouse, position});
+    ng.debug_print("{d:8.5} -> {d:8.5}", .{ state.map_last_mouse, position });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
