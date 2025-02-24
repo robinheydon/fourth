@@ -239,6 +239,7 @@ pub fn init() !video.Platform {
         .set_swap_interval = set_swap_interval,
         .acquire_command_buffer = acquire_command_buffer,
         .toggle_fullscreen = toggle_fullscreen,
+        .acknowledge_resize = acknowledge_resize,
         .acquire_swapchain_texture = acquire_swapchain_texture,
         .begin_render_pass = begin_render_pass,
         .end_render_pass = end_render_pass,
@@ -565,6 +566,15 @@ fn toggle_fullscreen(_: video.Window) void {
     );
 
     api.XSync(display, false);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn acknowledge_resize (_: video.Window) void {
+    api.XSync(display, false);
+    api.glFlush();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

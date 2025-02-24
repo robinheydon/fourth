@@ -54,6 +54,7 @@ pub const Platform = struct {
     get_window_size: *const fn (Window) WindowSize,
     set_swap_interval: *const fn (Window, SwapInterval) void,
     toggle_fullscreen: *const fn (Window) void,
+    acknowledge_resize: *const fn (Window) void,
 
     acquire_command_buffer: *const fn (Window) VideoError!CommandBuffer,
     submit_command_buffer: *const fn (CommandBuffer) VideoError!void,
@@ -140,6 +141,10 @@ pub const Window = struct {
 
     pub fn toggle_fullscreen(self: Window) void {
         platform.toggle_fullscreen(self);
+    }
+
+    pub fn acknowledge_resize(self: Window) void {
+        platform.acknowledge_resize (self);
     }
 };
 
@@ -381,15 +386,15 @@ fn attribute_info(comptime T: type) !VertexAttribute {
             .size = 1,
             .vertex_type = .f32,
         },
-        [2]f32 => return .{
+        ng.Vec2, [2]f32 => return .{
             .size = 2,
             .vertex_type = .f32,
         },
-        [3]f32 => return .{
+        ng.Vec3, [3]f32 => return .{
             .size = 3,
             .vertex_type = .f32,
         },
-        [4]f32 => return .{
+        ng.Vec4, [4]f32 => return .{
             .size = 4,
             .vertex_type = .f32,
         },

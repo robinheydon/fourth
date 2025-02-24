@@ -115,7 +115,9 @@ pub fn main() !void {
                 .mouse_wheel => |wheel_event| {
                     process_wheel_event(wheel_event);
                 },
-                .resize => {},
+                .resize => {
+                    state.window.acknowledge_resize ();
+                },
                 .enter => {},
                 .leave => {},
                 .focus => {},
@@ -129,15 +131,15 @@ pub fn main() !void {
         const window_size = state.window.get_size();
         const projection = ng.ortho(window_size.width, window_size.height);
 
-        var camera: ng.Camera2D = .identity();
-        camera.zoom = state.map_zoom;
-        camera.rotate = 0;
-        camera.origin = .{ window_size.width / 2, window_size.height / 2 };
-        camera.target = state.map_center;
-        const view = camera.get_matrix();
+        state.camera = .identity();
+        state.camera.zoom = state.map_zoom;
+        state.camera.rotate = state.map_rotate;
+        state.camera.origin = state.map_center;
+        state.camera.target = .{ window_size.width / 2, window_size.height / 2 };
+        const view = state.camera.get_matrix();
         const mvp = ng.mat4_mul(view, projection);
 
-        debug_map_state(mvp, window_size);
+        debug_map_state();
 
         const command_buffer = try state.window.acquire_command_buffer();
         const swapchain_texture = try command_buffer.acquire_swapchain_texture();
@@ -167,6 +169,10 @@ pub fn main() !void {
 fn process_key_down(event: ng.KeyEvent) void {
     if (event.key == .escape) {
         state.running = false;
+    } else if (event.key == .left) {
+        state.map_rotate -= 0.1;
+    } else if (event.key == .right) {
+        state.map_rotate += 0.1;
     } else if (event.key == .f11) {
         state.window.toggle_fullscreen();
     } else {
@@ -188,9 +194,15 @@ fn process_mouse_move(event: ng.MoveEvent) void {
         }
     }
 
-    if (state.map_state == .dragging) {}
+    if (state.map_state == .dragging) {
+        const start_position = state.camera.to_world (state.map_last_mouse);
+        const end_position = state.camera.to_world (.{event.x, event.y});
+        const delta_pos = start_position - end_position;
 
-    state.map_last = .{ event.x, event.y };
+        state.map_center += delta_pos;
+    }
+
+    state.map_last_mouse = .{ event.x, event.y };
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -257,14 +269,10 @@ fn update_fps(dt: f32) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn debug_map_state(mat: ng.Mat4, window_size: ng.WindowSize) void {
-    const inv_mat = ng.mat4_invert(mat);
+fn debug_map_state() void {
+    const position = state.camera.to_world (state.map_last_mouse);
 
-    const x = 2 * state.map_last[0] / window_size.width - 1;
-    const y = 1 - 2 * state.map_last[1] / window_size.height;
-
-    const world_position = ng.mat4_transform2(inv_mat, .{ x, y });
-    ng.debug_print("{d:8.5}\n", .{world_position});
+    ng.debug_print("{d:8.5} -> {d:8.5}\n", .{state.map_last_mouse, position});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

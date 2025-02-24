@@ -8,9 +8,9 @@ const std = @import("std");
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const Vec2 = [2]f32;
-pub const Vec3 = [3]f32;
-pub const Vec4 = [4]f32;
+pub const Vec2 = @Vector(2, f32);
+pub const Vec3 = @Vector(3, f32);
+pub const Vec4 = @Vector(4, f32);
 pub const Mat4 = [16]f32;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -172,9 +172,9 @@ pub fn mat4_invert(a: Mat4) Mat4 {
 pub fn ortho(width: f32, height: f32) Mat4 {
     return .{
         2 / width, 0,          0,  0,
-        0,         2 / height, 0,  0,
+        0,         -2 / height, 0,  0,
         0,         0,          -2, 0,
-        -1,        -1,         1,  1,
+        -1,        1,         1,  1,
     };
 }
 
@@ -183,10 +183,10 @@ pub fn ortho(width: f32, height: f32) Mat4 {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const Camera2D = struct {
-    target: Vec2,
-    origin: Vec2,
-    rotate: f32,
-    zoom: f32,
+    target: Vec2 = .{ 0, 0 },
+    origin: Vec2 = .{ 0, 0 },
+    rotate: f32 = 0,
+    zoom: f32 = 0,
 
     pub fn identity() Camera2D {
         return .{
@@ -198,11 +198,16 @@ pub const Camera2D = struct {
     }
 
     pub fn get_matrix(self: Camera2D) Mat4 {
-        const target = mat4_translate(-self.target[0], -self.target[1], 0);
+        const target = mat4_translate(self.target[0], self.target[1], 0);
         const rotate = mat4_rotate_z(self.rotate);
-        const zoom = mat4_scale(self.zoom, self.zoom, 1);
-        const origin = mat4_translate(self.origin[0], self.origin[1], 0);
-        return mat4_mul(mat4_mul(mat4_mul(zoom, rotate), origin), target);
+        const zoom = mat4_scale(self.zoom, -self.zoom, 1);
+        const origin = mat4_translate(-self.origin[0], -self.origin[1], 0);
+        return mat4_mul(mat4_mul(origin, mat4_mul(zoom, rotate)), target);
+    }
+
+    pub fn to_world (self: Camera2D, pos: Vec2) Vec2 {
+        const mat = mat4_invert (self.get_matrix ());
+        return mat4_transform2(mat, pos);
     }
 };
 

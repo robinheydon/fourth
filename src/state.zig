@@ -33,10 +33,13 @@ pub var window: ng.Window = undefined;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub var map_center: ng.Vec2 = .{ 0, 0 };
+pub var map_center: ng.Vec2 = .{ 10, 10 };
 pub var map_zoom: f32 = 10;
+pub var map_rotate: f32 = 0;
 
-pub var map_last: ng.Vec2 = .{ 0, 0 };
+pub var camera: ng.Camera2D = .{};
+
+pub var map_last_mouse: ng.Vec2 = .{ 0, 0 };
 pub var map_start_click_x: f32 = 0;
 pub var map_start_click_y: f32 = 0;
 pub var map_state: MapState = .none;
