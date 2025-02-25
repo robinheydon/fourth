@@ -109,8 +109,8 @@ pub const InitOptions = struct {
 pub fn init(options: InitOptions) !void {
     log.info("init", .{});
 
-    @memset (&key_pressed, false);
-    @memset (&key_down, false);
+    @memset(&key_pressed, false);
+    @memset(&key_down, false);
 
     if (options.video) {
         try video.init();
@@ -124,7 +124,7 @@ pub fn init(options: InitOptions) !void {
 
     prng = std.Random.DefaultPrng.init(now);
 
-    ecs.init ();
+    ecs.init();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -133,7 +133,7 @@ pub fn init(options: InitOptions) !void {
 
 pub fn deinit() void {
     log.info("deinit", .{});
-    ecs.deinit ();
+    ecs.deinit();
     time.deinit();
     audio.deinit();
     video.deinit();
@@ -171,9 +171,8 @@ pub fn send_event(ev: Event) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn is_key_down (key: Key) bool
-{
-    return key_down[@intFromEnum (key)];
+pub fn is_key_down(key: Key) bool {
+    return key_down[@intFromEnum(key)];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -350,7 +349,7 @@ pub fn start_frame() f32 {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn end_frame() void {
-    @memset (&key_pressed, false);
+    @memset(&key_pressed, false);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

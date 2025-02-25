@@ -12,16 +12,16 @@ const ng = @import("ng");
 
 const state = @import("state.zig");
 
-pub const log = ng.Logger (.main);
+pub const log = ng.Logger(.main);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
-    log.set_min_level (.note);
-    log.info ("starting", .{});
-    defer log.info ("ending", .{});
+    log.set_min_level(.note);
+    log.info("starting", .{});
+    defer log.info("ending", .{});
 
     try ng.init(.{
         .video = true,
@@ -29,7 +29,7 @@ pub fn main() !void {
     });
     defer ng.deinit();
 
-    init_roads ();
+    init_roads();
 
     state.window = try ng.create_window(.{
         .name = "Fourth",
@@ -136,20 +136,16 @@ pub fn main() !void {
             }
         }
 
-        if (ng.is_key_down (state.key_move_down) or ng.is_key_down (state.key_move_down2))
-        {
+        if (ng.is_key_down(state.key_move_down) or ng.is_key_down(state.key_move_down2)) {
             state.map_center[1] -= 10 / state.map_zoom;
         }
-        if (ng.is_key_down (state.key_move_up) or ng.is_key_down (state.key_move_up2))
-        {
+        if (ng.is_key_down(state.key_move_up) or ng.is_key_down(state.key_move_up2)) {
             state.map_center[1] += 10 / state.map_zoom;
         }
-        if (ng.is_key_down (state.key_move_left) or ng.is_key_down (state.key_move_left2))
-        {
+        if (ng.is_key_down(state.key_move_left) or ng.is_key_down(state.key_move_left2)) {
             state.map_center[0] -= 10 / state.map_zoom;
         }
-        if (ng.is_key_down (state.key_move_right) or ng.is_key_down (state.key_move_right2))
-        {
+        if (ng.is_key_down(state.key_move_right) or ng.is_key_down(state.key_move_right2)) {
             state.map_center[0] += 10 / state.map_zoom;
         }
 
@@ -192,16 +188,11 @@ pub fn main() !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_key_down(event: ng.KeyEvent) void {
-    if (event.key == state.key_quit)
-    {
+    if (event.key == state.key_quit) {
         state.running = false;
-    }
-    else if (event.key == state.key_toggle_fullscreen)
-    {
+    } else if (event.key == state.key_toggle_fullscreen) {
         state.window.toggle_fullscreen();
-    }
-    else
-    {
+    } else {
         // log.debug("{} ({})", .{ event.key, event.scan_code });
     }
 }
@@ -305,19 +296,19 @@ fn debug_map_state() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn init_roads () void {
-    ng.register_component ("Node", state.Node);
-    ng.register_component ("Link", state.Link);
+fn init_roads() void {
+    ng.register_component("Node", state.Node);
+    ng.register_component("Link", state.Link);
 
-    const n1 = ng.new ();
-    const n2 = ng.new ();
-    const l1 = ng.new ();
+    const n1 = ng.new();
+    const n2 = ng.new();
+    const l1 = ng.new();
 
-    n1.set (state.Node, .{ .x = 10, .y = 10});
-    n2.set (state.Node, .{ .x = 30, .y = 20});
-    l1.set (state.Link, .{ .start = n1, .end = n2, .width = 72 });
+    n1.set(state.Node, .{ .x = 10, .y = 10 });
+    n2.set(state.Node, .{ .x = 30, .y = 20 });
+    l1.set(state.Link, .{ .start = n1, .end = n2, .width = 72 });
 
-    ng.dump_ecs ();
+    ng.dump_ecs();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

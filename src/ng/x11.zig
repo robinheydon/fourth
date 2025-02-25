@@ -321,7 +321,7 @@ fn opengl_debug_message(
     };
     switch (severity) {
         0x9146 => {
-            log.err ("OpenGL: {s} {s} {x} {s} : {s}", .{
+            log.err("OpenGL: {s} {s} {x} {s} : {s}", .{
                 source_name,
                 kind_name,
                 id,
@@ -330,7 +330,7 @@ fn opengl_debug_message(
             });
         },
         0x9147 => {
-            log.warn ("OpenGL: {s} {s} {x} {s} : {s}", .{
+            log.warn("OpenGL: {s} {s} {x} {s} : {s}", .{
                 source_name,
                 kind_name,
                 id,
@@ -339,7 +339,7 @@ fn opengl_debug_message(
             });
         },
         0x9148 => {
-            log.info ("OpenGL: {s} {s} {x} {s} : {s}", .{
+            log.info("OpenGL: {s} {s} {x} {s} : {s}", .{
                 source_name,
                 kind_name,
                 id,
@@ -348,7 +348,7 @@ fn opengl_debug_message(
             });
         },
         0x826B => {
-            log.note ("OpenGL: {s} {s} {x} {s} : {s}", .{
+            log.note("OpenGL: {s} {s} {x} {s} : {s}", .{
                 source_name,
                 kind_name,
                 id,
@@ -357,14 +357,14 @@ fn opengl_debug_message(
             });
         },
         else => {
-            log.debug ("OpenGL: {s} {s} {x} {s} : {s}", .{
+            log.debug("OpenGL: {s} {s} {x} {s} : {s}", .{
                 source_name,
                 kind_name,
                 id,
                 severity_name,
                 message[0..length],
             });
-        }
+        },
     }
 }
 
@@ -936,10 +936,10 @@ fn generate_events() void {
 
 fn process_key_press(ev: *const c.XKeyEvent) void {
     if (ev.keycode > 0) {
-        const key = get_key (ev.keycode);
+        const key = get_key(ev.keycode);
 
-        ng.key_pressed[@intFromEnum (key)] = true;
-        ng.key_down[@intFromEnum (key)] = true;
+        ng.key_pressed[@intFromEnum(key)] = true;
+        ng.key_down[@intFromEnum(key)] = true;
 
         ng.send_event(.{ .key_down = .{
             .scan_code = ev.keycode,
@@ -979,9 +979,9 @@ fn process_key_press(ev: *const c.XKeyEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_key_release(ev: c.XKeyEvent) void {
-    const key = get_key (ev.keycode);
+    const key = get_key(ev.keycode);
 
-    ng.key_down[@intFromEnum (key)] = false;
+    ng.key_down[@intFromEnum(key)] = false;
 
     ng.send_event(.{ .key_up = .{
         .scan_code = ev.keycode,
