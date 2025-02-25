@@ -136,18 +136,28 @@ pub fn main() !void {
             }
         }
 
-        if (ng.is_key_down(state.key_move_down) or ng.is_key_down(state.key_move_down2)) {
-            state.map_center[1] -= 10 / state.map_zoom;
-        }
-        if (ng.is_key_down(state.key_move_up) or ng.is_key_down(state.key_move_up2)) {
-            state.map_center[1] += 10 / state.map_zoom;
-        }
         if (ng.is_key_down(state.key_move_left) or ng.is_key_down(state.key_move_left2)) {
-            state.map_center[0] -= 10 / state.map_zoom;
+            state.map_move_velocity[0] -= dt * 100 / state.map_zoom;
+        } else if (ng.is_key_down(state.key_move_right) or ng.is_key_down(state.key_move_right2)) {
+            state.map_move_velocity[0] += dt * 100 / state.map_zoom;
+        } else {
+            state.map_move_velocity[0] -= state.map_move_velocity[0] * 10 * dt;
+            if (@abs(state.map_move_velocity[0]) < 0.1) {
+                state.map_move_velocity[0] = 0;
+            }
         }
-        if (ng.is_key_down(state.key_move_right) or ng.is_key_down(state.key_move_right2)) {
-            state.map_center[0] += 10 / state.map_zoom;
+        if (ng.is_key_down(state.key_move_down) or ng.is_key_down(state.key_move_down2)) {
+            state.map_move_velocity[1] -= dt * 100 / state.map_zoom;
+        } else if (ng.is_key_down(state.key_move_up) or ng.is_key_down(state.key_move_up2)) {
+            state.map_move_velocity[1] += dt * 100 / state.map_zoom;
+        } else {
+            state.map_move_velocity[1] -= state.map_move_velocity[1] * 10 * dt;
+            if (@abs(state.map_move_velocity[1]) < 0.1) {
+                state.map_move_velocity[1] = 0;
+            }
         }
+
+        state.map_center += state.map_move_velocity * ng.Vec2{ dt, dt };
 
         const window_size = state.window.get_size();
         const projection = ng.ortho(window_size.width, window_size.height);
@@ -289,7 +299,8 @@ fn update_fps(dt: f32) void {
 fn debug_map_state() void {
     const position = state.camera.to_world(state.map_last_mouse);
 
-    ng.debug_print("{d:8.5} -> {d:8.5}", .{ state.map_last_mouse, position });
+    ng.debug_print("{d:8.5} -> {d:8.5}\n", .{ state.map_last_mouse, position });
+    ng.debug_print("{d:8.5} {d:8.5}\n", .{ state.map_move_velocity, state.map_center });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
