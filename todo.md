@@ -1,7 +1,5 @@
 - Map
   - nodes
-  - map move around
-  - map zoom
   - zoom to object
   - links
   - curved links

@@ -41,7 +41,13 @@ pub const Entity = enum(u32) {
             return;
         }
 
-        log.debug("set {} {s} {any}", .{ self, @typeName(Component), value });
+        const typeid = get_type_id(Component);
+
+        if (components.get(typeid)) |info| {
+            log.debug("set {} {s} {any}", .{ self, info.name, value });
+        } else {
+            log.err("Component {s} not registered", .{@typeName(Component)});
+        }
     }
 
     pub fn delete(self: Entity) void {
@@ -149,6 +155,34 @@ fn mk_entity(gen: EntityGeneration, idx: EntityIndex) Entity {
 const ComponentInfo = struct {
     name: []const u8,
     size: usize,
+    num_fields: usize,
+    fields: [max_component_fields]ComponentField,
+    storage: *anyopaque,
+};
+
+const max_component_fields = 16;
+
+const ComponentField = struct {
+    name: []const u8,
+    offset: usize,
+    size: usize,
+    kind: ComponentFieldKind,
+};
+
+const ComponentFieldKind = enum {
+    bool,
+    u8,
+    u16,
+    u32,
+    u64,
+    i8,
+    i16,
+    i32,
+    i64,
+    f32,
+    f64,
+    Entity,
+    Vec2,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -159,12 +193,43 @@ pub fn register_component(name: []const u8, comptime Component: type) void {
     std.debug.assert(initialized);
 
     const type_id = get_type_id(Component);
+    if (components.get(type_id)) |_| {
+        log.debug("component {s} already registered", .{name});
+        return;
+    }
+
     log.info("register component {s} {s} {x}", .{ name, @typeName(Component), type_id });
 
-    const info = ComponentInfo{
-        .name = name,
-        .size = @sizeOf(Component),
-    };
+    var info: ComponentInfo = undefined;
+
+    info.name = name;
+    info.size = @sizeOf(Component);
+
+    inline for (0.., std.meta.fields(Component)) |i, field| {
+        const kind: ComponentFieldKind = switch (field.type) {
+            bool => .bool,
+            u8 => .u8,
+            u16 => .u16,
+            u32 => .u32,
+            u64 => .u64,
+            i8 => .i8,
+            i16 => .i16,
+            i32 => .i32,
+            i64 => .i64,
+            f32 => .f32,
+            f64 => .f64,
+            ng.Vec2 => .Vec2,
+            Entity => .Entity,
+            else => @compileError(
+                @typeName(Component) ++ " field '" ++ field.name ++ "' has an unsupported type for component info : " ++ @typeName(field.type),
+            ),
+        };
+        info.fields[i].name = field.name;
+        info.fields[i].offset = @offsetOf(Component, field.name);
+        info.fields[i].size = @sizeOf(field.type);
+        info.fields[i].kind = kind;
+        info.num_fields = i + 1;
+    }
 
     components.put(type_id, info) catch |err| {
         log.err("register_component failed {}", .{err});
@@ -211,8 +276,17 @@ pub fn dump_ecs() void {
 
     var component_iter = components.iterator();
     while (component_iter.next()) |entry| {
-        const value = entry.value_ptr;
-        log.msg("  Component {s} {}", .{ value.name, value.size });
+        const component = entry.value_ptr;
+        log.msg("  Component {s} ({} bytes)", .{ component.name, component.size });
+        for (0..component.num_fields) |i| {
+            const field = component.fields[i];
+            log.msg("    {s}: {s} (offset {}, {} bytes)", .{
+                field.name,
+                @tagName(field.kind),
+                field.offset,
+                field.size,
+            });
+        }
     }
 
     for (0.., generations.items) |idx, gen| {

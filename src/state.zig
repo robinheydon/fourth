@@ -70,14 +70,19 @@ pub const MapState = enum {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const Node = extern struct {
-    x: f32,
-    y: f32,
+    pos: ng.Vec2,
 };
 
 pub const Link = extern struct {
-    start: ng.Entity,
-    end: ng.Entity,
-    width: u8,
+    start: ng.Entity, // start of the link
+    mid: ng.Entity, // a mid point of the link, used for curves
+    end: ng.Entity, // the end of the link
+    width: u16, // the width of the link in 0.1m
+};
+
+pub const Construction = extern struct {
+    step: f32,
+    steps: f32,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

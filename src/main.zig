@@ -299,14 +299,24 @@ fn debug_map_state() void {
 fn init_roads() void {
     ng.register_component("Node", state.Node);
     ng.register_component("Link", state.Link);
+    ng.register_component("Construction", state.Construction);
 
     const n1 = ng.new();
     const n2 = ng.new();
+    const n3 = ng.new();
     const l1 = ng.new();
+    const n4 = ng.new();
+    const n5 = ng.new();
+    const l2 = ng.new();
 
-    n1.set(state.Node, .{ .x = 10, .y = 10 });
-    n2.set(state.Node, .{ .x = 30, .y = 20 });
-    l1.set(state.Link, .{ .start = n1, .end = n2, .width = 72 });
+    n1.set(state.Node, .{ .pos = .{ 10, 10 } });
+    n2.set(state.Node, .{ .pos = .{ 20, 25 } });
+    n3.set(state.Node, .{ .pos = .{ 30, 20 } });
+    l1.set(state.Link, .{ .start = n1, .mid = n2, .end = n3, .width = 72 });
+    n4.set(state.Node, .{ .pos = .{ 40, 10 } });
+    n5.set(state.Node, .{ .pos = .{ 50, 15 } });
+    l2.set(state.Link, .{ .start = n2, .mid = n4, .end = n5, .width = 72 });
+    l2.set(state.Construction, .{ .step = 10, .steps = 30 });
 
     ng.dump_ecs();
 }
