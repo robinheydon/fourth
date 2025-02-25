@@ -17,7 +17,10 @@ var allocator: std.mem.Allocator = undefined;
 
 var initialized = false;
 
+var next_entity_index: usize = 0;
+
 var generations: std.ArrayList (EntityGeneration) = undefined;
+var recycled: std.ArrayList (EntityIndex) = undefined;
 
 var components: std.AutoHashMap (TypeId, ComponentInfo) = undefined;
 
@@ -34,12 +37,58 @@ pub const Entity = enum (u32) {
 
     pub fn set (self: Entity, comptime Component: type, value: Component) void
     {
+        if (!self.is_valid ())
+        {
+            log.err ("set invalid entity {}", .{self});
+            return;
+        }
+
         log.debug ("set {} {s} {any}", .{self, @typeName (Component), value});
     }
 
     pub fn delete (self: Entity) void
     {
+        if (!self.is_valid ())
+        {
+            log.err ("delete invalid entity {}", .{self});
+            return;
+        }
+
         log.debug ("delete {}", .{self});
+
+        const gen = get_generation (self);
+        const idx = get_index (self);
+
+        generations.items[idx] = gen + 1;
+
+        recycled.append (idx) catch |err| {
+            log.err ("delete entity failed {}", .{err});
+            return;
+        };
+    }
+
+    pub fn is_valid (self: Entity) bool
+    {
+        const gen = get_generation (self);
+        const idx = get_index (self);
+
+        if (idx >= generations.items.len)
+        {
+            return false;
+        }
+        if (generations.items[idx] != gen)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    pub fn format (self: Entity, _:anytype, _:anytype, writer: anytype) !void
+    {
+        const gen = get_generation (self);
+        const idx = get_index (self);
+
+        try writer.print ("E({x:0>2}:{x:0>6})", .{gen, idx});
     }
 };
 
@@ -53,6 +102,7 @@ pub fn init () void
     allocator = gpa.allocator ();
 
     generations = std.ArrayList (EntityGeneration).init (allocator);
+    recycled = std.ArrayList (EntityIndex).init (allocator);
     components = std.AutoHashMap (TypeId, ComponentInfo).init (allocator);
 
     initialized = true;
@@ -65,6 +115,8 @@ pub fn init () void
 pub fn deinit () void
 {
     generations.deinit ();
+    components.deinit ();
+    recycled.deinit ();
 
     std.debug.assert (gpa.deinit () == .ok);
 }
@@ -77,7 +129,7 @@ fn get_index (entity: Entity) EntityIndex
 {
     const ent : u32 = @intFromEnum (entity);
 
-    const index : EntityIndex = ent & 0xFFFFFF;
+    const index : EntityIndex = @truncate (ent);
     return index;
 }
 
@@ -85,12 +137,22 @@ fn get_index (entity: Entity) EntityIndex
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn get_generation (entity: Entity) EntityIndex
+fn get_generation (entity: Entity) EntityGeneration
 {
     const ent = @intFromEnum (entity);
 
-    const gen : EntityGeneration = (ent >> 24) & 0xFF;
+    const gen : EntityGeneration = @truncate (ent >> 24);
     return gen;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn mk_entity (gen: EntityGeneration, idx: EntityIndex) Entity
+{
+    const ent : u32 = (@as (u32, @intCast (gen)) << 24) | (@as(u32, @intCast (idx)) & 0xFFFFFF);
+    return @enumFromInt (ent);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -108,8 +170,20 @@ const ComponentInfo = struct {
 
 pub fn register_component (name: []const u8, comptime Component: type) void
 {
+    std.debug.assert (initialized);
+
     const type_id = get_type_id (Component);
     log.info ("register component {s} {s} {x}", .{name, @typeName (Component), type_id});
+
+    const info = ComponentInfo {
+        .name = name,
+        .size = @sizeOf (Component),
+    };
+
+    components.put (type_id, info) catch |err| {
+        log.err ("register_component failed {}", .{err});
+        return;
+    };
 }
 
 const TypeId = usize;
@@ -127,7 +201,21 @@ fn get_type_id (comptime Component: type) TypeId
 
 pub fn new () Entity
 {
-    return .null_entity;
+    std.debug.assert (initialized);
+
+    if (recycled.pop ()) |idx|
+    {
+        const gen = generations.items[idx];
+        return mk_entity (gen, idx);
+    }
+
+    const index :EntityIndex = @intCast (generations.items.len);
+    generations.append (0) catch |err| {
+        log.err ("new {}", .{err});
+        return .null_entity;
+    };
+
+    return mk_entity (0, index);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -136,12 +224,20 @@ pub fn new () Entity
 
 pub fn dump_ecs () void
 {
+    std.debug.assert (initialized);
     log.msg ("Dump ECS", .{});
     
     var component_iter = components.iterator ();
     while (component_iter.next ()) |entry|
     {
-        log.msg ("{}", .{entry});
+        const value = entry.value_ptr;
+        log.msg ("  Component {s} {}", .{value.name, value.size});
+    }
+
+    for (0.., generations.items) |idx, gen|
+    {
+        const ent = mk_entity (gen, @intCast (idx));
+        log.msg ("  Entity {}", .{ent});
     }
 }
 

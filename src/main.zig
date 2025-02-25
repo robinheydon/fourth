@@ -315,7 +315,7 @@ fn init_roads () void {
 
     n1.set (state.Node, .{ .x = 10, .y = 10});
     n2.set (state.Node, .{ .x = 30, .y = 20});
-    l1.set (state.Link, .{ .start = n1, .end = n2 });
+    l1.set (state.Link, .{ .start = n1, .end = n2, .width = 72 });
 
     ng.dump_ecs ();
 }

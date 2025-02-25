@@ -1,3 +1,3 @@
 #!/usr/bin/sh
 
-zig build run --color on -freference-trace=32 --summary none
+zig build run --color on -freference-trace=32 --summary none -Dcpu=broadwell
