@@ -353,7 +353,9 @@ pub fn create_shader(shader: anytype) VideoError!Shader {
         .fragment_source = shader.fragment_source,
     };
 
-    try build_vertex_attributes(&info, shader.Vertex);
+    if (@hasDecl(shader, "Vertex")) {
+        try build_vertex_attributes(&info, shader.Vertex);
+    }
 
     return platform.create_shader(info);
 }

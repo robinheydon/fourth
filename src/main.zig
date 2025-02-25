@@ -18,6 +18,8 @@ pub const log = ng.Logger(.main);
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+var clear_color: ng.Color = .black;
+
 pub fn main() !void {
     log.set_min_level(.note);
     log.info("starting", .{});
@@ -41,12 +43,18 @@ pub fn main() !void {
 
     state.window.set_swap_interval(.lowpower);
 
-    const triangle_shader = @import("triangle_shader.zig");
-    const TriangleVertex = triangle_shader.Vertex;
-    const TriangleUniforms = ng.make_uniform_slots(triangle_shader.Uniforms);
+    const triangle_shader_source = @import("triangle_shader.zig");
+    const TriangleVertex = triangle_shader_source.Vertex;
+    const TriangleUniforms = ng.make_uniform_slots(triangle_shader_source.Uniforms);
 
-    const shader = try ng.create_shader(triangle_shader);
-    defer shader.delete();
+    state.triangle_shader = try ng.create_shader(triangle_shader_source);
+    defer state.triangle_shader.delete();
+
+    const grid_shader_source = @import("grid_shader.zig");
+    const GridUniforms = ng.make_uniform_slots(grid_shader_source.Uniforms);
+
+    state.grid_shader = try ng.create_shader(grid_shader_source);
+    defer state.grid_shader.delete();
 
     // green - x-axis
     // red - y-axis
@@ -72,9 +80,23 @@ pub fn main() !void {
     });
     defer buffer.delete();
 
+    const grid_pipeline = try ng.create_pipeline(.{
+        .label = "Grid Pipeline",
+        .shader = state.grid_shader,
+        .primitive = .triangle_list,
+        .blend = .{
+            .enabled = true,
+            .src_factor_rgb = .src_alpha,
+            .dst_factor_rgb = .one_minus_src_alpha,
+            .src_factor_alpha = .one,
+            .dst_factor_alpha = .zero,
+        },
+    });
+    defer grid_pipeline.delete();
+
     const pipeline = try ng.create_pipeline(.{
         .label = "Triangle Pipeline",
-        .shader = shader,
+        .shader = state.triangle_shader,
         .primitive = .triangle_list,
     });
     defer pipeline.delete();
@@ -88,7 +110,7 @@ pub fn main() !void {
     while (state.running) {
         state.frame_counter +%= 1;
 
-        const dt = ng.start_frame();
+        state.dt = ng.start_frame();
         defer ng.end_frame();
 
         ng.debug_reset(state.window);
@@ -97,67 +119,9 @@ pub fn main() !void {
             ng.debug_print("{} Hz", .{state.average_frame_rate});
         }
 
-        update_fps(dt);
+        update_fps(state.dt);
 
-        while (ng.poll_event()) |event| {
-            switch (event) {
-                .quit => {
-                    state.running = false;
-                },
-                .key_down => |key_event| {
-                    process_key_down(key_event);
-                },
-                .key_up => {},
-                .mouse_move => |move_event| {
-                    process_mouse_move(move_event);
-                },
-                .mouse_double_click => |mouse_event| {
-                    process_mouse_double_click(mouse_event);
-                },
-                .mouse_down => |mouse_event| {
-                    process_mouse_down(mouse_event);
-                },
-                .mouse_up => |mouse_event| {
-                    process_mouse_up(mouse_event);
-                },
-                .mouse_wheel => |wheel_event| {
-                    process_wheel_event(wheel_event);
-                },
-                .resize => {
-                    state.window.acknowledge_resize();
-                },
-                .enter => {},
-                .leave => {},
-                .focus => {},
-                .unfocus => {},
-                else => {
-                    log.debug("{}", .{event});
-                },
-            }
-        }
-
-        if (ng.is_key_down(state.key_move_left) or ng.is_key_down(state.key_move_left2)) {
-            state.map_move_velocity[0] -= dt * 100 / state.map_zoom;
-        } else if (ng.is_key_down(state.key_move_right) or ng.is_key_down(state.key_move_right2)) {
-            state.map_move_velocity[0] += dt * 100 / state.map_zoom;
-        } else {
-            state.map_move_velocity[0] -= state.map_move_velocity[0] * 10 * dt;
-            if (@abs(state.map_move_velocity[0]) < 0.1) {
-                state.map_move_velocity[0] = 0;
-            }
-        }
-        if (ng.is_key_down(state.key_move_down) or ng.is_key_down(state.key_move_down2)) {
-            state.map_move_velocity[1] -= dt * 100 / state.map_zoom;
-        } else if (ng.is_key_down(state.key_move_up) or ng.is_key_down(state.key_move_up2)) {
-            state.map_move_velocity[1] += dt * 100 / state.map_zoom;
-        } else {
-            state.map_move_velocity[1] -= state.map_move_velocity[1] * 10 * dt;
-            if (@abs(state.map_move_velocity[1]) < 0.1) {
-                state.map_move_velocity[1] = 0;
-            }
-        }
-
-        state.map_center += state.map_move_velocity * ng.Vec2{ dt, dt };
+        process_events();
 
         const window_size = state.window.get_size();
         const projection = ng.ortho(window_size.width, window_size.height);
@@ -176,10 +140,14 @@ pub fn main() !void {
         const swapchain_texture = try command_buffer.acquire_swapchain_texture();
         const render_pass = try command_buffer.begin_render_pass(.{
             .texture = swapchain_texture,
-            .clear_color = .black,
+            .clear_color = clear_color,
             .load = .clear,
             .store = .store,
         });
+
+        render_pass.apply_pipeline(grid_pipeline);
+        render_pass.apply_uniform_mat4(GridUniforms.mvp, mvp);
+        render_pass.draw(6);
 
         render_pass.apply_pipeline(pipeline);
         render_pass.apply_bindings(binding);
@@ -197,11 +165,102 @@ pub fn main() !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+fn process_events() void {
+    while (ng.poll_event()) |event| {
+        switch (event) {
+            .quit => {
+                state.running = false;
+            },
+            .key_down => |key_event| {
+                process_key_down(key_event);
+            },
+            .key_up => {},
+            .mouse_move => |move_event| {
+                process_mouse_move(move_event);
+            },
+            .mouse_double_click => |mouse_event| {
+                process_mouse_double_click(mouse_event);
+            },
+            .mouse_down => |mouse_event| {
+                process_mouse_down(mouse_event);
+            },
+            .mouse_up => |mouse_event| {
+                process_mouse_up(mouse_event);
+            },
+            .mouse_wheel => |wheel_event| {
+                process_wheel_event(wheel_event);
+            },
+            .resize => {
+                state.window.acknowledge_resize();
+            },
+            .enter => {},
+            .leave => {},
+            .focus => {},
+            .unfocus => {},
+            else => {
+                log.debug("{}", .{event});
+            },
+        }
+    }
+
+    const move_speed = 400 / state.map_zoom;
+
+    if (ng.is_key_down(state.key_move_left) or ng.is_key_down(state.key_move_left2)) {
+        if (state.map_move_velocity[0] > 0) {
+            state.map_move_velocity[0] = 0;
+        }
+        state.map_move_velocity[0] -= state.dt * move_speed;
+    } else if (ng.is_key_down(state.key_move_right) or ng.is_key_down(state.key_move_right2)) {
+        if (state.map_move_velocity[0] < 0) {
+            state.map_move_velocity[0] = 0;
+        }
+        state.map_move_velocity[0] += state.dt * move_speed;
+    } else {
+        state.map_move_velocity[0] -= state.map_move_velocity[0] * 10 * state.dt;
+        if (@abs(state.map_move_velocity[0]) < 0.1) {
+            state.map_move_velocity[0] = 0;
+        }
+    }
+    if (ng.is_key_down(state.key_move_down) or ng.is_key_down(state.key_move_down2)) {
+        if (state.map_move_velocity[1] > 0) {
+            state.map_move_velocity[1] = 0;
+        }
+        state.map_move_velocity[1] -= state.dt * move_speed;
+    } else if (ng.is_key_down(state.key_move_up) or ng.is_key_down(state.key_move_up2)) {
+        if (state.map_move_velocity[1] < 0) {
+            state.map_move_velocity[1] = 0;
+        }
+        state.map_move_velocity[1] += state.dt * move_speed;
+    } else {
+        state.map_move_velocity[1] -= state.map_move_velocity[1] * 10 * state.dt;
+        if (@abs(state.map_move_velocity[1]) < 0.1) {
+            state.map_move_velocity[1] = 0;
+        }
+    }
+
+    if (ng.is_key_down(state.key_rotate_left)) {
+        state.map_rotate += state.dt;
+    } else if (ng.is_key_down(state.key_rotate_right)) {
+        state.map_rotate -= state.dt;
+    }
+
+    state.map_move_velocity[0] = std.math.clamp(state.map_move_velocity[0], -move_speed, move_speed);
+    state.map_move_velocity[1] = std.math.clamp(state.map_move_velocity[1], -move_speed, move_speed);
+
+    state.map_center += state.map_move_velocity * ng.Vec2{ state.dt, state.dt };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 fn process_key_down(event: ng.KeyEvent) void {
     if (event.key == state.key_quit) {
         state.running = false;
     } else if (event.key == state.key_toggle_fullscreen) {
         state.window.toggle_fullscreen();
+    } else if (event.key == .R) {
+        clear_color = ng.rand_color();
     } else {
         // log.debug("{} ({})", .{ event.key, event.scan_code });
     }
@@ -269,7 +328,7 @@ fn process_mouse_up(event: ng.MouseEvent) void {
 
 fn process_wheel_event(event: ng.WheelEvent) void {
     const multiplier = std.math.pow(f32, 1.2, event.dy);
-    state.map_zoom = std.math.clamp(state.map_zoom * multiplier, 0.1, 100);
+    state.map_zoom = std.math.clamp(state.map_zoom * multiplier, 0.01, 100);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -297,9 +356,9 @@ fn update_fps(dt: f32) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn debug_map_state() void {
-    const position = state.camera.to_world(state.map_last_mouse);
+    // const position = state.camera.to_world(state.map_last_mouse);
+    // ng.debug_print("{d:8.5} -> {d:8.5}\n", .{ state.map_last_mouse, position });
 
-    ng.debug_print("{d:8.5} -> {d:8.5}\n", .{ state.map_last_mouse, position });
     ng.debug_print("{d:8.5} {d:8.5}\n", .{ state.map_move_velocity, state.map_center });
 }
 

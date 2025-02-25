@@ -976,11 +976,11 @@ pub const Color = enum(u32) {
         return 0xFF000000;
     }
 
-    pub fn from_rgb_i(r: u8, b: u8, g: u8) Color {
-        _ = r;
-        _ = g;
-        _ = b;
-        return 0xFFFFFFFF;
+    pub fn from_rgb_i(r: u8, g: u8, b: u8) Color {
+        const ri: u32 = @as(u32, r) << 16;
+        const gi: u32 = @as(u32, g) << 8;
+        const bi: u32 = @as(u32, b) << 0;
+        return @enumFromInt(ri | gi | bi | 0xFF000000);
     }
 
     pub fn to_vec4(self: Color) math.Vec4 {
