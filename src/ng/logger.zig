@@ -47,7 +47,7 @@ pub fn Logger(comptime scope: @Type(.enum_literal)) type {
         }
         pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
             log_print(.fatal, scope, format, args);
-            @panic ("Fatal log error");
+            @panic("Fatal log error");
         }
         pub fn set_min_level(level: Level) void {
             min_level = level;

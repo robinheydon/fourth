@@ -36,7 +36,7 @@ pub const Entity = enum(u32) {
     _,
 
     pub fn set(self: Entity, value: anytype) void {
-        const Component = @TypeOf (value);
+        const Component = @TypeOf(value);
 
         if (!self.is_valid()) {
             log.err("set invalid entity {}", .{self});
@@ -182,9 +182,8 @@ const ComponentInfo = struct {
     num_fields: usize,
     fields: [max_component_fields]ComponentField,
 
-    pub fn get_data (self: ComponentInfo, ent: Entity) ?[]const u8
-    {
-        return self.storage.get_data (self.storage, ent);
+    pub fn get_data(self: ComponentInfo, ent: Entity) ?[]const u8 {
+        return self.storage.get_data(self.storage, ent);
     }
 };
 
@@ -228,24 +227,23 @@ pub fn ComponentStorage(Component: type) type {
         }
 
         pub fn set(self: *Self, key: Entity, value: anytype) void {
-            const idx = get_index (key);
+            const idx = get_index(key);
             self.store.put(ecs_allocator, idx, value) catch |err| {
                 log.err("Cannot set component {} {} : {}", .{ key, value, err });
             };
         }
 
         pub fn get(self: *Self, key: Entity) ?Component {
-            const idx = get_index (key);
+            const idx = get_index(key);
             return self.store.get(idx);
         }
 
-        pub fn get_data (self: *Self, key: Entity) ?[]const u8 {
-            const idx = get_index (key);
-            if (self.store.getPtr(idx)) |value|
-            {
+        pub fn get_data(self: *Self, key: Entity) ?[]const u8 {
+            const idx = get_index(key);
+            if (self.store.getPtr(idx)) |value| {
                 var ptr: []const u8 = undefined;
-                ptr.ptr = @ptrCast (value);
-                ptr.len = @sizeOf (Component);
+                ptr.ptr = @ptrCast(value);
+                ptr.len = @sizeOf(Component);
                 return ptr;
             }
             return null;
@@ -258,30 +256,31 @@ pub const ErasedComponentStorage = struct {
     deinit: *const fn (self: ErasedComponentStorage) void,
     get_data: *const fn (self: ErasedComponentStorage, ent: Entity) ?[]const u8,
 
-    pub fn cast (self: ErasedComponentStorage, Component: type,) *ComponentStorage(Component) {
-        return @alignCast (@ptrCast (self.ptr));
+    pub fn cast(
+        self: ErasedComponentStorage,
+        Component: type,
+    ) *ComponentStorage(Component) {
+        return @alignCast(@ptrCast(self.ptr));
     }
 };
 
-fn init_erased_component_storage (Component: type) ErasedComponentStorage {
-    const ptr = ecs_allocator.create (ComponentStorage (Component)) catch unreachable;
+fn init_erased_component_storage(Component: type) ErasedComponentStorage {
+    const ptr = ecs_allocator.create(ComponentStorage(Component)) catch unreachable;
     ptr.* = .empty;
 
-    return ErasedComponentStorage {
+    return ErasedComponentStorage{
         .ptr = ptr,
         .deinit = (struct {
-            fn deinit (self: ErasedComponentStorage) void
-            {
-                const cast_ptr = self.cast (Component);
-                cast_ptr.deinit ();
-                ecs_allocator.destroy (cast_ptr);
+            fn deinit(self: ErasedComponentStorage) void {
+                const cast_ptr = self.cast(Component);
+                cast_ptr.deinit();
+                ecs_allocator.destroy(cast_ptr);
             }
         }).deinit,
         .get_data = (struct {
-            fn get_data (self: ErasedComponentStorage, ent: Entity) ?[]const u8
-            {
-                const cast_ptr = self.cast (Component);
-                return cast_ptr.get_data (ent);
+            fn get_data(self: ErasedComponentStorage, ent: Entity) ?[]const u8 {
+                const cast_ptr = self.cast(Component);
+                return cast_ptr.get_data(ent);
             }
         }).get_data,
     };
@@ -333,7 +332,7 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
         info.num_fields = i + 1;
     }
 
-    info.storage = init_erased_component_storage (Component);
+    info.storage = init_erased_component_storage(Component);
 
     components.put(ecs_allocator, type_id, info) catch |err| {
         log.err("register_component failed {}", .{err});
