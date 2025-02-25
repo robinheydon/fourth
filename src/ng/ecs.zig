@@ -407,7 +407,60 @@ pub fn dump_ecs() void {
                 while (component_iter.next()) |entry| {
                     const component = entry.value_ptr;
                     if (component.get_data(ent)) |data| {
-                        log.msg("    {s} {any}", .{ component.name, data });
+                        for (0..component.num_fields) |i| {
+                            const field = component.fields[i];
+                            const field_data = data[field.offset .. field.offset + field.size];
+                            switch (field.kind) {
+                                .u8 => {
+                                    const value: *const u8 = @alignCast(@ptrCast(&field_data[0]));
+                                    log.msg("    {s}.{s}:u8 = {any}", .{
+                                        component.name,
+                                        field.name,
+                                        value.*,
+                                    });
+                                },
+                                .u16 => {
+                                    const value: *const u16 = @alignCast(@ptrCast(&field_data[0]));
+                                    log.msg("    {s}.{s}:u16 = {any}", .{
+                                        component.name,
+                                        field.name,
+                                        value.*,
+                                    });
+                                },
+                                .f32 => {
+                                    const value: *const f32 = @alignCast(@ptrCast(&field_data[0]));
+                                    log.msg("    {s}.{s}:f32 = {d}", .{
+                                        component.name,
+                                        field.name,
+                                        value.*,
+                                    });
+                                },
+                                .Vec2 => {
+                                    const value: *const ng.Vec2 = @alignCast(@ptrCast(&field_data[0]));
+                                    log.msg("    {s}.{s}:Vec2 = {d}", .{
+                                        component.name,
+                                        field.name,
+                                        value.*,
+                                    });
+                                },
+                                .Entity => {
+                                    const value: *const Entity = @alignCast(@ptrCast(&field_data[0]));
+                                    log.msg("    {s}.{s}:Entity = {d}", .{
+                                        component.name,
+                                        field.name,
+                                        value.*,
+                                    });
+                                },
+                                else => {
+                                    log.msg("    {s}.{s}:{s} = {any}", .{
+                                        component.name,
+                                        field.name,
+                                        @tagName(field.kind),
+                                        field_data,
+                                    });
+                                },
+                            }
+                        }
                     }
                 }
             }

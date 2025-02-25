@@ -92,6 +92,7 @@ const API = struct {
     glGenTextures: *const fn (u32, [*c]u32) callconv(.c) void,
     glGenVertexArrays: *const fn (u32, [*c]u32) callconv(.c) void,
     glGetProgramInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
+    glGetString: *const fn (GL_Enum) callconv(.c) [*:0]const u8,
     glGetProgramiv: *const fn (u32, GL_Enum, *u32) callconv(.c) void,
     glGetShaderInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
     glGetShaderiv: *const fn (u32, GL_Enum, *u32) callconv(.c) void,
@@ -480,11 +481,14 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
     api.glXMakeCurrent(display, window, glx_ctx);
 
+    log.note("OpenGL vendor: {s}", .{api.glGetString(.GL_VENDOR)});
+    log.note("OpenGL render: {s}", .{api.glGetString(.GL_RENDERER)});
+    log.note("OpenGL version: {s}", .{api.glGetString(.GL_VERSION)});
+
     api.glEnable(.GL_DEBUG_OUTPUT);
     api.glEnable(.GL_DEBUG_OUTPUT_SYNCHRONOUS);
 
     api.glDebugMessageCallback(opengl_debug_message, null);
-    // api.glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, null, GL_TRUE);
 
     api.XSetWMProtocols(display, window, &WM_DELETE_WINDOW, 1);
 
@@ -790,6 +794,10 @@ const GL_Enum = enum(u32) {
 
     GL_R8 = 0x8229,
     GL_RED = 0x1903,
+
+    GL_VENDOR = 0x1F00,
+    GL_RENDERER = 0x1F01,
+    GL_VERSION = 0x1F02,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
