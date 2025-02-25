@@ -75,8 +75,8 @@ pub const Node = extern struct {
 };
 
 pub const Link = extern struct {
-    start: ng.Handle,
-    end: ng.Handle,
+    start: ng.Entity,
+    end: ng.Entity,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

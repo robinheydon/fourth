@@ -67,7 +67,11 @@ pub const Logger = logger.Logger;
 
 pub const elapsed = time.elapsed;
 
-pub const Handle = ecs.Handle;
+pub const Entity = ecs.Entity;
+pub const register_component = ecs.register_component;
+pub const new = ecs.new;
+pub const set = ecs.set;
+pub const dump_ecs = ecs.dump_ecs;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -119,6 +123,8 @@ pub fn init(options: InitOptions) !void {
     const now = time.wallclock_us();
 
     prng = std.Random.DefaultPrng.init(now);
+
+    ecs.init ();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -127,6 +133,7 @@ pub fn init(options: InitOptions) !void {
 
 pub fn deinit() void {
     log.info("deinit", .{});
+    ecs.deinit ();
     time.deinit();
     audio.deinit();
     video.deinit();

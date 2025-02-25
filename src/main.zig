@@ -306,12 +306,18 @@ fn debug_map_state() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn init_roads () void {
-    ng.register_component (state.Node);
-    ng.register_component (state.Link);
+    ng.register_component ("Node", state.Node);
+    ng.register_component ("Link", state.Link);
 
-    const n1 = ng.create (Node, .{ .x = 10, .y = 10});
-    const n2 = ng.create (Node, .{ .x = 30, .y = 20});
-    const l1 = ng.create (Link, .{ .start = n1, .end = n2 });
+    const n1 = ng.new ();
+    const n2 = ng.new ();
+    const l1 = ng.new ();
+
+    n1.set (state.Node, .{ .x = 10, .y = 10});
+    n2.set (state.Node, .{ .x = 30, .y = 20});
+    l1.set (state.Link, .{ .start = n1, .end = n2 });
+
+    ng.dump_ecs ();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
