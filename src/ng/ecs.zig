@@ -137,6 +137,12 @@ pub fn new () Entity
 pub fn dump_ecs () void
 {
     log.msg ("Dump ECS", .{});
+    
+    var component_iter = components.iterator ();
+    while (component_iter.next ()) |entry|
+    {
+        log.msg ("{}", .{entry});
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
