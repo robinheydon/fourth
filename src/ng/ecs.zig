@@ -13,16 +13,16 @@ const log = ng.Logger(.ecs);
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
-var allocator: std.mem.Allocator = undefined;
+var ecs_allocator: std.mem.Allocator = undefined;
 
 var initialized = false;
 
 var next_entity_index: usize = 0;
 
-var generations: std.ArrayList(EntityGeneration) = undefined;
-var recycled: std.ArrayList(EntityIndex) = undefined;
+var generations: std.ArrayListUnmanaged(EntityGeneration) = .empty;
+var recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 
-var components: std.AutoHashMap(TypeId, ComponentInfo) = undefined;
+var components: std.AutoHashMapUnmanaged(TypeId, ComponentInfo) = .empty;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -35,7 +35,9 @@ pub const Entity = enum(u32) {
     null_entity = 0xFFFFFFFF,
     _,
 
-    pub fn set(self: Entity, comptime Component: type, value: Component) void {
+    pub fn set(self: Entity, value: anytype) void {
+        const Component = @TypeOf (value);
+
         if (!self.is_valid()) {
             log.err("set invalid entity {}", .{self});
             return;
@@ -43,11 +45,29 @@ pub const Entity = enum(u32) {
 
         const typeid = get_type_id(Component);
 
-        if (components.get(typeid)) |info| {
-            log.debug("set {} {s} {any}", .{ self, info.name, value });
+        if (components.getPtr(typeid)) |info| {
+            var storage = info.storage.cast(Component);
+            storage.set(self, value);
         } else {
             log.err("Component {s} not registered", .{@typeName(Component)});
         }
+    }
+
+    pub fn get(self: Entity, comptime Component: type) ?Component {
+        if (!self.is_valid()) {
+            log.err("get invalid entity {}", .{self});
+            return null;
+        }
+
+        const typeid = get_type_id(Component);
+
+        if (components.getPtr(typeid)) |info| {
+            var storage = info.storage.cast(Component);
+            return storage.get(self);
+        } else {
+            log.err("Component {s} not registered", .{@typeName(Component)});
+        }
+        return null;
     }
 
     pub fn delete(self: Entity) void {
@@ -55,8 +75,6 @@ pub const Entity = enum(u32) {
             log.err("delete invalid entity {}", .{self});
             return;
         }
-
-        log.debug("delete {}", .{self});
 
         const gen = get_generation(self);
         const idx = get_index(self);
@@ -96,11 +114,11 @@ pub const Entity = enum(u32) {
 
 pub fn init() void {
     gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    allocator = gpa.allocator();
+    ecs_allocator = gpa.allocator();
 
-    generations = std.ArrayList(EntityGeneration).init(allocator);
-    recycled = std.ArrayList(EntityIndex).init(allocator);
-    components = std.AutoHashMap(TypeId, ComponentInfo).init(allocator);
+    generations = .empty;
+    recycled = .empty;
+    components = .empty;
 
     initialized = true;
 }
@@ -110,9 +128,14 @@ pub fn init() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn deinit() void {
-    generations.deinit();
-    components.deinit();
-    recycled.deinit();
+    generations.deinit(ecs_allocator);
+    var component_iter = components.iterator();
+    while (component_iter.next()) |entry| {
+        const component = entry.value_ptr;
+        component.storage.deinit(component.storage);
+    }
+    components.deinit(ecs_allocator);
+    recycled.deinit(ecs_allocator);
 
     std.debug.assert(gpa.deinit() == .ok);
 }
@@ -153,11 +176,16 @@ fn mk_entity(gen: EntityGeneration, idx: EntityIndex) Entity {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const ComponentInfo = struct {
+    storage: ErasedComponentStorage,
     name: []const u8,
     size: usize,
     num_fields: usize,
     fields: [max_component_fields]ComponentField,
-    storage: *anyopaque,
+
+    pub fn get_data (self: ComponentInfo, ent: Entity) ?[]const u8
+    {
+        return self.storage.get_data (self.storage, ent);
+    }
 };
 
 const max_component_fields = 16;
@@ -185,16 +213,90 @@ const ComponentFieldKind = enum {
     Vec2,
 };
 
+pub fn ComponentStorage(Component: type) type {
+    return struct {
+        store: std.AutoArrayHashMapUnmanaged(EntityIndex, Component) = .empty,
+
+        const Self = @This();
+
+        pub const empty: Self = .{
+            .store = .empty,
+        };
+
+        pub fn deinit(self: *Self) void {
+            self.store.deinit(ecs_allocator);
+        }
+
+        pub fn set(self: *Self, key: Entity, value: anytype) void {
+            const idx = get_index (key);
+            self.store.put(ecs_allocator, idx, value) catch |err| {
+                log.err("Cannot set component {} {} : {}", .{ key, value, err });
+            };
+        }
+
+        pub fn get(self: *Self, key: Entity) ?Component {
+            const idx = get_index (key);
+            return self.store.get(idx);
+        }
+
+        pub fn get_data (self: *Self, key: Entity) ?[]const u8 {
+            const idx = get_index (key);
+            if (self.store.getPtr(idx)) |value|
+            {
+                var ptr: []const u8 = undefined;
+                ptr.ptr = @ptrCast (value);
+                ptr.len = @sizeOf (Component);
+                return ptr;
+            }
+            return null;
+        }
+    };
+}
+
+pub const ErasedComponentStorage = struct {
+    ptr: *anyopaque,
+    deinit: *const fn (self: ErasedComponentStorage) void,
+    get_data: *const fn (self: ErasedComponentStorage, ent: Entity) ?[]const u8,
+
+    pub fn cast (self: ErasedComponentStorage, Component: type,) *ComponentStorage(Component) {
+        return @alignCast (@ptrCast (self.ptr));
+    }
+};
+
+fn init_erased_component_storage (Component: type) ErasedComponentStorage {
+    const ptr = ecs_allocator.create (ComponentStorage (Component)) catch unreachable;
+    ptr.* = .empty;
+
+    return ErasedComponentStorage {
+        .ptr = ptr,
+        .deinit = (struct {
+            fn deinit (self: ErasedComponentStorage) void
+            {
+                const cast_ptr = self.cast (Component);
+                cast_ptr.deinit ();
+                ecs_allocator.destroy (cast_ptr);
+            }
+        }).deinit,
+        .get_data = (struct {
+            fn get_data (self: ErasedComponentStorage, ent: Entity) ?[]const u8
+            {
+                const cast_ptr = self.cast (Component);
+                return cast_ptr.get_data (ent);
+            }
+        }).get_data,
+    };
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn register_component(name: []const u8, comptime Component: type) void {
+pub fn register_component(comptime name: []const u8, comptime Component: type) void {
     std.debug.assert(initialized);
 
     const type_id = get_type_id(Component);
     if (components.get(type_id)) |_| {
-        log.debug("component {s} already registered", .{name});
+        log.warn("component {s} already registered", .{name});
         return;
     }
 
@@ -231,7 +333,9 @@ pub fn register_component(name: []const u8, comptime Component: type) void {
         info.num_fields = i + 1;
     }
 
-    components.put(type_id, info) catch |err| {
+    info.storage = init_erased_component_storage (Component);
+
+    components.put(ecs_allocator, type_id, info) catch |err| {
         log.err("register_component failed {}", .{err});
         return;
     };
@@ -258,7 +362,7 @@ pub fn new() Entity {
     }
 
     const index: EntityIndex = @intCast(generations.items.len);
-    generations.append(0) catch |err| {
+    generations.append(ecs_allocator, 0) catch |err| {
         log.err("new {}", .{err});
         return .null_entity;
     };
@@ -274,24 +378,41 @@ pub fn dump_ecs() void {
     std.debug.assert(initialized);
     log.msg("Dump ECS", .{});
 
-    var component_iter = components.iterator();
-    while (component_iter.next()) |entry| {
-        const component = entry.value_ptr;
-        log.msg("  Component {s} ({} bytes)", .{ component.name, component.size });
-        for (0..component.num_fields) |i| {
-            const field = component.fields[i];
-            log.msg("    {s}: {s} (offset {}, {} bytes)", .{
-                field.name,
-                @tagName(field.kind),
-                field.offset,
-                field.size,
-            });
+    const show_components = true;
+    const show_entities = true;
+    const show_entity_data = true;
+
+    if (show_components) {
+        var component_iter = components.iterator();
+        while (component_iter.next()) |entry| {
+            const component = entry.value_ptr;
+            log.msg("  Component {s} ({} bytes)", .{ component.name, component.size });
+            for (0..component.num_fields) |i| {
+                const field = component.fields[i];
+                log.msg("    {s}: {s} (offset {}, {} bytes)", .{
+                    field.name,
+                    @tagName(field.kind),
+                    field.offset,
+                    field.size,
+                });
+            }
         }
     }
 
-    for (0.., generations.items) |idx, gen| {
-        const ent = mk_entity(gen, @intCast(idx));
-        log.msg("  Entity {}", .{ent});
+    if (show_entities) {
+        for (0.., generations.items) |idx, gen| {
+            const ent = mk_entity(gen, @intCast(idx));
+            log.msg("  Entity {}", .{ent});
+            if (show_entity_data) {
+                var component_iter = components.iterator();
+                while (component_iter.next()) |entry| {
+                    const component = entry.value_ptr;
+                    if (component.get_data(ent)) |data| {
+                        log.msg("    {s} {any}", .{ component.name, data });
+                    }
+                }
+            }
+        }
     }
 }
 

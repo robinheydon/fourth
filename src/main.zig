@@ -297,26 +297,40 @@ fn debug_map_state() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn init_roads() void {
-    ng.register_component("Node", state.Node);
-    ng.register_component("Link", state.Link);
+    // ng.register_component("Node", state.Node);
+    // ng.register_component("Link", state.Link);
     ng.register_component("Construction", state.Construction);
+    ng.register_component("Health", state.Health);
 
-    const n1 = ng.new();
-    const n2 = ng.new();
-    const n3 = ng.new();
-    const l1 = ng.new();
-    const n4 = ng.new();
-    const n5 = ng.new();
-    const l2 = ng.new();
+    // const n1 = ng.new();
+    // const n2 = ng.new();
+    // const n3 = ng.new();
+    // const l1 = ng.new();
+    // const n4 = ng.new();
+    // const n5 = ng.new();
+    // const l2 = ng.new();
 
-    n1.set(state.Node, .{ .pos = .{ 10, 10 } });
-    n2.set(state.Node, .{ .pos = .{ 20, 25 } });
-    n3.set(state.Node, .{ .pos = .{ 30, 20 } });
-    l1.set(state.Link, .{ .start = n1, .mid = n2, .end = n3, .width = 72 });
-    n4.set(state.Node, .{ .pos = .{ 40, 10 } });
-    n5.set(state.Node, .{ .pos = .{ 50, 15 } });
-    l2.set(state.Link, .{ .start = n2, .mid = n4, .end = n5, .width = 72 });
-    l2.set(state.Construction, .{ .step = 10, .steps = 30 });
+    const h1 = ng.new();
+    const h2 = ng.new();
+    const h3 = ng.new();
+
+    h1.set(state.Health{ .hp = 50, .max = 100 });
+    h2.set(state.Health{ .hp = 100, .max = 110 });
+    h2.set(state.Construction{ .step = 20, .steps = 40 });
+    h3.set(state.Construction{ .step = 0, .steps = 100 });
+
+    log.info("h1.health = {?}", .{h1.get(state.Health)});
+    log.info("h2.health = {?}", .{h2.get(state.Health)});
+    log.info("h3.health = {?}", .{h3.get(state.Health)});
+
+    // n1.set(state.Node, .{ .pos = .{ 10, 10 } });
+    // n2.set(state.Node, .{ .pos = .{ 20, 25 } });
+    // n3.set(state.Node, .{ .pos = .{ 30, 20 } });
+    // l1.set(state.Link, .{ .start = n1, .mid = n2, .end = n3, .width = 72 });
+    // n4.set(state.Node, .{ .pos = .{ 40, 10 } });
+    // n5.set(state.Node, .{ .pos = .{ 50, 15 } });
+    // l2.set(state.Link, .{ .start = n2, .mid = n4, .end = n5, .width = 72 });
+    // l2.set(state.Construction, .{ .step = 10, .steps = 30 });
 
     ng.dump_ecs();
 }
