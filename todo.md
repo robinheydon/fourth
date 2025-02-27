@@ -27,13 +27,12 @@
 
 - Immediate Mode UI
   - Windows
-    - resize along edges
-    - draw window title bar
+    - don't move window when resizing
   - Button
+  - Text
   - CheckButton
   - RadioButton
   - Icons
-  - Text
   - InputText
   - themes
 
