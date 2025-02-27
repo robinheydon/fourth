@@ -627,8 +627,8 @@ fn use_cursor(cursor: video.Cursor) void {
         current_cursor = cursor;
         const label = switch (current_cursor) {
             .resize => "nwse-resize",
-            .resize_ns => "sb-v-double-arrow",
-            .resize_ew => "sb-h-double-arrow",
+            .resize_ns => "ns-resize",
+            .resize_ew => "ew-resize",
             .move => "fleur",
             else => "default",
         };

@@ -27,9 +27,15 @@
 
 - Immediate Mode UI
   - Windows
-  - Buttons
+    - resize along edges
+    - draw window title bar
+  - Button
+  - CheckButton
+  - RadioButton
   - Icons
   - Text
+  - InputText
+  - themes
 
 - Graphics
   - Models

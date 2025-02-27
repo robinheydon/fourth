@@ -249,6 +249,7 @@ pub const BeginWindowOptions = struct {
     background_color: ng.Color = .@"dark grey",
     resize_handle_color: ng.Color = .white,
     resize_handle_size: f32 = 20,
+    resize_border_size: f32 = 10,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -289,6 +290,7 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
                     .background_color = options.background_color,
                     .resize_handle_color = options.resize_handle_color,
                     .resize_handle_size = options.resize_handle_size,
+                    .resize_border_size = options.resize_border_size,
                 },
             },
         };
@@ -404,6 +406,7 @@ const Window = struct {
     background_color: ng.Color,
     resize_handle_color: ng.Color,
     resize_handle_size: f32,
+    resize_border_size: f32,
 
     pub fn draw(self: Window) void {
         add_vertex(.{
@@ -483,7 +486,7 @@ const Window = struct {
                 captured_pos = event.pos;
                 self.width = std.math.clamp(self.width, self.min_width, self.max_width);
                 self.height = std.math.clamp(self.height, self.min_height, self.max_height);
-                ng.use_cursor(.resize_ns);
+                ng.use_cursor(.resize);
             } else {
                 const delta = event.pos - captured_pos;
                 self.x += delta[0];
@@ -494,12 +497,24 @@ const Window = struct {
         } else {
             if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
                 if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
-                    const delta = ng.Vec2{
+                    const bottom_right = ng.Vec2{
                         self.x + self.width,
                         self.y + self.height,
                     } - event.pos;
-                    if (delta[0] + delta[1] < self.resize_handle_size) {
+                    const top_left = event.pos - ng.Vec2{
+                        self.x,
+                        self.y,
+                    };
+                    if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
                         ng.use_cursor(.resize);
+                    } else if (bottom_right[0] < self.resize_border_size) {
+                        ng.use_cursor(.resize_ew);
+                    } else if (bottom_right[1] < self.resize_border_size) {
+                        ng.use_cursor(.resize_ns);
+                    } else if (top_left[0] < self.resize_border_size) {
+                        ng.use_cursor(.resize_ew);
+                    } else if (top_left[1] < self.resize_border_size) {
+                        ng.use_cursor(.resize_ns);
                     } else {
                         ng.use_cursor(.default);
                     }
