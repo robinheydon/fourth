@@ -13,7 +13,7 @@ const log = ng.Logger(.ecs);
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
-var ecs_allocator: std.mem.Allocator = undefined;
+var allocator: std.mem.Allocator = undefined;
 
 var initialized = false;
 
@@ -114,7 +114,7 @@ pub const Entity = enum(u32) {
 
 pub fn init() void {
     gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    ecs_allocator = gpa.allocator();
+    allocator = gpa.allocator();
 
     generations = .empty;
     recycled = .empty;
@@ -128,14 +128,14 @@ pub fn init() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn deinit() void {
-    generations.deinit(ecs_allocator);
+    generations.deinit(allocator);
     var component_iter = components.iterator();
     while (component_iter.next()) |entry| {
         const component = entry.value_ptr;
         component.storage.deinit(component.storage);
     }
-    components.deinit(ecs_allocator);
-    recycled.deinit(ecs_allocator);
+    components.deinit(allocator);
+    recycled.deinit(allocator);
 
     std.debug.assert(gpa.deinit() == .ok);
 }
@@ -223,12 +223,12 @@ pub fn ComponentStorage(Component: type) type {
         };
 
         pub fn deinit(self: *Self) void {
-            self.store.deinit(ecs_allocator);
+            self.store.deinit(allocator);
         }
 
         pub fn set(self: *Self, key: Entity, value: anytype) void {
             const idx = get_index(key);
-            self.store.put(ecs_allocator, idx, value) catch |err| {
+            self.store.put(allocator, idx, value) catch |err| {
                 log.err("Cannot set component {} {} : {}", .{ key, value, err });
             };
         }
@@ -265,7 +265,7 @@ pub const ErasedComponentStorage = struct {
 };
 
 fn init_erased_component_storage(Component: type) ErasedComponentStorage {
-    const ptr = ecs_allocator.create(ComponentStorage(Component)) catch unreachable;
+    const ptr = allocator.create(ComponentStorage(Component)) catch unreachable;
     ptr.* = .empty;
 
     return ErasedComponentStorage{
@@ -274,7 +274,7 @@ fn init_erased_component_storage(Component: type) ErasedComponentStorage {
             fn deinit(self: ErasedComponentStorage) void {
                 const cast_ptr = self.cast(Component);
                 cast_ptr.deinit();
-                ecs_allocator.destroy(cast_ptr);
+                allocator.destroy(cast_ptr);
             }
         }).deinit,
         .get_data = (struct {
@@ -334,7 +334,7 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
 
     info.storage = init_erased_component_storage(Component);
 
-    components.put(ecs_allocator, type_id, info) catch |err| {
+    components.put(allocator, type_id, info) catch |err| {
         log.err("register_component failed {}", .{err});
         return;
     };
@@ -361,7 +361,7 @@ pub fn new() Entity {
     }
 
     const index: EntityIndex = @intCast(generations.items.len);
-    generations.append(ecs_allocator, 0) catch |err| {
+    generations.append(allocator, 0) catch |err| {
         log.err("new {}", .{err});
         return .null_entity;
     };

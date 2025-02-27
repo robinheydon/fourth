@@ -59,13 +59,49 @@ pub var key_move_left2: ng.Key = .left;
 pub var key_move_right2: ng.Key = .right;
 pub var key_rotate_left: ng.Key = .Q;
 pub var key_rotate_right: ng.Key = .E;
+pub var key_toggle_debug_info: ng.Key = .f1;
+pub var key_toggle_window2: ng.Key = .f2;
+pub var key_toggle_window3: ng.Key = .f3;
+pub var key_toggle_window4: ng.Key = .f4;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub var triangle_shader: ng.Shader = undefined;
+pub const axis_shader_source = @import("triangle_shader.zig");
+pub const AxisVertex = axis_shader_source.Vertex;
+pub const AxisUniforms = ng.make_uniform_slots(axis_shader_source.Uniforms);
+
+pub var axis_shader: ng.Shader = undefined;
+pub var axis_buffer: ng.Buffer = undefined;
+pub var axis_pipeline: ng.Pipeline = undefined;
+pub var axis_binding: ng.Binding = undefined;
+
+pub const axis_data = [_]AxisVertex{
+    .{ .pos = .{ 1, 0 }, .col = .green },
+    .{ .pos = .{ 1, 1 }, .col = .green },
+    .{ .pos = .{ 20, 0 }, .col = .green },
+    .{ .pos = .{ 20, 0 }, .col = .green },
+    .{ .pos = .{ 1, 1 }, .col = .green },
+    .{ .pos = .{ 20, 1 }, .col = .green },
+
+    .{ .pos = .{ 0, 1 }, .col = .red },
+    .{ .pos = .{ 1, 1 }, .col = .red },
+    .{ .pos = .{ 0, 20 }, .col = .red },
+    .{ .pos = .{ 0, 20 }, .col = .red },
+    .{ .pos = .{ 1, 1 }, .col = .red },
+    .{ .pos = .{ 1, 20 }, .col = .red },
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const grid_shader_source = @import("grid_shader.zig");
+pub const GridUniforms = ng.make_uniform_slots(grid_shader_source.Uniforms);
+
 pub var grid_shader: ng.Shader = undefined;
+pub var grid_pipeline: ng.Pipeline = undefined;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -101,6 +137,15 @@ pub const Health = extern struct {
     hp: u8,
     max: u8,
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub var show_debug_info = false;
+pub var show_window2 = false;
+pub var show_window3 = false;
+pub var show_window4 = false;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////

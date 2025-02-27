@@ -249,6 +249,7 @@ pub fn init() !video.Platform {
         .apply_pipeline = apply_pipeline,
         .apply_bindings = apply_bindings,
         .apply_uniform = apply_uniform,
+        .get_render_pass_size = get_render_pass_size,
         .draw = draw,
         .submit_command_buffer = submit_command_buffer,
         .deinit = deinit,
@@ -1623,6 +1624,15 @@ fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
             api.glUniform1i(info.index, value.*);
         },
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn get_render_pass_size(self: video.RenderPass) ng.Vec2 {
+    _ = self;
+    return .{ window_width, window_height };
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

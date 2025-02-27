@@ -26,7 +26,6 @@ var image: ng.video.Image = undefined;
 var sampler: ng.video.Sampler = undefined;
 var binding: ng.video.Binding = undefined;
 var pipeline: ng.video.Pipeline = undefined;
-var render_pass: ng.video.RenderPass = undefined;
 
 var vertices: [16384]DebugTextVertex = undefined;
 var next_vertex: usize = 0;
@@ -43,7 +42,7 @@ var frame_dy: f32 = 0;
 var frame_offset_x: f32 = 0.5;
 var frame_offset_y: f32 = 0.5;
 
-var debug_scale: f32 = 4;
+var debug_scale: f32 = 1;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -210,7 +209,7 @@ fn debug_text_writer(self: *const anyopaque, bytes: []const u8) error{}!usize {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn draw() void {
+pub fn draw(render_pass: ng.RenderPass) void {
     for (0..frame_height) |y| {
         for (0..frame_width) |x| {
             const index = frame_width * y + x;

@@ -19,6 +19,7 @@ pub const pool = @import("pool.zig");
 pub const debug_text = @import("debug_text.zig");
 pub const logger = @import("logger.zig");
 pub const ecs = @import("ecs.zig");
+pub const ui = @import("ui.zig");
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -52,6 +53,17 @@ pub const Sampler2D = video.Sampler2D;
 pub const Window = video.Window;
 pub const WindowSize = video.WindowSize;
 pub const Shader = video.Shader;
+pub const Pipeline = video.Pipeline;
+pub const Buffer = video.Buffer;
+pub const Binding = video.Binding;
+pub const RenderPass = video.RenderPass;
+
+pub const ui_render = ui.render;
+pub const ui_begin_window = ui.begin_window;
+pub const ui_end_window = ui.end_window;
+pub const ui_begin_box = ui.begin_box;
+pub const ui_end_box = ui.end_box;
+pub const ui_format_text = ui.format_text;
 
 pub const Color = color.Color;
 
@@ -126,6 +138,7 @@ pub fn init(options: InitOptions) !void {
     prng = std.Random.DefaultPrng.init(now);
 
     ecs.init();
+    try ui.init();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -134,6 +147,7 @@ pub fn init(options: InitOptions) !void {
 
 pub fn deinit() void {
     log.info("deinit", .{});
+    ui.deinit();
     ecs.deinit();
     time.deinit();
     audio.deinit();

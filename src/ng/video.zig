@@ -72,6 +72,7 @@ pub const Platform = struct {
     apply_bindings: *const fn (RenderPass, Binding) void,
     apply_uniform: *const fn (RenderPass, UniformInfo) void,
     draw: *const fn (RenderPass, usize) void,
+    get_render_pass_size: *const fn (RenderPass) ng.Vec2,
 
     create_shader: *const fn (CreateShaderInfo) VideoError!Shader,
     delete_shader: *const fn (Shader) void,
@@ -280,6 +281,10 @@ pub const RenderPass = struct {
             .data = ng.as_bytes(&data),
         };
         platform.apply_uniform(self, info);
+    }
+
+    pub fn get_size(self: RenderPass) ng.Vec2 {
+        return platform.get_render_pass_size(self);
     }
 
     pub fn draw(self: RenderPass, num_vertexes: usize) void {

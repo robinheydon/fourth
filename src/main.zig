@@ -18,8 +18,6 @@ pub const log = ng.Logger(.main);
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-var clear_color: ng.Color = .white;
-
 pub fn main() !void {
     log.set_min_level(.note);
     log.info("starting", .{});
@@ -31,8 +29,6 @@ pub fn main() !void {
     });
     defer ng.deinit();
 
-    init_roads();
-
     state.window = try ng.create_window(.{
         .name = "Fourth",
         .width = 1280,
@@ -43,69 +39,9 @@ pub fn main() !void {
 
     state.window.set_swap_interval(.lowpower);
 
-    const triangle_shader_source = @import("triangle_shader.zig");
-    const TriangleVertex = triangle_shader_source.Vertex;
-    const TriangleUniforms = ng.make_uniform_slots(triangle_shader_source.Uniforms);
+    init_world();
 
-    state.triangle_shader = try ng.create_shader(triangle_shader_source);
-    defer state.triangle_shader.delete();
-
-    const grid_shader_source = @import("grid_shader.zig");
-    const GridUniforms = ng.make_uniform_slots(grid_shader_source.Uniforms);
-
-    state.grid_shader = try ng.create_shader(grid_shader_source);
-    defer state.grid_shader.delete();
-
-    // green - x-axis
-    // red - y-axis
-    const triangle_data = [_]TriangleVertex{
-        .{ .pos = .{ 1, 0 }, .col = .green },
-        .{ .pos = .{ 1, 1 }, .col = .green },
-        .{ .pos = .{ 20, 0 }, .col = .green },
-        .{ .pos = .{ 20, 0 }, .col = .green },
-        .{ .pos = .{ 1, 1 }, .col = .green },
-        .{ .pos = .{ 20, 1 }, .col = .green },
-
-        .{ .pos = .{ 0, 1 }, .col = .red },
-        .{ .pos = .{ 1, 1 }, .col = .red },
-        .{ .pos = .{ 0, 20 }, .col = .red },
-        .{ .pos = .{ 0, 20 }, .col = .red },
-        .{ .pos = .{ 1, 1 }, .col = .red },
-        .{ .pos = .{ 1, 20 }, .col = .red },
-    };
-
-    const buffer = try ng.create_buffer(.{
-        .label = "Triangle Vertex Data",
-        .data = ng.as_bytes(&triangle_data),
-    });
-    defer buffer.delete();
-
-    const grid_pipeline = try ng.create_pipeline(.{
-        .label = "Grid Pipeline",
-        .shader = state.grid_shader,
-        .primitive = .triangle_list,
-        .blend = .{
-            .enabled = true,
-            .src_factor_rgb = .src_alpha,
-            .dst_factor_rgb = .one_minus_src_alpha,
-            .src_factor_alpha = .one,
-            .dst_factor_alpha = .zero,
-        },
-    });
-    defer grid_pipeline.delete();
-
-    const pipeline = try ng.create_pipeline(.{
-        .label = "Triangle Pipeline",
-        .shader = state.triangle_shader,
-        .primitive = .triangle_list,
-    });
-    defer pipeline.delete();
-
-    const binding = try ng.create_binding(.{
-        .label = "Triangle Bindings",
-        .vertex_buffers = &.{buffer},
-    });
-    defer binding.delete();
+    try init_draw_world();
 
     while (state.running) {
         state.frame_counter +%= 1;
@@ -118,47 +54,187 @@ pub fn main() !void {
         update_fps(state.dt);
 
         if (state.average_frame_rate > 0) {
-            ng.debug_print("{} Hz\n{} frames\n", .{state.average_frame_rate, state.frame_counter});
+            ng.debug_print("{} Hz\n{} frames\n", .{ state.average_frame_rate, state.frame_counter });
         }
 
         process_events();
 
-        const window_size = state.window.get_size();
-        const projection = ng.ortho(window_size.width, window_size.height);
-
-        state.camera = .identity();
-        state.camera.zoom = state.map_zoom;
-        state.camera.rotate = state.map_rotate;
-        state.camera.origin = state.map_center;
-        state.camera.target = .{ window_size.width / 2, window_size.height / 2 };
-        const view = state.camera.get_matrix();
-        const mvp = ng.mat4_mul(view, projection);
-
-        debug_map_state();
+        draw_ui();
 
         const command_buffer = try state.window.acquire_command_buffer();
         const swapchain_texture = try command_buffer.acquire_swapchain_texture();
         const render_pass = try command_buffer.begin_render_pass(.{
             .texture = swapchain_texture,
-            .clear_color = clear_color,
+            .clear_color = .@"dark grey",
             .load = .clear,
             .store = .store,
         });
 
-        render_pass.apply_pipeline(grid_pipeline);
-        render_pass.apply_uniform_mat4(GridUniforms.mvp, mvp);
-        render_pass.draw(6);
+        draw_world(render_pass);
 
-        render_pass.apply_pipeline(pipeline);
-        render_pass.apply_bindings(binding);
-        render_pass.apply_uniform_mat4(TriangleUniforms.mvp, mvp);
-        render_pass.draw(triangle_data.len);
+        ng.ui_render(render_pass);
 
-        ng.debug_text_draw();
+        ng.debug_text_draw(render_pass);
 
         render_pass.end();
         try command_buffer.submit();
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_ui() void {
+    if (state.show_debug_info) {
+        draw_debug_window();
+    }
+    if (state.show_window2) {
+        draw_window2();
+    }
+    if (state.show_window3) {
+        draw_window3();
+    }
+    if (state.show_window4) {
+        draw_window4();
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_debug_window() void {
+    ng.ui_begin_window(.{
+        .title = "Debug Window",
+        .x = 80,
+        .y = 100,
+        .width = 320,
+        .height = 200,
+        .background_color = .black,
+    });
+    defer ng.ui_end_window();
+
+    // ng.ui_begin_box(.{ .direction = .vertical });
+    // ng.ui_format_text(.{}, "{} fps", .{state.average_frame_rate});
+    // ng.ui_end_box();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_window2() void {
+    ng.ui_begin_window(.{
+        .title = "Window2",
+        .x = 160,
+        .y = 120,
+        .width = 320,
+        .height = 200,
+        .background_color = .red,
+    });
+    defer ng.ui_end_window();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_window3() void {
+    ng.ui_begin_window(.{
+        .title = "Window3",
+        .x = 240,
+        .y = 140,
+        .width = 320,
+        .height = 200,
+        .background_color = .green,
+    });
+    defer ng.ui_end_window();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_window4() void {
+    ng.ui_begin_window(.{
+        .title = "Window4",
+        .x = 320,
+        .y = 160,
+        .width = 320,
+        .height = 200,
+        .background_color = .blue,
+    });
+    defer ng.ui_end_window();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn init_draw_world() !void {
+    state.axis_shader = try ng.create_shader(state.axis_shader_source);
+
+    state.grid_shader = try ng.create_shader(state.grid_shader_source);
+
+    state.grid_pipeline = try ng.create_pipeline(.{
+        .label = "Grid Pipeline",
+        .shader = state.grid_shader,
+        .primitive = .triangle_list,
+        .blend = .{
+            .enabled = true,
+            .src_factor_rgb = .src_alpha,
+            .dst_factor_rgb = .one_minus_src_alpha,
+            .src_factor_alpha = .one,
+            .dst_factor_alpha = .zero,
+        },
+    });
+
+    // green - x-axis
+    // red - y-axis
+    state.axis_buffer = try ng.create_buffer(.{
+        .label = "Axis Vertex Data",
+        .data = ng.as_bytes(&state.axis_data),
+    });
+
+    state.axis_pipeline = try ng.create_pipeline(.{
+        .label = "Axis Pipeline",
+        .shader = state.axis_shader,
+        .primitive = .triangle_list,
+    });
+
+    state.axis_binding = try ng.create_binding(.{
+        .label = "Axis Bindings",
+        .vertex_buffers = &.{state.axis_buffer},
+    });
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_world(render_pass: ng.RenderPass) void {
+    const window_size = state.window.get_size();
+    const projection = ng.ortho(window_size.width, window_size.height);
+
+    state.camera = .identity();
+    state.camera.zoom = state.map_zoom;
+    state.camera.rotate = state.map_rotate;
+    state.camera.origin = state.map_center;
+    state.camera.target = .{ window_size.width / 2, window_size.height / 2 };
+    const view = state.camera.get_matrix();
+    const mvp = ng.mat4_mul(view, projection);
+
+    debug_map_state();
+
+    render_pass.apply_pipeline(state.grid_pipeline);
+    render_pass.apply_uniform_mat4(state.GridUniforms.mvp, mvp);
+    render_pass.draw(6);
+
+    render_pass.apply_pipeline(state.axis_pipeline);
+    render_pass.apply_bindings(state.axis_binding);
+    render_pass.apply_uniform_mat4(state.AxisUniforms.mvp, mvp);
+    render_pass.draw(state.axis_data.len);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -260,8 +336,14 @@ fn process_key_down(event: ng.KeyEvent) void {
         state.running = false;
     } else if (event.key == state.key_toggle_fullscreen) {
         state.window.toggle_fullscreen();
-    } else if (event.key == .R) {
-        clear_color = ng.rand_color();
+    } else if (event.key == state.key_toggle_debug_info) {
+        state.show_debug_info = !state.show_debug_info;
+    } else if (event.key == state.key_toggle_window2) {
+        state.show_window2 = !state.show_window2;
+    } else if (event.key == state.key_toggle_window3) {
+        state.show_window3 = !state.show_window3;
+    } else if (event.key == state.key_toggle_window4) {
+        state.show_window4 = !state.show_window4;
     } else {
         // log.debug("{} ({})", .{ event.key, event.scan_code });
     }
@@ -327,10 +409,10 @@ fn process_mouse_up(event: ng.MouseEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const min_zoom = 0.1; // a few 10km squares
-const max_zoom = 100; // a few 1m squares
-
 fn process_wheel_event(event: ng.WheelEvent) void {
+    const min_zoom = 0.1; // a few 10km squares
+    const max_zoom = 100; // a few 1m squares
+
     const multiplier = std.math.pow(f32, 1.2, event.dy);
     state.map_zoom = std.math.clamp(state.map_zoom * multiplier, min_zoom, max_zoom);
 }
@@ -370,7 +452,7 @@ fn debug_map_state() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn init_roads() void {
+fn init_world() void {
     ng.register_component("Node", state.Node);
     ng.register_component("Link", state.Link);
     ng.register_component("Construction", state.Construction);
