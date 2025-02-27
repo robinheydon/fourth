@@ -25,12 +25,14 @@ void main() {
     float l3 = grid (frag_coord, 1000.0, w3);
     float l4 = grid (frag_coord, 10000.0, w4);
 
-    float l = l0 * clamp (1 - view_size / 100, 0.0, 0.4) +
-              l1 * clamp (1 - view_size / 1000, 0.0, 0.4) +
-              l2 * clamp (1 - view_size / 10000, 0.0, 0.4) +
-              l3 * clamp (1 - view_size / 100000, 0.0, 0.4) +
-              l4 * clamp (1 - view_size / 1000000, 0.0, 0.4);
+    const float scale = 0.3;
 
-    vec4 grid_color = vec4 (0.0, 0.0, 0.0, 1.0);
+    float l = l0 * clamp (scale - view_size / 100, 0.0, scale) +
+              l1 * clamp (scale - view_size / 1000, 0.0, scale) +
+              l2 * clamp (scale - view_size / 10000, 0.0, scale) +
+              l3 * clamp (scale - view_size / 100000, 0.0, scale) +
+              l4 * clamp (scale - view_size / 1000000, 0.0, scale);
+
+    vec4 grid_color = vec4 (0.3, 0.3, 0.4, 1.0);
     frag_color = vec4 (grid_color.rgb, l);
 }
