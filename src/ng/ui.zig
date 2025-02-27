@@ -5,6 +5,8 @@
 const std = @import("std");
 const ng = @import("ng");
 
+const Vec2 = ng.Vec2;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -40,7 +42,7 @@ var last_window: ?Handle = null;
 var hover: ?Handle = null;
 var captured_mouse: ?Handle = null;
 var window_resizing: ResizingMode = .none;
-var captured_pos: ng.Vec2 = .{ 0, 0 };
+var captured_offset: Vec2 = .{ 0, 0 };
 var app_captured_mouse: bool = false;
 
 var shader: ng.video.Shader = undefined;
@@ -288,14 +290,22 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
             .data = .{
                 .window = .{
                     .title = options.title,
-                    .x = options.x orelse 100,
-                    .y = options.y orelse 100,
-                    .width = options.width orelse 320,
-                    .height = options.width orelse 200,
-                    .min_width = options.min_width orelse 120,
-                    .min_height = options.min_height orelse 80,
-                    .max_width = options.max_width orelse 800,
-                    .max_height = options.max_height orelse 800,
+                    .pos = .{
+                        options.x orelse 100,
+                        options.y orelse 100,
+                    },
+                    .size = .{
+                        options.width orelse 320,
+                        options.width orelse 200,
+                    },
+                    .min_size = .{
+                        options.min_width orelse 120,
+                        options.min_height orelse 80,
+                    },
+                    .max_size = .{
+                        options.max_width orelse 800,
+                        options.max_height orelse 800,
+                    },
                     .background_color = options.background_color,
                     .resize_handle_color = options.resize_handle_color,
                     .resize_handle_size = options.resize_handle_size,
@@ -408,76 +418,112 @@ const UI_Type = enum {
 
 const Window = struct {
     title: []const u8,
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-    min_width: f32,
-    min_height: f32,
-    max_width: f32,
-    max_height: f32,
+    pos: Vec2,
+    size: Vec2,
+    min_size: Vec2,
+    max_size: Vec2,
     background_color: ng.Color,
     resize_handle_color: ng.Color,
     resize_handle_size: f32,
     resize_border_size: f32,
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     pub fn draw(self: Window) void {
         add_vertex(.{
-            .pos = .{ self.x, self.y },
+            .pos = self.pos,
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
         add_vertex(.{
-            .pos = .{ self.x + self.width, self.y },
+            .pos = self.pos + Vec2{ self.size[0], 0 },
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
         add_vertex(.{
-            .pos = .{ self.x, self.y + self.height },
+            .pos = self.pos + Vec2{ 0, self.size[1] },
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
         add_vertex(.{
-            .pos = .{ self.x, self.y + self.height },
+            .pos = self.pos + Vec2{ 0, self.size[1] },
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
         add_vertex(.{
-            .pos = .{ self.x + self.width, self.y },
+            .pos = self.pos + Vec2{ self.size[0], 0 },
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
         add_vertex(.{
-            .pos = .{ self.x + self.width, self.y + self.height },
+            .pos = self.pos + self.size,
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
 
         add_vertex(.{
-            .pos = .{ self.x + self.width, self.y + self.height - self.resize_handle_size },
+            .pos = self.pos + self.size - Vec2{ 0, self.resize_handle_size },
             .uv = .{ 0, 0 },
             .col = self.resize_handle_color,
         });
 
         add_vertex(.{
-            .pos = .{ self.x + self.width, self.y + self.height },
+            .pos = self.pos + self.size,
             .uv = .{ 0, 0 },
             .col = self.resize_handle_color,
         });
 
         add_vertex(.{
-            .pos = .{ self.x + self.width - self.resize_handle_size, self.y + self.height },
+            .pos = self.pos + self.size - Vec2{ self.resize_handle_size, 0 },
             .uv = .{ 0, 0 },
             .col = self.resize_handle_color,
         });
     }
 
-    pub fn fit_to_display(self: *Window, size: ng.Vec2) void {
-        if (self.x + self.width > size[0]) self.x = size[0] - self.width;
-        if (self.y + self.height > size[1]) self.y = size[1] - self.height;
-        if (self.x < 0) self.x = 0;
-        if (self.y < 0) self.y = 0;
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn fit_to_display(self: *Window, size: Vec2) void {
+        switch (window_resizing) {
+            .none => {
+                if (self.pos[0] + self.size[0] > size[0]) self.pos[0] = size[0] - self.size[0];
+                if (self.pos[1] + self.size[1] > size[1]) self.pos[1] = size[1] - self.size[1];
+                if (self.pos[0] < 0) self.pos[0] = 0;
+                if (self.pos[1] < 0) self.pos[1] = 0;
+            },
+            .resize => {
+                if (self.pos[0] + self.size[0] > size[0]) {
+                    self.size[0] = size[0] - self.pos[0];
+                }
+                if (self.pos[1] + self.size[1] > size[1]) {
+                    self.size[1] = size[1] - self.pos[1];
+                }
+            },
+            .top => {
+                if (self.pos[1] < 0) {
+                    self.size[1] += self.pos[1];
+                    self.pos[1] = 0;
+                }
+            },
+            .left => {
+                if (self.pos[0] < 0) {
+                    self.size[0] += self.pos[0];
+                    self.pos[0] = 0;
+                }
+            },
+            .bottom => {
+                if (self.pos[1] + self.size[1] > size[1]) {
+                    self.size[1] = size[1] - self.pos[1];
+                }
+            },
+            .right => {
+                if (self.pos[0] + self.size[0] > size[0]) {
+                    self.size[0] = size[0] - self.pos[0];
+                }
+            },
+        }
     }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn process_event(self: *Window, handle: Handle, event: ng.Event) bool {
         switch (event) {
@@ -490,122 +536,141 @@ const Window = struct {
         return false;
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     pub fn process_mouse_move(self: *Window, handle: Handle, event: ng.MoveEvent) bool {
         if (captured_mouse == handle) {
-            const delta = event.pos - captured_pos;
             switch (window_resizing) {
                 .none => {
-                    self.x += delta[0];
-                    self.y += delta[1];
+                    self.pos = event.pos - captured_offset;
                     ng.use_cursor(.move);
                 },
+                .resize => {
+                    self.size = std.math.clamp(
+                        event.pos - self.pos,
+                        self.min_size,
+                        self.max_size,
+                    );
+                    ng.use_cursor(.resize);
+                },
                 .top => {
-                    self.y += delta[1];
-                    self.height -= delta[1];
+                    const pos = event.pos[1] - captured_offset[1];
+                    const size = std.math.clamp(
+                        self.pos[1] + self.size[1] - pos,
+                        self.min_size[1],
+                        self.max_size[1],
+                    );
+                    self.pos[1] = self.pos[1] + self.size[1] - size;
+                    self.size[1] = size;
                     ng.use_cursor(.resize_ns);
                 },
                 .left => {
-                    self.x += delta[0];
-                    self.width -= delta[0];
+                    const pos = event.pos[0] - captured_offset[0];
+                    const size = std.math.clamp(
+                        self.pos[0] + self.size[0] - pos,
+                        self.min_size[0],
+                        self.max_size[0],
+                    );
+                    self.pos[0] = self.pos[0] + self.size[0] - size;
+                    self.size[0] = size;
                     ng.use_cursor(.resize_ew);
                 },
                 .bottom => {
-                    self.height += delta[1];
+                    self.size[1] = std.math.clamp(
+                        event.pos[1] - self.pos[1],
+                        self.min_size[1],
+                        self.max_size[1],
+                    );
                     ng.use_cursor(.resize_ns);
                 },
                 .right => {
-                    self.width += delta[0];
+                    self.size[0] = std.math.clamp(
+                        event.pos[0] - self.pos[0],
+                        self.min_size[0],
+                        self.max_size[0],
+                    );
                     ng.use_cursor(.resize_ew);
                 },
-                .resize => {
-                    self.width += delta[0];
-                    self.height += delta[1];
-                    ng.use_cursor(.resize);
-                },
             }
-            captured_pos = event.pos;
-            self.width = std.math.clamp(self.width, self.min_width, self.max_width);
-            self.height = std.math.clamp(self.height, self.min_height, self.max_height);
         } else {
-            if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
-                if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
-                    const bottom_right = ng.Vec2{
-                        self.x + self.width,
-                        self.y + self.height,
-                    } - event.pos;
-                    const top_left = event.pos - ng.Vec2{
-                        self.x,
-                        self.y,
-                    };
-                    if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
-                        ng.use_cursor(.resize);
-                    } else if (bottom_right[0] < self.resize_border_size) {
-                        ng.use_cursor(.resize_ew);
-                    } else if (bottom_right[1] < self.resize_border_size) {
-                        ng.use_cursor(.resize_ns);
-                    } else if (top_left[0] < self.resize_border_size) {
-                        ng.use_cursor(.resize_ew);
-                    } else if (top_left[1] < self.resize_border_size) {
-                        ng.use_cursor(.resize_ns);
-                    } else {
-                        ng.use_cursor(.default);
-                    }
-                    hover = handle;
-                    return true;
+            if (event.pos[0] >= self.pos[0] and
+                event.pos[0] < self.pos[0] + self.size[0] and
+                event.pos[1] >= self.pos[1] and
+                event.pos[1] < self.pos[1] + self.size[1])
+            {
+                const bottom_right = self.pos + self.size - event.pos;
+                const top_left = event.pos - self.pos;
+                if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
+                    ng.use_cursor(.resize);
+                } else if (bottom_right[0] < self.resize_border_size) {
+                    ng.use_cursor(.resize_ew);
+                } else if (bottom_right[1] < self.resize_border_size) {
+                    ng.use_cursor(.resize_ns);
+                } else if (top_left[0] < self.resize_border_size) {
+                    ng.use_cursor(.resize_ew);
+                } else if (top_left[1] < self.resize_border_size) {
+                    ng.use_cursor(.resize_ns);
+                } else {
+                    ng.use_cursor(.default);
                 }
+                hover = handle;
+                return true;
             }
             hover = null;
         }
         return false;
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     pub fn process_mouse_down(self: Window, handle: Handle, event: ng.MouseEvent) bool {
         if (event.button == .left) {
-            if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
-                if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
-                    const bottom_right = ng.Vec2{
-                        self.x + self.width,
-                        self.y + self.height,
-                    } - event.pos;
-                    const top_left = event.pos - ng.Vec2{
-                        self.x,
-                        self.y,
-                    };
-                    if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
-                        window_resizing = .resize;
-                    } else if (bottom_right[0] < self.resize_border_size) {
-                        window_resizing = .right;
-                    } else if (bottom_right[1] < self.resize_border_size) {
-                        window_resizing = .bottom;
-                    } else if (top_left[0] < self.resize_border_size) {
-                        window_resizing = .left;
-                    } else if (top_left[1] < self.resize_border_size) {
-                        window_resizing = .top;
-                    } else {
-                        window_resizing = .none;
-                    }
-                    captured_mouse = handle;
-                    captured_pos = event.pos;
-                    move_to_top(handle);
-                    return true;
+            if (event.pos[0] >= self.pos[0] and
+                event.pos[0] < self.pos[0] + self.size[0] and
+                event.pos[1] >= self.pos[1] and
+                event.pos[1] < self.pos[1] + self.size[1])
+            {
+                const bottom_right = self.pos + self.size - event.pos;
+                const top_left = event.pos - self.pos;
+                if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
+                    window_resizing = .resize;
+                } else if (bottom_right[0] < self.resize_border_size) {
+                    window_resizing = .right;
+                } else if (top_left[0] < self.resize_border_size) {
+                    window_resizing = .left;
+                } else if (bottom_right[1] < self.resize_border_size) {
+                    window_resizing = .bottom;
+                } else if (top_left[1] < self.resize_border_size) {
+                    window_resizing = .top;
+                } else {
+                    window_resizing = .none;
                 }
+                captured_mouse = handle;
+                captured_offset = event.pos - self.pos;
+                move_to_top(handle);
+                return true;
             }
         }
         return false;
     }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn process_mouse_up(self: Window, handle: Handle, event: ng.MouseEvent) bool {
         _ = self;
         if (event.button == .left) {
             if (captured_mouse == handle) {
                 captured_mouse = null;
-                window_resizing = .none;
                 return true;
             }
         }
         return false;
     }
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const Box = struct {
     direction: BoxDirection,
@@ -691,13 +756,23 @@ fn dump_state(label: []const u8) void {
     var window = first_window;
     while (window) |handle| {
         const obj = get(handle) catch return;
-        ng.debug_print("  {} {?} {?} {} {}\n", .{
+        ng.debug_print("  {} {?} {?} {} {}", .{
             handle,
             obj.pred,
             obj.succ,
             obj.active,
             obj.shown,
         });
+        switch (obj.data) {
+            .window => |win| {
+                ng.debug_print(" {d} {d}", .{
+                    win.pos,
+                    win.size,
+                });
+            },
+            else => {},
+        }
+        ng.debug_print("\n", .{});
         window = obj.succ;
     }
 }
