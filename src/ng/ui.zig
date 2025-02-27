@@ -39,7 +39,7 @@ var last_window: ?Handle = null;
 
 var hover: ?Handle = null;
 var captured_mouse: ?Handle = null;
-var window_resizing: bool = false;
+var window_resizing: ResizingMode = .none;
 var captured_pos: ng.Vec2 = .{ 0, 0 };
 var app_captured_mouse: bool = false;
 
@@ -54,6 +54,15 @@ var vertices: [16384]DebugTextVertex = undefined;
 var next_vertex: usize = 0;
 
 var font_data: [256 * 12 * 20]u8 = undefined;
+
+const ResizingMode = enum {
+    none,
+    resize,
+    top,
+    left,
+    bottom,
+    right,
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -479,20 +488,24 @@ const Window = struct {
 
     pub fn process_mouse_move(self: *Window, handle: Handle, event: ng.MoveEvent) bool {
         if (captured_mouse == handle) {
-            if (window_resizing) {
-                const delta = event.pos - captured_pos;
-                self.width += delta[0];
-                self.height += delta[1];
-                captured_pos = event.pos;
-                self.width = std.math.clamp(self.width, self.min_width, self.max_width);
-                self.height = std.math.clamp(self.height, self.min_height, self.max_height);
-                ng.use_cursor(.resize);
-            } else {
-                const delta = event.pos - captured_pos;
-                self.x += delta[0];
-                self.y += delta[1];
-                captured_pos = event.pos;
-                ng.use_cursor(.move);
+            const delta = event.pos - captured_pos;
+            switch (window_resizing)
+            {
+                .none => {
+                    self.x += delta[0];
+                    self.y += delta[1];
+                    captured_pos = event.pos;
+                    ng.use_cursor(.move);
+                },
+                .resize => {
+                    self.width += delta[0];
+                    self.height += delta[1];
+                    captured_pos = event.pos;
+                    self.width = std.math.clamp(self.width, self.min_width, self.max_width);
+                    self.height = std.math.clamp(self.height, self.min_height, self.max_height);
+                    ng.use_cursor(.resize);
+                },
+                else => {}
             }
         } else {
             if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
@@ -531,12 +544,26 @@ const Window = struct {
         if (event.button == .left) {
             if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
                 if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
-                    const delta = ng.Vec2{
+                    const bottom_right = ng.Vec2{
                         self.x + self.width,
                         self.y + self.height,
                     } - event.pos;
-                    if (delta[0] + delta[1] < self.resize_handle_size) {
-                        window_resizing = true;
+                    const top_left = event.pos - ng.Vec2{
+                        self.x,
+                        self.y,
+                    };
+                    if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
+                        window_resizing = .resize;
+                    } else if (bottom_right[0] < self.resize_border_size) {
+                        window_resizing = .right;
+                    } else if (bottom_right[1] < self.resize_border_size) {
+                        window_resizing = .bottom;
+                    } else if (top_left[0] < self.resize_border_size) {
+                        window_resizing = .left;
+                    } else if (top_left[1] < self.resize_border_size) {
+                        window_resizing = .top;
+                    } else {
+                        window_resizing = .none;
                     }
                     captured_mouse = handle;
                     captured_pos = event.pos;
@@ -553,7 +580,7 @@ const Window = struct {
         if (event.button == .left) {
             if (captured_mouse == handle) {
                 captured_mouse = null;
-                window_resizing = false;
+                window_resizing = .none;
                 return true;
             }
         }
