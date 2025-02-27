@@ -6,6 +6,7 @@ const std = @import("std");
 const ng = @import("ng");
 
 const Vec2 = ng.Vec2;
+const Color = ng.Color;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -258,6 +259,9 @@ pub const BeginWindowOptions = struct {
     max_width: ?f32 = null,
     max_height: ?f32 = null,
     background_color: ng.Color = .@"dark grey",
+    title_bar_height: f32 = 20 + 8,
+    title_bar_color: ng.Color = .@"very dark blue",
+    title_text_color: ng.Color = .yellow,
     resize_handle_color: ng.Color = .white,
     resize_handle_size: f32 = 20,
     resize_border_size: f32 = 10,
@@ -307,6 +311,9 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
                         options.max_height orelse 800,
                     },
                     .background_color = options.background_color,
+                    .title_bar_color = options.title_bar_color,
+                    .title_bar_height = options.title_bar_height,
+                    .title_text_color = options.title_text_color,
                     .resize_handle_color = options.resize_handle_color,
                     .resize_handle_size = options.resize_handle_size,
                     .resize_border_size = options.resize_border_size,
@@ -423,6 +430,9 @@ const Window = struct {
     min_size: Vec2,
     max_size: Vec2,
     background_color: ng.Color,
+    title_bar_color: ng.Color,
+    title_bar_height: f32,
+    title_text_color: ng.Color,
     resize_handle_color: ng.Color,
     resize_handle_size: f32,
     resize_border_size: f32,
@@ -430,36 +440,7 @@ const Window = struct {
     ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn draw(self: Window) void {
-        add_vertex(.{
-            .pos = self.pos,
-            .uv = .{ 0, 0 },
-            .col = self.background_color,
-        });
-        add_vertex(.{
-            .pos = self.pos + Vec2{ self.size[0], 0 },
-            .uv = .{ 0, 0 },
-            .col = self.background_color,
-        });
-        add_vertex(.{
-            .pos = self.pos + Vec2{ 0, self.size[1] },
-            .uv = .{ 0, 0 },
-            .col = self.background_color,
-        });
-        add_vertex(.{
-            .pos = self.pos + Vec2{ 0, self.size[1] },
-            .uv = .{ 0, 0 },
-            .col = self.background_color,
-        });
-        add_vertex(.{
-            .pos = self.pos + Vec2{ self.size[0], 0 },
-            .uv = .{ 0, 0 },
-            .col = self.background_color,
-        });
-        add_vertex(.{
-            .pos = self.pos + self.size,
-            .uv = .{ 0, 0 },
-            .col = self.background_color,
-        });
+        draw_rectangle(self.pos, self.size, self.background_color);
 
         add_vertex(.{
             .pos = self.pos + self.size - Vec2{ 0, self.resize_handle_size },
@@ -478,6 +459,19 @@ const Window = struct {
             .uv = .{ 0, 0 },
             .col = self.resize_handle_color,
         });
+
+        draw_rectangle(
+            self.pos,
+            Vec2{ self.size[0], self.title_bar_height },
+            self.title_bar_color,
+        );
+
+        draw_text(
+            self.pos + Vec2{ 4, 4 },
+            self.title,
+            self.title_bar_height - 8,
+            self.title_text_color,
+        );
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -875,6 +869,95 @@ pub fn filter_event(event: ng.Event) ?ng.Event {
     ng.use_cursor(.default);
 
     return event;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_rectangle(pos: Vec2, size: Vec2, col: Color) void {
+    add_vertex(.{
+        .pos = pos,
+        .uv = .{ 0, 0 },
+        .col = col,
+    });
+    add_vertex(.{
+        .pos = pos + Vec2{ size[0], 0 },
+        .uv = .{ 0, 0 },
+        .col = col,
+    });
+    add_vertex(.{
+        .pos = pos + Vec2{ 0, size[1] },
+        .uv = .{ 0, 0 },
+        .col = col,
+    });
+    add_vertex(.{
+        .pos = pos + Vec2{ 0, size[1] },
+        .uv = .{ 0, 0 },
+        .col = col,
+    });
+    add_vertex(.{
+        .pos = pos + Vec2{ size[0], 0 },
+        .uv = .{ 0, 0 },
+        .col = col,
+    });
+    add_vertex(.{
+        .pos = pos + size,
+        .uv = .{ 0, 0 },
+        .col = col,
+    });
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_text(pos: Vec2, text: []const u8, height: f32, col: Color) void {
+    var p = pos;
+
+    const scale = height / 20;
+
+    for (text) |ch| {
+        const cx: f32 = @floatFromInt(ch & 15);
+        const cy: f32 = @floatFromInt(ch / 16);
+        const cx1: f32 = (cx * 12) / (16 * 12);
+        const cy1: f32 = (cy * 20) / (16 * 20);
+        const cx2: f32 = ((cx + 1) * 12) / (16 * 12);
+        const cy2: f32 = ((cy + 1) * 20) / (16 * 20);
+
+        add_vertex(.{
+            .pos = p,
+            .uv = .{ cx1, cy1 },
+            .col = col,
+        });
+        add_vertex(.{
+            .pos = p + Vec2{ 12 * scale, 0 },
+            .uv = .{ cx2, cy1 },
+            .col = col,
+        });
+        add_vertex(.{
+            .pos = p + Vec2{ 0, 20 * scale },
+            .uv = .{ cx1, cy2 },
+            .col = col,
+        });
+        add_vertex(.{
+            .pos = p + Vec2{ 0, 20 * scale },
+            .uv = .{ cx1, cy2 },
+            .col = col,
+        });
+        add_vertex(.{
+            .pos = p + Vec2{ 12 * scale, 0 },
+            .uv = .{ cx2, cy1 },
+            .col = col,
+        });
+        add_vertex(.{
+            .pos = p + Vec2{ 12 * scale, 20 * scale },
+            .uv = .{ cx2, cy2 },
+            .col = col,
+        });
+
+        p += Vec2{ 12 * scale, 0 };
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

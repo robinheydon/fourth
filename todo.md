@@ -26,8 +26,6 @@
   - just add an economy !!!
 
 - Immediate Mode UI
-  - Windows
-    - don't move window when resizing
   - Button
   - Text
   - CheckButton
