@@ -39,29 +39,29 @@ const API = struct {
     XChangeProperty: *const fn (*Display, Window, Atom, u32, u32, u32, [*c]const Atom, u32) callconv(.c) void,
     XCloseDisplay: *const fn (*Display) callconv(.c) void,
     XCreateColormap: *const fn (*Display, Window, *c.Visual, u32) callconv(.c) Colormap,
+    XCreateIC: *const fn (c.XIM, [*c]const u8, c.XIMStyle, ?*anyopaque) callconv(.c) c.XIC,
     XCreateWindow: *const fn (*Display, Window, u32, u32, u32, u32, u32, c_int, u32, *c.Visual, CWValueMask, *XSetWindowAttributes) callconv(.c) Window,
     XDefaultScreen: *const fn (*Display) callconv(.c) u32,
     XDefaultScreenOfDisplay: *const fn (*Display) callconv(.c) *Screen,
     XDestroyWindow: *const fn (*Display, Window) callconv(.c) void,
+    XFilterEvent: *const fn (*const c.XKeyEvent, Window) callconv(.c) bool,
+    XFree: *const fn (*anyopaque) callconv(.c) void,
+    XGetIMValues: *const fn (c.XIM, ...) callconv(.c) [*c]const u8,
     XInternAtom: *const fn (*Display, [*:0]const u8, bool) callconv(.c) Atom,
     XKeycodeToKeysym: *const fn (*Display, u32, u32) callconv(.c) u32,
     XMapRaised: *const fn (*Display, Window) callconv(.c) void,
     XNextEvent: *const fn (*Display, *c.XEvent) callconv(.c) void,
     XOpenDisplay: *const fn ([*c]const u8) callconv(.c) *Display,
+    XOpenIM: *const fn (*Display, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) c.XIM,
     XPending: *const fn (*Display, *c.XEvent) callconv(.c) i32,
     XRootWindowOfScreen: *const fn (*Screen) callconv(.c) Window,
     XSendEvent: *const fn (*Display, Window, bool, u32, [*c]const c.XEvent) callconv(.c) void,
+    XSetICValues: *const fn (c.XIC, [*c]const u8, Window, ?*anyopaque) callconv(.c) void,
     XSetLocaleModifiers: *const fn ([*c]const u8) callconv(.c) [*c]const u8,
     XSetWMProtocols: *const fn (*Display, Window, [*c]XID, u32) callconv(.c) void,
     XStoreName: *const fn (*Display, Window, [*:0]const u8) callconv(.c) void,
-    XOpenIM: *const fn (*Display, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) c.XIM,
     XSync: *const fn (*Display, bool) callconv(.c) void,
-    XGetIMValues: *const fn (c.XIM, ...) callconv(.c) [*c]const u8,
-    XFree: *const fn (*anyopaque) callconv(.c) void,
-    XCreateIC: *const fn (c.XIM, [*c]const u8, c.XIMStyle, ?*anyopaque) callconv(.c) c.XIC,
-    XSetICValues: *const fn (c.XIC, [*c]const u8, Window, ?*anyopaque) callconv(.c) void,
     Xutf8LookupString: *const fn (c.XIC, *const c.XKeyEvent, [*c]u8, u32, ?*anyopaque, ?*anyopaque) callconv(.c) u32,
-    XFilterEvent: *const fn (*const c.XKeyEvent, Window) callconv(.c) bool,
     glActiveTexture: *const fn (GL_Enum) callconv(.c) void,
     glAttachShader: *const fn (u32, u32) callconv(.c) void,
     glBindBuffer: *const fn (GL_Enum, u32) callconv(.c) void,
@@ -92,10 +92,10 @@ const API = struct {
     glGenTextures: *const fn (u32, [*c]u32) callconv(.c) void,
     glGenVertexArrays: *const fn (u32, [*c]u32) callconv(.c) void,
     glGetProgramInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
-    glGetString: *const fn (GL_Enum) callconv(.c) [*:0]const u8,
     glGetProgramiv: *const fn (u32, GL_Enum, *u32) callconv(.c) void,
     glGetShaderInfoLog: *const fn (u32, u32, *u32, [*c]u8) callconv(.c) void,
     glGetShaderiv: *const fn (u32, GL_Enum, *u32) callconv(.c) void,
+    glGetString: *const fn (GL_Enum) callconv(.c) [*:0]const u8,
     glGetUniformLocation: *const fn (u32, [*:0]const u8) callconv(.c) u32,
     glLinkProgram: *const fn (u32) callconv(.c) void,
     glObjectLabel: *const fn (GL_Enum, u32, u32, [*c]const u8) callconv(.c) void,
@@ -117,6 +117,8 @@ const API = struct {
     glXQueryVersion: *const fn (*Display, *u32, *u32) callconv(.c) bool,
     glXSwapBuffers: *const fn (*Display, Window) callconv(.c) void,
     glXSwapIntervalEXT: ?*const fn (*Display, Window, i32) callconv(.c) void,
+    XcursorLibraryLoadCursor: *const fn (*Display, [*c]const u8) callconv(.c) Cursor,
+    XDefineCursor: *const fn (*Display, Window, Cursor) callconv(.c) void,
 };
 
 var api: API = undefined;
@@ -154,6 +156,8 @@ var xic: c.XIC = undefined;
 var window_width: f32 = 0;
 var window_height: f32 = 0;
 var window_fullscreen: bool = false;
+
+var current_cursor: video.Cursor = .default;
 
 var shader_pool: Pool(GL_Shader, 256) = .{};
 var buffer_pool: Pool(GL_Buffer, 256) = .{};
@@ -205,6 +209,7 @@ pub fn init() !video.Platform {
         "libxcb.so",
         "libGLX.so",
         "libGL.so",
+        "libXcursor.so",
     });
 
     display = api.XOpenDisplay(null);
@@ -240,6 +245,7 @@ pub fn init() !video.Platform {
         .set_swap_interval = set_swap_interval,
         .acquire_command_buffer = acquire_command_buffer,
         .toggle_fullscreen = toggle_fullscreen,
+        .use_cursor = use_cursor,
         .acknowledge_resize = acknowledge_resize,
         .acquire_swapchain_texture = acquire_swapchain_texture,
         .begin_render_pass = begin_render_pass,
@@ -610,6 +616,23 @@ fn toggle_fullscreen(_: video.Window) void {
     );
 
     api.XSync(display, false);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn use_cursor(cursor: video.Cursor) void {
+    if (cursor != current_cursor) {
+        current_cursor = cursor;
+        const label = switch (current_cursor) {
+            .resize => "nwse-resize",
+            .move => "fleur",
+            else => "default",
+        };
+        const x11_cursor = api.XcursorLibraryLoadCursor(display, label);
+        api.XDefineCursor(display, window, x11_cursor);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

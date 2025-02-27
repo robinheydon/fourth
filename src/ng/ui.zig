@@ -39,6 +39,7 @@ var last_window: ?Handle = null;
 
 var hover: ?Handle = null;
 var captured_mouse: ?Handle = null;
+var window_resizing: bool = false;
 var captured_pos: ng.Vec2 = .{ 0, 0 };
 var app_captured_mouse: bool = false;
 
@@ -176,12 +177,11 @@ pub fn render(render_pass: ng.RenderPass) void {
     var object = first_window;
     while (object) |handle| {
         var obj = get(handle) catch return;
-        switch (obj.data)
-        {
+        switch (obj.data) {
             .window => |*window| {
-                window.fit_to_display (display_size);
+                window.fit_to_display(display_size);
             },
-            else => {}
+            else => {},
         }
         object = obj.succ;
     }
@@ -242,7 +242,13 @@ pub const BeginWindowOptions = struct {
     y: ?f32 = null,
     width: ?f32 = null,
     height: ?f32 = null,
+    min_width: ?f32 = null,
+    min_height: ?f32 = null,
+    max_width: ?f32 = null,
+    max_height: ?f32 = null,
     background_color: ng.Color = .@"dark grey",
+    resize_handle_color: ng.Color = .white,
+    resize_handle_size: f32 = 20,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -276,7 +282,13 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
                     .y = options.y orelse 100,
                     .width = options.width orelse 320,
                     .height = options.width orelse 200,
+                    .min_width = options.min_width orelse 120,
+                    .min_height = options.min_height orelse 80,
+                    .max_width = options.max_width orelse 800,
+                    .max_height = options.max_height orelse 800,
                     .background_color = options.background_color,
+                    .resize_handle_color = options.resize_handle_color,
+                    .resize_handle_size = options.resize_handle_size,
                 },
             },
         };
@@ -385,7 +397,13 @@ const Window = struct {
     y: f32,
     width: f32,
     height: f32,
+    min_width: f32,
+    min_height: f32,
+    max_width: f32,
+    max_height: f32,
     background_color: ng.Color,
+    resize_handle_color: ng.Color,
+    resize_handle_size: f32,
 
     pub fn draw(self: Window) void {
         add_vertex(.{
@@ -420,25 +438,25 @@ const Window = struct {
         });
 
         add_vertex(.{
-            .pos = .{ self.x + self.width, self.y + self.height - 8 },
+            .pos = .{ self.x + self.width, self.y + self.height - self.resize_handle_size },
             .uv = .{ 0, 0 },
-            .col = .black,
+            .col = self.resize_handle_color,
         });
 
         add_vertex(.{
             .pos = .{ self.x + self.width, self.y + self.height },
             .uv = .{ 0, 0 },
-            .col = .black,
+            .col = self.resize_handle_color,
         });
 
         add_vertex(.{
-            .pos = .{ self.x + self.width - 8, self.y + self.height },
+            .pos = .{ self.x + self.width - self.resize_handle_size, self.y + self.height },
             .uv = .{ 0, 0 },
-            .col = self.background_color,
+            .col = self.resize_handle_color,
         });
     }
 
-    pub fn fit_to_display (self: *Window, size: ng.Vec2) void {
+    pub fn fit_to_display(self: *Window, size: ng.Vec2) void {
         if (self.x + self.width > size[0]) self.x = size[0] - self.width;
         if (self.y + self.height > size[1]) self.y = size[1] - self.height;
         if (self.x < 0) self.x = 0;
@@ -457,34 +475,57 @@ const Window = struct {
     }
 
     pub fn process_mouse_move(self: *Window, handle: Handle, event: ng.MoveEvent) bool {
-        if (captured_mouse == handle)
-        {
-            const delta = event.pos - captured_pos;
-            self.x += delta[0];
-            self.y += delta[1];
-            captured_pos = event.pos;
-        }
-        else
-        {
-            hover = null;
+        if (captured_mouse == handle) {
+            if (window_resizing) {
+                const delta = event.pos - captured_pos;
+                self.width += delta[0];
+                self.height += delta[1];
+                captured_pos = event.pos;
+                self.width = std.math.clamp(self.width, self.min_width, self.max_width);
+                self.height = std.math.clamp(self.height, self.min_height, self.max_height);
+                ng.use_cursor(.resize);
+            } else {
+                const delta = event.pos - captured_pos;
+                self.x += delta[0];
+                self.y += delta[1];
+                captured_pos = event.pos;
+                ng.use_cursor(.move);
+            }
+        } else {
             if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
                 if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
+                    const delta = ng.Vec2{
+                        self.x + self.width,
+                        self.y + self.height,
+                    } - event.pos;
+                    if (delta[0] + delta[1] < self.resize_handle_size) {
+                        ng.use_cursor(.resize);
+                    } else {
+                        ng.use_cursor(.default);
+                    }
                     hover = handle;
                     return true;
                 }
             }
+            hover = null;
         }
         return false;
     }
 
     pub fn process_mouse_down(self: Window, handle: Handle, event: ng.MouseEvent) bool {
-        if (event.button == .left)
-        {
+        if (event.button == .left) {
             if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
                 if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
+                    const delta = ng.Vec2{
+                        self.x + self.width,
+                        self.y + self.height,
+                    } - event.pos;
+                    if (delta[0] + delta[1] < self.resize_handle_size) {
+                        window_resizing = true;
+                    }
                     captured_mouse = handle;
                     captured_pos = event.pos;
-                    move_to_top (handle);
+                    move_to_top(handle);
                     return true;
                 }
             }
@@ -494,10 +535,10 @@ const Window = struct {
 
     pub fn process_mouse_up(self: Window, handle: Handle, event: ng.MouseEvent) bool {
         _ = self;
-        if (event.button == .left)
-        {
+        if (event.button == .left) {
             if (captured_mouse == handle) {
                 captured_mouse = null;
+                window_resizing = false;
                 return true;
             }
         }
@@ -631,10 +672,8 @@ fn get(handle: Handle) !*Object {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn is_hover () bool
-{
-    if (hover) |handle|
-    {
+pub fn is_hover() bool {
+    if (hover) |handle| {
         _ = get(handle) catch {
             hover = null;
             return false;
@@ -687,8 +726,7 @@ pub fn filter_event(event: ng.Event) ?ng.Event {
 
     switch (event) {
         .mouse_down => |ev| {
-            if (ev.button == .left)
-            {
+            if (ev.button == .left) {
                 app_captured_mouse = true;
             }
         },
@@ -697,6 +735,9 @@ pub fn filter_event(event: ng.Event) ?ng.Event {
         },
         else => {},
     }
+
+    ng.use_cursor(.default);
+
     return event;
 }
 

@@ -35,6 +35,15 @@ pub const create_pipeline = video.create_pipeline;
 pub const create_binding = video.create_binding;
 pub const create_image = video.create_image;
 pub const create_sampler = video.create_sampler;
+pub const use_cursor = video.use_cursor;
+pub const Sampler2D = video.Sampler2D;
+pub const Window = video.Window;
+pub const WindowSize = video.WindowSize;
+pub const Shader = video.Shader;
+pub const Pipeline = video.Pipeline;
+pub const Buffer = video.Buffer;
+pub const Binding = video.Binding;
+pub const RenderPass = video.RenderPass;
 
 pub const debug_text_draw = debug_text.draw;
 
@@ -49,14 +58,6 @@ pub const mat4_invert = math.mat4_invert;
 pub const mat4_transform = math.mat4_transform;
 pub const mat4_transform2 = math.mat4_transform2;
 pub const Camera2D = math.Camera2D;
-pub const Sampler2D = video.Sampler2D;
-pub const Window = video.Window;
-pub const WindowSize = video.WindowSize;
-pub const Shader = video.Shader;
-pub const Pipeline = video.Pipeline;
-pub const Buffer = video.Buffer;
-pub const Binding = video.Binding;
-pub const RenderPass = video.RenderPass;
 
 pub const ui_render = ui.render;
 pub const ui_begin_window = ui.begin_window;
@@ -188,7 +189,7 @@ pub fn send_event(ev: Event) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn is_key_down(key: Key) bool {
-    if (ui.is_hover ()) return false;
+    if (ui.is_hover()) return false;
     return key_down[@intFromEnum(key)];
 }
 
