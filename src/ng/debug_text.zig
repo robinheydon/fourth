@@ -43,7 +43,7 @@ var frame_dy: f32 = 0;
 var frame_offset_x: f32 = 0.5;
 var frame_offset_y: f32 = 0.5;
 
-var debug_scale: f32 = 1;
+var debug_scale: f32 = 4;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -211,8 +211,6 @@ fn debug_text_writer(self: *const anyopaque, bytes: []const u8) error{}!usize {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn draw() void {
-    // std.debug.print ("Draw Debug Text\n", .{});
-
     for (0..frame_height) |y| {
         for (0..frame_width) |x| {
             const index = frame_width * y + x;
@@ -265,7 +263,7 @@ pub fn draw() void {
                 add_vertex(.{
                     .pos = .{ px2, py2 },
                     .uv = .{ cx2, cy2 },
-                    .col = .red,
+                    .col = .white,
                 });
             }
         }

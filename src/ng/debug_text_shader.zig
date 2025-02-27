@@ -32,7 +32,12 @@ pub const fragment_source =
     \\ layout(location=0) out vec4 frag_color;
     \\
     \\ void main() {
-    \\     frag_color = texture(smp, vertex_uv).rrrr;
+    \\     float r = texture(smp, vertex_uv).r;
+    \\     if (r > 0.9) {
+    \\         frag_color = vec4 (vertex_color.rgb * r, 1);
+    \\     } else {
+    \\         frag_color = vec4 (0, 0, 0, r);
+    \\     }
     \\ }
 ;
 

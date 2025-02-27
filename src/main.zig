@@ -113,13 +113,13 @@ pub fn main() !void {
         state.dt = ng.start_frame();
         defer ng.end_frame();
 
-        ng.debug_reset(state.window);
-
-        if (state.average_frame_rate > 0) {
-            ng.debug_print("{} Hz", .{state.average_frame_rate});
-        }
+        ng.debug_clear(state.window);
 
         update_fps(state.dt);
+
+        if (state.average_frame_rate > 0) {
+            ng.debug_print("{} Hz\n{} frames\n", .{state.average_frame_rate, state.frame_counter});
+        }
 
         process_events();
 
@@ -175,6 +175,7 @@ fn process_events() void {
                 process_key_down(key_event);
             },
             .key_up => {},
+            .text => {},
             .mouse_move => |move_event| {
                 process_mouse_move(move_event);
             },
