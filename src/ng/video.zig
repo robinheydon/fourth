@@ -177,6 +177,8 @@ pub const Cursor = enum {
     default,
     move,
     resize,
+    resize_ns,
+    resize_ew,
 };
 
 pub fn use_cursor(cursor: Cursor) void {

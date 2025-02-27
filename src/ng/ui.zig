@@ -483,7 +483,7 @@ const Window = struct {
                 captured_pos = event.pos;
                 self.width = std.math.clamp(self.width, self.min_width, self.max_width);
                 self.height = std.math.clamp(self.height, self.min_height, self.max_height);
-                ng.use_cursor(.resize);
+                ng.use_cursor(.resize_ns);
             } else {
                 const delta = event.pos - captured_pos;
                 self.x += delta[0];
