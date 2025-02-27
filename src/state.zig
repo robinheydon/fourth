@@ -43,8 +43,7 @@ pub var map_rotate: f32 = 0;
 pub var camera: ng.Camera2D = .{};
 
 pub var map_last_mouse: ng.Vec2 = .{ 0, 0 };
-pub var map_start_click_x: f32 = 0;
-pub var map_start_click_y: f32 = 0;
+pub var map_start_click: ng.Vec2 = .{ 0, 0 };
 pub var map_state: MapState = .none;
 
 pub var key_quit: ng.Key = .escape;

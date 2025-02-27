@@ -251,7 +251,6 @@ fn process_events() void {
                 process_key_down(key_event);
             },
             .key_up => {},
-            .text => {},
             .mouse_move => |move_event| {
                 process_mouse_move(move_event);
             },
@@ -354,25 +353,23 @@ fn process_key_down(event: ng.KeyEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_mouse_move(event: ng.MoveEvent) void {
-    log.info ("MouseMove {d},{d}", .{event.x, event.y});
     if (state.map_state == .clicked) {
-        const dx = @abs(state.map_start_click_x - event.x);
-        const dy = @abs(state.map_start_click_y - event.y);
+        const delta = @abs(state.map_start_click - event.pos);
 
-        if (dx > 8 or dy > 8) {
+        if (delta[0] > 8 or delta[1] > 8) {
             state.map_state = .dragging;
         }
     }
 
     if (state.map_state == .dragging) {
         const start_position = state.camera.to_world(state.map_last_mouse);
-        const end_position = state.camera.to_world(.{ event.x, event.y });
+        const end_position = state.camera.to_world(event.pos);
         const delta_pos = start_position - end_position;
 
         state.map_center += delta_pos;
     }
 
-    state.map_last_mouse = .{ event.x, event.y };
+    state.map_last_mouse = event.pos;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -388,11 +385,9 @@ fn process_mouse_double_click(event: ng.MouseEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_mouse_down(event: ng.MouseEvent) void {
-    log.info("down {} {d} {d}", .{ event.button, event.x, event.y });
     if (event.button == .left) {
         state.map_state = .clicked;
-        state.map_start_click_x = event.x;
-        state.map_start_click_y = event.y;
+        state.map_start_click = event.pos;
     }
 }
 

@@ -28,16 +28,19 @@ const debug_font = @import("debug_font.zig").debug_font;
 var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
 var allocator: std.mem.Allocator = undefined;
 
-var all_objects: std.ArrayListUnmanaged (Object) = .empty;
-var used_objects: std.ArrayListUnmanaged (bool) = .empty;
-const Handle = enum (u32) { _ };
+var all_objects: std.ArrayListUnmanaged(Object) = .empty;
+var used_objects: std.ArrayListUnmanaged(bool) = .empty;
+const Handle = enum(u32) { _ };
 
 var init_required: bool = false;
 
 var first_window: ?Handle = null;
-var last_window: ?Handle= null;
+var last_window: ?Handle = null;
 
-var clicked_window: ?Handle = null;
+var hover: ?Handle = null;
+var captured_mouse: ?Handle = null;
+var captured_pos: ng.Vec2 = .{ 0, 0 };
+var app_captured_mouse: bool = false;
 
 var shader: ng.video.Shader = undefined;
 var buffer: ng.video.Buffer = undefined;
@@ -75,8 +78,8 @@ pub fn deinit() void {
     image.delete();
     sampler.delete();
 
-    all_objects.deinit (allocator);
-    used_objects.deinit (allocator);
+    all_objects.deinit(allocator);
+    used_objects.deinit(allocator);
 
     std.debug.assert(gpa.deinit() == .ok);
 }
@@ -170,19 +173,15 @@ pub fn render(render_pass: ng.RenderPass) void {
 
     const display_size = render_pass.get_size();
 
-    dump_windows ("Render");
-
-    // log.info ("Render {d}", .{display_size});
+    dump_state("Render");
 
     var object = last_window;
     while (object) |handle| {
-        var obj = get (handle) catch return;
-        // log.info ("  {} {} {}", .{handle, obj.active, obj.shown});
-        if (obj.shown)
-        {
+        var obj = get(handle) catch return;
+        if (obj.shown) {
             switch (obj.data) {
                 .window => |window| {
-                    window.draw ();
+                    window.draw();
                 },
                 else => {},
             }
@@ -240,22 +239,20 @@ pub const BeginWindowOptions = struct {
 pub noinline fn begin_window(options: BeginWindowOptions) void {
     const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
 
-    if (find_window(ident)) |handle|
-    {
-        log.info ("Found {}", .{handle});
-        var window = get (handle) catch return;
+    if (find_window(ident)) |handle| {
+        var window = get(handle) catch return;
         if (window.shown == false) {
             move_to_top(handle);
         }
         window.active = true;
         window.shown = true;
     } else {
-        const handle = new () catch |err| {
+        const handle = new() catch |err| {
             log.err("begin_window {}", .{err});
             return;
         };
 
-        const object = get (handle) catch return;
+        const object = get(handle) catch return;
 
         object.* = .{
             .ident = ident,
@@ -271,7 +268,7 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
             },
         };
 
-        move_to_top (handle);
+        move_to_top(handle);
     }
 }
 
@@ -351,12 +348,10 @@ const Object = struct {
         box: Box,
     },
 
-    pub fn process_event (self: *Object, handle: Handle, event: ng.Event) bool
-    {
-        switch (self.data)
-        {
-            .window => |*win| return win.process_event (handle, event),
-            else => {}
+    pub fn process_event(self: *Object, handle: Handle, event: ng.Event) bool {
+        switch (self.data) {
+            .window => |*win| return win.process_event(handle, event),
+            else => {},
         }
         return false;
     }
@@ -379,8 +374,7 @@ const Window = struct {
     height: f32,
     background_color: ng.Color,
 
-    pub fn draw (self: Window) void
-    {
+    pub fn draw(self: Window) void {
         add_vertex(.{
             .pos = .{ self.x, self.y },
             .uv = .{ 0, 0 },
@@ -392,12 +386,12 @@ const Window = struct {
             .col = self.background_color,
         });
         add_vertex(.{
-            .pos = .{ self.x, self.y + self.height},
+            .pos = .{ self.x, self.y + self.height },
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
         add_vertex(.{
-            .pos = .{ self.x, self.y + self.height},
+            .pos = .{ self.x, self.y + self.height },
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
@@ -407,57 +401,67 @@ const Window = struct {
             .col = self.background_color,
         });
         add_vertex(.{
-            .pos = .{ self.x + self.width, self.y + self.height},
+            .pos = .{ self.x + self.width, self.y + self.height },
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
     }
 
-    pub fn process_event (self: *Window, handle: Handle, event: ng.Event) bool
-    {
-        switch (event)
-        {
-            .mouse_move => |ev| return self.process_mouse_move (handle, ev),
-            .mouse_down => |ev| return self.process_mouse_down (handle, ev),
-            .mouse_up => |ev| return self.process_mouse_up (handle, ev),
-            else => {}
+    pub fn process_event(self: *Window, handle: Handle, event: ng.Event) bool {
+        switch (event) {
+            .mouse_move => |ev| return self.process_mouse_move(handle, ev),
+            .mouse_down => |ev| return self.process_mouse_down(handle, ev),
+            .mouse_up => |ev| return self.process_mouse_up(handle, ev),
+            .key_down, .key_up => return false,
+            else => {},
         }
         return false;
     }
 
-    pub fn process_mouse_move (self: Window, handle: Handle, event: ng.MoveEvent) bool
-    {
-        _ = handle;
-
-        if (event.x >= self.x and event.x < self.x + self.width)
+    pub fn process_mouse_move(self: *Window, handle: Handle, event: ng.MoveEvent) bool {
+        if (captured_mouse == handle)
         {
-            if (event.y >= self.y and event.y < self.y + self.height)
-            {
-                return true;
+            const delta = event.pos - captured_pos;
+            self.x += delta[0];
+            self.y += delta[1];
+            captured_pos = event.pos;
+        }
+        else
+        {
+            hover = null;
+            if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
+                if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
+                    hover = handle;
+                    return true;
+                }
             }
         }
         return false;
     }
 
-    pub fn process_mouse_down (self: Window, handle: Handle, event: ng.MouseEvent) bool
-    {
-        if (event.x >= self.x and event.x < self.x + self.width)
+    pub fn process_mouse_down(self: Window, handle: Handle, event: ng.MouseEvent) bool {
+        if (event.button == .left)
         {
-            if (event.y >= self.y and event.y < self.y + self.height)
-            {
-                clicked_window = handle;
-                return true;
+            if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
+                if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
+                    captured_mouse = handle;
+                    captured_pos = event.pos;
+                    move_to_top (handle);
+                    return true;
+                }
             }
         }
         return false;
     }
 
-    pub fn process_mouse_up (self: Window, handle: Handle, _: ng.MouseEvent) bool
-    {
+    pub fn process_mouse_up(self: Window, handle: Handle, event: ng.MouseEvent) bool {
         _ = self;
-        if (clicked_window == handle)
+        if (event.button == .left)
         {
-            clicked_window = null;
+            if (captured_mouse == handle) {
+                captured_mouse = null;
+                return true;
+            }
         }
         return false;
     }
@@ -474,7 +478,7 @@ const Box = struct {
 fn find_window(ident: Ident) ?Handle {
     var object = first_window;
     while (object) |handle| {
-        const obj = get (handle) catch return null;
+        const obj = get(handle) catch return null;
         if (obj.ident.addr == ident.addr and obj.ident.unique == ident.unique) {
             return handle;
         }
@@ -492,26 +496,25 @@ fn move_to_top(handle: Handle) void {
         return;
     }
 
-    var window = get (handle) catch return;
+    var window = get(handle) catch return;
 
     if (window.pred) |pred_handle| {
-        var pred = get (pred_handle) catch {
-            log.err ("get pred_handle {}", .{pred_handle});
+        var pred = get(pred_handle) catch {
+            log.err("get pred_handle {}", .{pred_handle});
             return;
         };
         pred.succ = window.succ;
     }
 
     if (window.succ) |succ_handle| {
-        var succ = get (succ_handle) catch {
-            log.err ("get succ_handle {}", .{succ_handle});
+        var succ = get(succ_handle) catch {
+            log.err("get succ_handle {}", .{succ_handle});
             return;
         };
         succ.pred = window.pred;
     }
 
-    if (last_window == handle)
-    {
+    if (last_window == handle) {
         last_window = window.pred;
     }
 
@@ -521,8 +524,8 @@ fn move_to_top(handle: Handle) void {
     if (first_window) |first_handle| {
         first_window = handle;
         window.succ = first_handle;
-        var first = get (first_handle) catch {
-            log.err ("get first_handle {}", .{first_handle});
+        var first = get(first_handle) catch {
+            log.err("get first_handle {}", .{first_handle});
             return;
         };
         first.pred = handle;
@@ -536,13 +539,25 @@ fn move_to_top(handle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn dump_windows (label: []const u8) void {
-    ng.debug_print ("Dump Windows {s} : {?} : {?}\n", .{label, first_window, last_window});
+fn dump_state(label: []const u8) void {
+    ng.debug_print("{s} : {?} : {?} : {?} : {} : {?}\n", .{
+        label,
+        first_window,
+        last_window,
+        captured_mouse,
+        app_captured_mouse,
+        hover,
+    });
     var window = first_window;
-    while (window) |handle|
-    {
+    while (window) |handle| {
         const obj = get(handle) catch return;
-        ng.debug_print ("  {} {?} {?} {} {}\n", .{handle, obj.pred, obj.succ, obj.active, obj.shown});
+        ng.debug_print("  {} {?} {?} {} {}\n", .{
+            handle,
+            obj.pred,
+            obj.succ,
+            obj.active,
+            obj.shown,
+        });
         window = obj.succ;
     }
 }
@@ -551,17 +566,89 @@ fn dump_windows (label: []const u8) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn filter_event (ev: ng.Event) ?ng.Event
-{
-    var window = first_window;
-    while (window) |handle|
-    {
-        var win = get (handle) catch return ev;
+fn new() !Handle {
+    const index = all_objects.items.len;
 
-        if (win.shown)
+    try all_objects.append(allocator, undefined);
+    try used_objects.append(allocator, true);
+
+    return @enumFromInt(index);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn get(handle: Handle) !*Object {
+    const index = @intFromEnum(handle);
+    if (index < used_objects.items.len and used_objects.items[index]) {
+        return &all_objects.items[index];
+    }
+
+    log.err("Get {} invalid", .{handle});
+    return error.InvalidHandle;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn is_hover () bool
+{
+    if (hover) |handle|
+    {
+        _ = get(handle) catch {
+            hover = null;
+            return false;
+        };
+        return true;
+    }
+    return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn filter_event(event: ng.Event) ?ng.Event {
+    switch (event)
+    {
+        .resize => |ev|
         {
-            if (win.process_event (handle, ev))
-            {
+            log.warn ("Resize {}", .{ev});
+        },
+        else => {},
+    }
+
+    if (captured_mouse) |handle| {
+        var obj = get(handle) catch {
+            captured_mouse = null;
+            return event;
+        };
+        if (obj.process_event(handle, event)) {
+            return null;
+        }
+        return event;
+    }
+
+    if (app_captured_mouse) {
+        switch (event) {
+            .mouse_up => |ev| {
+                if (ev.button == .left) {
+                    app_captured_mouse = false;
+                }
+            },
+            else => {},
+        }
+        return event;
+    }
+
+    var window = first_window;
+    while (window) |handle| {
+        var win = get(handle) catch return event;
+
+        if (win.shown) {
+            if (win.process_event(handle, event)) {
                 return null;
             }
         }
@@ -569,37 +656,19 @@ pub fn filter_event (ev: ng.Event) ?ng.Event
         window = win.succ;
     }
 
-    return ev;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn new () !Handle
-{
-    const index = all_objects.items.len;
-
-    try all_objects.append (allocator, undefined);
-    try used_objects.append (allocator, true);
-
-    return @enumFromInt (index);
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn get (handle: Handle) !*Object
-{
-    const index = @intFromEnum (handle);
-    if (index < used_objects.items.len and used_objects.items[index])
-    {
-        return &all_objects.items[index];
+    switch (event) {
+        .mouse_down => |ev| {
+            if (ev.button == .left)
+            {
+                app_captured_mouse = true;
+            }
+        },
+        .text => {
+            return null;
+        },
+        else => {},
     }
-
-    log.err ("Get {} invalid", .{handle});
-    return error.InvalidHandle;
+    return event;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

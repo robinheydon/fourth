@@ -166,7 +166,7 @@ pub fn poll_event() ?Event {
         event_queue_read_index = (event_queue_read_index + 1) % event_queue.len;
         event_queue_count -= 1;
 
-        return ui.filter_event (ev);
+        return ui.filter_event(ev);
     }
     return null;
 }
@@ -188,6 +188,7 @@ pub fn send_event(ev: Event) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn is_key_down(key: Key) bool {
+    if (ui.is_hover ()) return false;
     return key_down[@intFromEnum(key)];
 }
 
