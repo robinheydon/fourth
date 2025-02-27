@@ -489,24 +489,39 @@ const Window = struct {
     pub fn process_mouse_move(self: *Window, handle: Handle, event: ng.MoveEvent) bool {
         if (captured_mouse == handle) {
             const delta = event.pos - captured_pos;
-            switch (window_resizing)
-            {
+            switch (window_resizing) {
                 .none => {
                     self.x += delta[0];
                     self.y += delta[1];
-                    captured_pos = event.pos;
                     ng.use_cursor(.move);
+                },
+                .top => {
+                    self.y += delta[1];
+                    self.height -= delta[1];
+                    ng.use_cursor(.resize_ns);
+                },
+                .left => {
+                    self.x += delta[0];
+                    self.width -= delta[0];
+                    ng.use_cursor(.resize_ew);
+                },
+                .bottom => {
+                    self.height += delta[1];
+                    ng.use_cursor(.resize_ns);
+                },
+                .right => {
+                    self.width += delta[0];
+                    ng.use_cursor(.resize_ew);
                 },
                 .resize => {
                     self.width += delta[0];
                     self.height += delta[1];
-                    captured_pos = event.pos;
-                    self.width = std.math.clamp(self.width, self.min_width, self.max_width);
-                    self.height = std.math.clamp(self.height, self.min_height, self.max_height);
                     ng.use_cursor(.resize);
                 },
-                else => {}
             }
+            captured_pos = event.pos;
+            self.width = std.math.clamp(self.width, self.min_width, self.max_width);
+            self.height = std.math.clamp(self.height, self.min_height, self.max_height);
         } else {
             if (event.pos[0] >= self.x and event.pos[0] < self.x + self.width) {
                 if (event.pos[1] >= self.y and event.pos[1] < self.y + self.height) {
