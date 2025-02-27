@@ -173,9 +173,22 @@ pub fn render(render_pass: ng.RenderPass) void {
 
     const display_size = render_pass.get_size();
 
+    var object = first_window;
+    while (object) |handle| {
+        var obj = get(handle) catch return;
+        switch (obj.data)
+        {
+            .window => |*window| {
+                window.fit_to_display (display_size);
+            },
+            else => {}
+        }
+        object = obj.succ;
+    }
+
     dump_state("Render");
 
-    var object = last_window;
+    object = last_window;
     while (object) |handle| {
         var obj = get(handle) catch return;
         if (obj.shown) {
@@ -407,6 +420,13 @@ const Window = struct {
         });
     }
 
+    pub fn fit_to_display (self: *Window, size: ng.Vec2) void {
+        if (self.x + self.width > size[0]) self.x = size[0] - self.width;
+        if (self.y + self.height > size[1]) self.y = size[1] - self.height;
+        if (self.x < 0) self.x = 0;
+        if (self.y < 0) self.y = 0;
+    }
+
     pub fn process_event(self: *Window, handle: Handle, event: ng.Event) bool {
         switch (event) {
             .mouse_move => |ev| return self.process_mouse_move(handle, ev),
@@ -611,15 +631,6 @@ pub fn is_hover () bool
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn filter_event(event: ng.Event) ?ng.Event {
-    switch (event)
-    {
-        .resize => |ev|
-        {
-            log.warn ("Resize {}", .{ev});
-        },
-        else => {},
-    }
-
     if (captured_mouse) |handle| {
         var obj = get(handle) catch {
             captured_mouse = null;
