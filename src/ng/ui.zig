@@ -418,6 +418,24 @@ const Window = struct {
             .uv = .{ 0, 0 },
             .col = self.background_color,
         });
+
+        add_vertex(.{
+            .pos = .{ self.x + self.width, self.y + self.height - 8 },
+            .uv = .{ 0, 0 },
+            .col = .black,
+        });
+
+        add_vertex(.{
+            .pos = .{ self.x + self.width, self.y + self.height },
+            .uv = .{ 0, 0 },
+            .col = .black,
+        });
+
+        add_vertex(.{
+            .pos = .{ self.x + self.width - 8, self.y + self.height },
+            .uv = .{ 0, 0 },
+            .col = self.background_color,
+        });
     }
 
     pub fn fit_to_display (self: *Window, size: ng.Vec2) void {
