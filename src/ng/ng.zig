@@ -165,7 +165,8 @@ pub fn poll_event() ?Event {
         const ev = event_queue[event_queue_read_index];
         event_queue_read_index = (event_queue_read_index + 1) % event_queue.len;
         event_queue_count -= 1;
-        return ev;
+
+        return ui.filter_event (ev);
     }
     return null;
 }

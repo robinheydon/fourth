@@ -354,6 +354,7 @@ fn process_key_down(event: ng.KeyEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_mouse_move(event: ng.MoveEvent) void {
+    log.info ("MouseMove {d},{d}", .{event.x, event.y});
     if (state.map_state == .clicked) {
         const dx = @abs(state.map_start_click_x - event.x);
         const dy = @abs(state.map_start_click_y - event.y);
