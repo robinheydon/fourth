@@ -322,7 +322,11 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
             ng.Vec2 => .Vec2,
             Entity => .Entity,
             else => @compileError(
-                @typeName(Component) ++ " field '" ++ field.name ++ "' has an unsupported type for component info : " ++ @typeName(field.type),
+                @typeName(Component) ++
+                    " field '" ++
+                    field.name ++
+                    "' has an unsupported type for component info : " ++
+                    @typeName(field.type),
             ),
         };
         info.fields[i].name = field.name;
@@ -412,7 +416,8 @@ pub fn dump_ecs() void {
                             const field_data = data[field.offset .. field.offset + field.size];
                             switch (field.kind) {
                                 .bool => {
-                                    const value: *const bool = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const bool =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -420,7 +425,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .u8 => {
-                                    const value: *const u8 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const u8 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -428,7 +434,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .u16 => {
-                                    const value: *const u16 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const u16 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -436,7 +443,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .u32 => {
-                                    const value: *const u32 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const u32 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -444,7 +452,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .u64 => {
-                                    const value: *const u64 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const u64 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -452,7 +461,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .i8 => {
-                                    const value: *const i8 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const i8 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -460,7 +470,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .i16 => {
-                                    const value: *const i16 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const i16 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -468,7 +479,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .i32 => {
-                                    const value: *const i32 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const i32 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -476,7 +488,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .i64 => {
-                                    const value: *const i64 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const i64 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,
@@ -484,7 +497,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .f32 => {
-                                    const value: *const f32 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const f32 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {d:.5}", .{
                                         component.name,
                                         field.name,
@@ -492,7 +506,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .f64 => {
-                                    const value: *const f64 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const f64 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {d:.8}", .{
                                         component.name,
                                         field.name,
@@ -500,7 +515,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .Vec2 => {
-                                    const value: *const ng.Vec2 = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const ng.Vec2 =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {d:.5}", .{
                                         component.name,
                                         field.name,
@@ -508,7 +524,8 @@ pub fn dump_ecs() void {
                                     });
                                 },
                                 .Entity => {
-                                    const value: *const Entity = @alignCast(@ptrCast(&field_data[0]));
+                                    const value: *const Entity =
+                                        @alignCast(@ptrCast(&field_data[0]));
                                     log.msg("    {s}.{s} = {}", .{
                                         component.name,
                                         field.name,

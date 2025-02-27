@@ -54,7 +54,10 @@ pub fn main() !void {
         update_fps(state.dt);
 
         if (state.average_frame_rate > 0) {
-            ng.debug_print("{} Hz\n{} frames\n", .{ state.average_frame_rate, state.frame_counter });
+            ng.debug_print("{} Hz\n{} frames\n", .{
+                state.average_frame_rate,
+                state.frame_counter,
+            });
         }
 
         process_events();
@@ -320,8 +323,16 @@ fn process_events() void {
         state.map_rotate -= state.dt;
     }
 
-    state.map_move_velocity[0] = std.math.clamp(state.map_move_velocity[0], -move_speed, move_speed);
-    state.map_move_velocity[1] = std.math.clamp(state.map_move_velocity[1], -move_speed, move_speed);
+    state.map_move_velocity[0] = std.math.clamp(
+        state.map_move_velocity[0],
+        -move_speed,
+        move_speed,
+    );
+    state.map_move_velocity[1] = std.math.clamp(
+        state.map_move_velocity[1],
+        -move_speed,
+        move_speed,
+    );
 
     state.map_center += state.map_move_velocity * ng.Vec2{ state.dt, state.dt };
 }

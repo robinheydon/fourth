@@ -358,7 +358,11 @@ pub const FormatOptions = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub noinline fn format_text(options: FormatOptions, comptime fmt: []const u8, args: anytype) void {
+pub noinline fn format_text(
+    options: FormatOptions,
+    comptime fmt: []const u8,
+    args: anytype,
+) void {
     log.note("Format Text {}:{}", .{ @returnAddress(), options.unique });
     _ = fmt;
     _ = args;

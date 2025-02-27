@@ -224,7 +224,10 @@ pub const CommandBuffer = struct {
         return platform.acquire_swapchain_texture(self);
     }
 
-    pub fn begin_render_pass(self: CommandBuffer, info: BeginRenderPassInfo) VideoError!RenderPass {
+    pub fn begin_render_pass(
+        self: CommandBuffer,
+        info: BeginRenderPassInfo,
+    ) VideoError!RenderPass {
         return platform.begin_render_pass(self, info);
     }
 
@@ -332,7 +335,8 @@ pub const CreateShaderInfo = struct {
     vertex_source: [*:0]const u8,
     fragment_source: [*:0]const u8,
 
-    vertex_attrib: [max_vertex_attributes]VertexAttribute = .{VertexAttribute{}} ** max_vertex_attributes,
+    vertex_attrib: [max_vertex_attributes]VertexAttribute =
+        .{VertexAttribute{}} ** max_vertex_attributes,
 };
 
 pub const VertexAttribute = struct {

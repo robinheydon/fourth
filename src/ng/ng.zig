@@ -284,7 +284,16 @@ test "as_bytes" {
     {
         const a: u64 = 0x12345678_9abcdef0;
         const b = as_bytes(&a);
-        try std.testing.expectEqualSlices(u8, &[_]u8{ 0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12 }, b);
+        try std.testing.expectEqualSlices(u8, &[_]u8{
+            0xf0,
+            0xde,
+            0xbc,
+            0x9a,
+            0x78,
+            0x56,
+            0x34,
+            0x12,
+        }, b);
     }
 
     {
@@ -296,7 +305,16 @@ test "as_bytes" {
     {
         const a: f64 = 3.14;
         const b = as_bytes(&a);
-        try std.testing.expectEqualSlices(u8, &[_]u8{ 0x1f, 0x85, 0xeb, 0x51, 0xb8, 0x1e, 0x09, 0x40 }, b);
+        try std.testing.expectEqualSlices(u8, &[_]u8{
+            0x1f,
+            0x85,
+            0xeb,
+            0x51,
+            0xb8,
+            0x1e,
+            0x09,
+            0x40,
+        }, b);
     }
 
     {
@@ -308,7 +326,20 @@ test "as_bytes" {
     {
         const a: [3]f32 = .{ 1, 2, 3 };
         const b = as_bytes(&a);
-        try std.testing.expectEqualSlices(u8, &[_]u8{ 0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x40, 0x40 }, b);
+        try std.testing.expectEqualSlices(u8, &[_]u8{
+            0x00,
+            0x00,
+            0x80,
+            0x3F,
+            0x00,
+            0x00,
+            0x00,
+            0x40,
+            0x00,
+            0x00,
+            0x40,
+            0x40,
+        }, b);
     }
 
     {

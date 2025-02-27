@@ -17,7 +17,10 @@ fn log_print(
     args: anytype,
 ) void {
     if (@intFromEnum(level) >= @intFromEnum(min_level)) {
-        std.debug.print(level.string() ++ "{s: <8}" ++ format ++ "\n", .{@tagName(scope)} ++ args);
+        std.debug.print(
+            level.string() ++ "{s: <8}" ++ format ++ "\n",
+            .{@tagName(scope)} ++ args,
+        );
     }
 }
 

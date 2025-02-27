@@ -35,6 +35,7 @@ const log = ng.Logger(.ng_x11);
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+// zig fmt: off
 const API = struct {
     XChangeProperty: *const fn (*Display, Window, Atom, u32, u32, u32, [*c]const Atom, u32) callconv(.c) void,
     XCloseDisplay: *const fn (*Display) callconv(.c) void,
@@ -120,6 +121,7 @@ const API = struct {
     XcursorLibraryLoadCursor: *const fn (*Display, [*c]const u8) callconv(.c) Cursor,
     XDefineCursor: *const fn (*Display, Window, Cursor) callconv(.c) void,
 };
+// zig fmt: on
 
 var api: API = undefined;
 
@@ -167,7 +169,8 @@ var image_pool: Pool(GL_Image, 256) = .{};
 var sampler_pool: Pool(GL_Sampler, 256) = .{};
 
 var vao: u32 = 0;
-var enabled_attributes: [video.max_vertex_attributes]bool = .{false} ** video.max_vertex_attributes;
+var enabled_attributes: [video.max_vertex_attributes]bool =
+    .{false} ** video.max_vertex_attributes;
 var draw_primitive: GL_Primitive = .GL_TRIANGLES;
 var current_shader: video.Shader = undefined;
 var use_glflush: bool = false;
