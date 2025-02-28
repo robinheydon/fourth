@@ -162,12 +162,15 @@ pub fn deinit() void {
 pub fn poll_event() ?Event {
     video.generate_events();
 
-    if (event_queue_count > 0) {
+    while (event_queue_count > 0) {
         const ev = event_queue[event_queue_read_index];
         event_queue_read_index = (event_queue_read_index + 1) % event_queue.len;
         event_queue_count -= 1;
 
-        return ui.filter_event(ev);
+        if (ui.filter_event(ev)) |evn|
+        {
+            return evn;
+        }
     }
     return null;
 }

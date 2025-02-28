@@ -211,6 +211,8 @@ var window: Window = undefined;
 var xim: c.XIM = undefined;
 var xic: c.XIC = undefined;
 
+var high_dpi_scale: f32 = 2;
+
 var window_width: f32 = 0;
 var window_height: f32 = 0;
 var window_fullscreen: bool = false;
@@ -602,8 +604,8 @@ fn close_window(a_window: video.Window) void {
 
 fn get_window_size(_: video.Window) video.WindowSize {
     return .{
-        .width = window_width,
-        .height = window_height,
+        .width = window_width / high_dpi_scale,
+        .height = window_height / high_dpi_scale,
     };
 }
 
@@ -1375,8 +1377,8 @@ fn process_button_release(ev: c.XButtonEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_motion_notify(ev: c.XMotionEvent) void {
-    const x: f32 = @floatFromInt(ev.x);
-    const y: f32 = @floatFromInt(ev.y);
+    const x: f32 = @as (f32, @floatFromInt(ev.x)) / high_dpi_scale;
+    const y: f32 = @as (f32, @floatFromInt(ev.y)) / high_dpi_scale;
     ng.send_event(.{ .mouse_move = .{
         .pos = .{ x, y },
         .buttons = mouse_buttons,
@@ -1447,8 +1449,8 @@ fn process_configure_notify(ev: c.XConfigureEvent) void {
 
     ng.send_event(.{
         .resize = .{
-            .width = window_width,
-            .height = window_height,
+            .width = window_width / high_dpi_scale,
+            .height = window_height / high_dpi_scale,
         },
     });
 }
@@ -1702,7 +1704,7 @@ fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
 
 fn get_render_pass_size(self: video.RenderPass) ng.Vec2 {
     _ = self;
-    return .{ window_width, window_height };
+    return .{ window_width / high_dpi_scale, window_height / high_dpi_scale };
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
