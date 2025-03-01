@@ -224,7 +224,7 @@ fn draw_world(render_pass: ng.RenderPass) void {
     state.camera.zoom = state.map_zoom;
     state.camera.rotate = state.map_rotate;
     state.camera.origin = state.map_center;
-    state.camera.target = window_size / ng.Vec2 {2, 2};
+    state.camera.target = window_size / ng.Vec2{ 2, 2 };
     const view = state.camera.get_matrix();
     const mvp = ng.mat4_mul(view, projection);
 
