@@ -111,10 +111,10 @@ fn draw_debug_window() void {
     });
     defer ng.ui_end_window();
 
-    ng.ui_begin_box(.{ .direction = .vertical });
+    ng.ui_begin_vbox(.{});
     ng.ui_add_text(.{}, "{} fps", .{state.average_frame_rate});
     ng.ui_add_text(.{}, "{} frames", .{state.frame_counter});
-    ng.ui_end_box();
+    ng.ui_end_vbox();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

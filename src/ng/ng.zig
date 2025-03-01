@@ -62,8 +62,8 @@ pub const Camera2D = math.Camera2D;
 pub const ui_render = ui.render;
 pub const ui_begin_window = ui.begin_window;
 pub const ui_end_window = ui.end_window;
-pub const ui_begin_box = ui.begin_box;
-pub const ui_end_box = ui.end_box;
+pub const ui_begin_vbox = ui.begin_vbox;
+pub const ui_end_vbox = ui.end_vbox;
 pub const ui_add_text = ui.add_text;
 
 pub const Color = color.Color;

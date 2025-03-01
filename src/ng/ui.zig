@@ -33,7 +33,6 @@ var allocator: std.mem.Allocator = undefined;
 
 var all_objects: std.ArrayListUnmanaged(Object) = .empty;
 var used_objects: std.ArrayListUnmanaged(bool) = .empty;
-const Handle = enum(u32) { _ };
 
 var init_required: bool = false;
 
@@ -203,12 +202,10 @@ pub fn render(render_pass: ng.RenderPass) void {
     var object = first_window;
     while (object) |handle| {
         var obj = get(handle) catch return;
-        switch (obj.data) {
-            .window => |*window| {
-                window.fit_to_display(display_size);
-            },
-            else => {},
-        }
+        obj.fit_to_display(display_size);
+
+        _ = obj.layout(handle, .{});
+
         object = obj.succ;
     }
 
@@ -220,7 +217,7 @@ pub fn render(render_pass: ng.RenderPass) void {
         if (obj.shown) {
             switch (obj.data) {
                 .window => |window| {
-                    window.draw();
+                    window.draw(obj);
                     draw_internal(obj.first_child);
                 },
                 else => {
@@ -260,9 +257,9 @@ fn draw_internal(first_child: ?Handle) void {
         if (obj.shown) {
             switch (obj.data) {
                 .text => |text| {
-                    text.draw();
+                    text.draw(obj);
                 },
-                .box => {},
+                .vbox => {},
                 else => {
                     log.warn("Cannot draw_internal {s}", .{@tagName(obj.data)});
                 },
@@ -339,17 +336,17 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
 
         object.* = .{
             .ident = ident,
+            .pos = .{
+                options.x orelse 100,
+                options.y orelse 100,
+            },
+            .size = .{
+                options.width orelse 320,
+                options.width orelse 200,
+            },
             .data = .{
                 .window = .{
                     .title = options.title,
-                    .pos = .{
-                        options.x orelse 100,
-                        options.y orelse 100,
-                    },
-                    .size = .{
-                        options.width orelse 320,
-                        options.width orelse 200,
-                    },
                     .min_size = .{
                         options.min_width orelse 120,
                         options.min_height orelse 80,
@@ -389,23 +386,13 @@ pub noinline fn end_window() void {
 
 pub const BeginBoxOptions = struct {
     unique: usize = 0,
-    direction: BoxDirection = .vertical,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const BoxDirection = enum {
-    horizontal,
-    vertical,
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub noinline fn begin_box(options: BeginBoxOptions) void {
+pub noinline fn begin_vbox(options: BeginBoxOptions) void {
     const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
 
     const parent = top_build_stack();
@@ -428,9 +415,7 @@ pub noinline fn begin_box(options: BeginBoxOptions) void {
             .active = true,
             .shown = true,
             .data = .{
-                .box = .{
-                    .direction = options.direction,
-                },
+                .vbox = .{},
             },
         };
 
@@ -444,7 +429,7 @@ pub noinline fn begin_box(options: BeginBoxOptions) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub noinline fn end_box() void {
+pub noinline fn end_vbox() void {
     pop_build_stack();
 }
 
@@ -515,7 +500,6 @@ pub noinline fn add_text(
             .shown = true,
             .data = .{
                 .text = .{
-                    .pos = .{ 0, 0 },
                     .memory = buffer,
                     .text = slice,
                     .allocated = true,
@@ -586,6 +570,27 @@ const Ident = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const Handle = enum(u32) {
+    _,
+    pub fn children(self: Handle) !Object.ObjectChildrenIterator {
+        const obj = try get(self);
+        return obj.children();
+    }
+
+    pub fn layout(self: Handle, constraint: LayoutConstraint) ng.Vec2 {
+        const obj = get(self) catch return .{ 0, 0 };
+        return obj.layout(self, constraint);
+    }
+
+    pub fn format(self: Handle, _: anytype, _: anytype, writer: anytype) !void {
+        try writer.print("#{d}", .{@intFromEnum(self)});
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const Object = struct {
     pred: ?Handle = null,
     succ: ?Handle = null,
@@ -594,89 +599,40 @@ const Object = struct {
     ident: Ident,
     active: bool = true, // active this frame
     shown: bool = true, // currently shown
+    pos: Vec2 = .{ 0, 0 },
+    size: Vec2 = .{ 0, 0 },
     data: union(UI_Type) {
         window: Window,
-        box: Box,
+        vbox: VBox,
         text: Text,
     },
 
-    pub fn process_event(self: *Object, handle: Handle, event: ng.Event) bool {
-        switch (self.data) {
-            .window => |*win| return win.process_event(handle, event),
-            else => {},
+    const ObjectChildrenIterator = struct {
+        obj: *const Object,
+        child: ?Handle = null,
+
+        pub fn next(self: *ObjectChildrenIterator) ?Handle {
+            if (self.child) |child| {
+                const obj = get(child) catch return null;
+                self.child = obj.succ;
+                return child;
+            }
+            return null;
         }
-        return false;
-    }
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const UI_Type = enum {
-    window,
-    box,
-    text,
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const Window = struct {
-    title: []const u8,
-    pos: Vec2,
-    size: Vec2,
-    min_size: Vec2,
-    max_size: Vec2,
-    background_color: ng.Color,
-    title_bar_color: ng.Color,
-    title_bar_height: f32,
-    title_text_color: ng.Color,
-    resize_handle_color: ng.Color,
-    resize_handle_size: f32,
-    resize_border_size: f32,
+    };
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    pub fn draw(self: Window) void {
-        draw_rectangle(self.pos, self.size, self.background_color);
-
-        add_vertex(.{
-            .pos = self.pos + self.size - Vec2{ 0, self.resize_handle_size },
-            .uv = .{ 0, 0 },
-            .col = self.resize_handle_color,
-        });
-
-        add_vertex(.{
-            .pos = self.pos + self.size,
-            .uv = .{ 0, 0 },
-            .col = self.resize_handle_color,
-        });
-
-        add_vertex(.{
-            .pos = self.pos + self.size - Vec2{ self.resize_handle_size, 0 },
-            .uv = .{ 0, 0 },
-            .col = self.resize_handle_color,
-        });
-
-        draw_rectangle(
-            self.pos,
-            Vec2{ self.size[0], self.title_bar_height },
-            self.title_bar_color,
-        );
-
-        draw_text(
-            self.pos + Vec2{ 4, 4 },
-            self.title,
-            self.title_bar_height - 8,
-            self.title_text_color,
-        );
+    pub fn children(self: *Object) ObjectChildrenIterator {
+        return .{
+            .obj = self,
+            .child = self.first_child,
+        };
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    pub fn fit_to_display(self: *Window, size: Vec2) void {
+    pub fn fit_to_display(self: *Object, size: Vec2) void {
         switch (window_resizing) {
             .none => {
                 if (self.pos[0] + self.size[0] > size[0]) self.pos[0] = size[0] - self.size[0];
@@ -719,6 +675,114 @@ const Window = struct {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
+    pub fn process_event(self: *Object, handle: Handle, event: ng.Event) bool {
+        switch (self.data) {
+            .window => |*win| return win.process_event(handle, event),
+            else => {},
+        }
+        return false;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn layout(self: *Object, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
+        if (self.shown) {
+            return switch (self.data) {
+                .window => |*win| win.layout(handle, constraint),
+                .vbox => |*vbox| vbox.layout(handle, constraint),
+                .text => |*text| text.layout(handle, constraint),
+            };
+        }
+        return .{ 0, 0 };
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const UI_Type = enum {
+    window,
+    vbox,
+    text,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const LayoutConstraint = struct {
+    min_size: ng.Vec2 = .{ 0, 0 },
+    max_size: ng.Vec2 = .{ 0, 0 },
+
+    pub fn format(self: LayoutConstraint, _: anytype, _: anytype, writer: anytype) !void {
+        try writer.print("Constraint({d},{d}..{d},{d})", .{
+            self.min_size[0],
+            self.min_size[1],
+            self.max_size[0],
+            self.max_size[1],
+        });
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const Window = struct {
+    title: []const u8,
+    min_size: Vec2,
+    max_size: Vec2,
+    background_color: ng.Color,
+    title_bar_color: ng.Color,
+    title_bar_height: f32,
+    title_text_color: ng.Color,
+    resize_handle_color: ng.Color,
+    resize_handle_size: f32,
+    resize_border_size: f32,
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn draw(self: Window, obj: *const Object) void {
+        draw_rectangle(obj.pos, obj.size, self.background_color);
+
+        if (false) // let's not draw this anymore
+        {
+            add_vertex(.{
+                .pos = obj.pos + obj.size - Vec2{ 0, self.resize_handle_size },
+                .uv = .{ 0, 0 },
+                .col = self.resize_handle_color,
+            });
+
+            add_vertex(.{
+                .pos = obj.pos + obj.size,
+                .uv = .{ 0, 0 },
+                .col = self.resize_handle_color,
+            });
+
+            add_vertex(.{
+                .pos = obj.pos + obj.size - Vec2{ self.resize_handle_size, 0 },
+                .uv = .{ 0, 0 },
+                .col = self.resize_handle_color,
+            });
+        }
+
+        draw_rectangle(
+            obj.pos,
+            Vec2{ obj.size[0], self.title_bar_height },
+            self.title_bar_color,
+        );
+
+        draw_text(
+            obj.pos + Vec2{ 4, 4 },
+            self.title,
+            self.title_bar_height - 8,
+            self.title_text_color,
+        );
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     pub fn process_event(self: *Window, handle: Handle, event: ng.Event) bool {
         switch (event) {
             .mouse_move => |ev| return self.process_mouse_move(handle, ev),
@@ -734,52 +798,53 @@ const Window = struct {
 
     pub fn process_mouse_move(self: *Window, handle: Handle, event: ng.MoveEvent) bool {
         if (captured_mouse == handle) {
+            var obj = get(handle) catch return false;
             switch (window_resizing) {
                 .none => {
-                    self.pos = event.pos - captured_offset;
+                    obj.pos = event.pos - captured_offset;
                     ng.use_cursor(.move);
                 },
                 .resize => {
-                    self.size = std.math.clamp(
-                        event.pos - self.pos,
+                    obj.size = std.math.clamp(
+                        event.pos - obj.pos,
                         self.min_size,
                         self.max_size,
                     );
                     ng.use_cursor(.resize);
                 },
                 .top => {
-                    const pos = event.pos[1] - captured_offset[1];
-                    const size = std.math.clamp(
-                        self.pos[1] + self.size[1] - pos,
+                    const new_pos = event.pos[1] - captured_offset[1];
+                    const new_size = std.math.clamp(
+                        obj.pos[1] + obj.size[1] - new_pos,
                         self.min_size[1],
                         self.max_size[1],
                     );
-                    self.pos[1] = self.pos[1] + self.size[1] - size;
-                    self.size[1] = size;
+                    obj.pos[1] = obj.pos[1] + obj.size[1] - new_size;
+                    obj.size[1] = new_size;
                     ng.use_cursor(.resize_ns);
                 },
                 .left => {
-                    const pos = event.pos[0] - captured_offset[0];
-                    const size = std.math.clamp(
-                        self.pos[0] + self.size[0] - pos,
+                    const new_pos = event.pos[0] - captured_offset[0];
+                    const new_size = std.math.clamp(
+                        obj.pos[0] + obj.size[0] - new_pos,
                         self.min_size[0],
                         self.max_size[0],
                     );
-                    self.pos[0] = self.pos[0] + self.size[0] - size;
-                    self.size[0] = size;
+                    obj.pos[0] = obj.pos[0] + obj.size[0] - new_size;
+                    obj.size[0] = new_size;
                     ng.use_cursor(.resize_ew);
                 },
                 .bottom => {
-                    self.size[1] = std.math.clamp(
-                        event.pos[1] - self.pos[1],
+                    obj.size[1] = std.math.clamp(
+                        event.pos[1] - obj.pos[1],
                         self.min_size[1],
                         self.max_size[1],
                     );
                     ng.use_cursor(.resize_ns);
                 },
                 .right => {
-                    self.size[0] = std.math.clamp(
-                        event.pos[0] - self.pos[0],
+                    obj.size[0] = std.math.clamp(
+                        event.pos[0] - obj.pos[0],
                         self.min_size[0],
                         self.max_size[0],
                     );
@@ -787,13 +852,14 @@ const Window = struct {
                 },
             }
         } else {
-            if (event.pos[0] >= self.pos[0] and
-                event.pos[0] < self.pos[0] + self.size[0] and
-                event.pos[1] >= self.pos[1] and
-                event.pos[1] < self.pos[1] + self.size[1])
+            const obj = get(handle) catch return false;
+            if (event.pos[0] >= obj.pos[0] and
+                event.pos[0] < obj.pos[0] + obj.size[0] and
+                event.pos[1] >= obj.pos[1] and
+                event.pos[1] < obj.pos[1] + obj.size[1])
             {
-                const bottom_right = self.pos + self.size - event.pos;
-                const top_left = event.pos - self.pos;
+                const bottom_right = obj.pos + obj.size - event.pos;
+                const top_left = event.pos - obj.pos;
                 if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
                     ng.use_cursor(.resize);
                 } else if (bottom_right[0] < self.resize_border_size) {
@@ -818,14 +884,15 @@ const Window = struct {
     ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn process_mouse_down(self: Window, handle: Handle, event: ng.MouseEvent) bool {
+        const obj = get(handle) catch return false;
         if (event.button == .left) {
-            if (event.pos[0] >= self.pos[0] and
-                event.pos[0] < self.pos[0] + self.size[0] and
-                event.pos[1] >= self.pos[1] and
-                event.pos[1] < self.pos[1] + self.size[1])
+            if (event.pos[0] >= obj.pos[0] and
+                event.pos[0] < obj.pos[0] + obj.size[0] and
+                event.pos[1] >= obj.pos[1] and
+                event.pos[1] < obj.pos[1] + obj.size[1])
             {
-                const bottom_right = self.pos + self.size - event.pos;
-                const top_left = event.pos - self.pos;
+                const bottom_right = obj.pos + obj.size - event.pos;
+                const top_left = event.pos - obj.pos;
                 if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
                     window_resizing = .resize;
                 } else if (bottom_right[0] < self.resize_border_size) {
@@ -840,7 +907,7 @@ const Window = struct {
                     window_resizing = .none;
                 }
                 captured_mouse = handle;
-                captured_offset = event.pos - self.pos;
+                captured_offset = event.pos - obj.pos;
                 move_to_top(handle);
                 return true;
             }
@@ -860,14 +927,65 @@ const Window = struct {
         }
         return false;
     }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn layout(self: *Window, handle: Handle, _: LayoutConstraint) ng.Vec2 {
+        _ = self;
+
+        log.info("Layout Window {}", .{handle});
+
+        const constraint = LayoutConstraint{
+            .min_size = .{ 0, 0 },
+            .max_size = .{ std.math.inf(f32), std.math.inf(f32) },
+        };
+
+        const obj = get(handle) catch return .{ 0, 0 };
+        var pos = obj.pos + ng.Vec2{ 0, 26 };
+
+        var iter = handle.children() catch return .{ 0, 0 };
+        while (iter.next()) |child_handle| {
+            var child_obj = get(child_handle) catch return obj.size;
+            child_obj.pos = pos;
+
+            const size = child_handle.layout(constraint);
+
+            pos[1] += size[1];
+        }
+
+        return .{ 0, 0 };
+    }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const Box = struct {
-    direction: BoxDirection,
+const VBox = struct {
+    pub fn layout(self: *VBox, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
+        _ = self;
+        log.info("Layout VBox {} {}", .{ handle, constraint });
+        const obj = get(handle) catch return .{ 0, 0 };
+
+        var pos = obj.pos;
+        var max_size = ng.Vec2{ 0, 0 };
+
+        var iter = obj.children();
+        while (iter.next()) |child| {
+            var child_obj = get(child) catch return max_size;
+            const size = child.layout(constraint);
+            if (size[0] > max_size[0]) {
+                max_size[0] = size[0];
+            }
+            child_obj.pos = pos;
+            pos[1] += size[1];
+            max_size[1] += size[1];
+            log.info("pos = {d}", .{pos});
+        }
+
+        log.info("Layout VBox {} {} -> {d}", .{ handle, constraint, max_size });
+        return max_size;
+    }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -877,16 +995,25 @@ const Box = struct {
 const Text = struct {
     memory: []u8,
     text: []const u8,
-    pos: ng.Vec2,
     allocated: bool,
 
-    pub fn draw(self: Text) void {
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn draw(self: Text, obj: *const Object) void {
         draw_text(
-            self.pos,
+            obj.pos,
             self.text,
-            120,
-            .purple,
+            20,
+            .yellow,
         );
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn layout(self: *Text, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
+        const size = ng.Vec2{ @as(f32, @floatFromInt(self.text.len)) * 12, 20 };
+        log.info("Layout Text {} {} -> {d}", .{ handle, constraint, size });
+        return size;
     }
 };
 
@@ -998,16 +1125,18 @@ fn move_to_top(handle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn dump_state(label: []const u8) void {
-    ng.debug_print("{s} : {?} : {?} : {?} : {} : {?}\n", .{
-        label,
-        first_window,
-        last_window,
-        captured_mouse,
-        app_captured_mouse,
-        hover,
-    });
-    if (first_window) |window| {
-        dump_state_internal(window, 1);
+    if (true) {
+        ng.debug_print("\n\n{s} : {?} : {?} : {?} : {} : {?}\n", .{
+            label,
+            first_window,
+            last_window,
+            captured_mouse,
+            app_captured_mouse,
+            hover,
+        });
+        if (first_window) |window| {
+            dump_state_internal(window, 1);
+        }
     }
 }
 
@@ -1023,18 +1152,13 @@ fn dump_state_internal(first_child: Handle, depth: usize) void {
                 @tagName(obj.data),
                 @intFromEnum(handle),
             });
+            ng.debug_print(" {d} {d}", .{
+                obj.pos,
+                obj.size,
+            });
             switch (obj.data) {
-                .window => |win| {
-                    ng.debug_print(" {d} {d}", .{
-                        win.pos,
-                        win.size,
-                    });
-                },
-                .box => |box| {
-                    ng.debug_print(" {s}", .{
-                        @tagName(box.direction),
-                    });
-                },
+                .window => {},
+                .vbox => {},
                 .text => |text| {
                     ng.debug_print(" \"{}\" {}/{}", .{
                         std.zig.fmtEscapes(text.text),

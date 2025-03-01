@@ -67,8 +67,6 @@ fn check_format(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anye
     });
     const b = step.owner;
 
-    var failed = false;
-
     var iter = try dir.walk(b.allocator);
     while (try iter.next()) |entry| {
         if (entry.kind == .file) {
@@ -87,21 +85,18 @@ fn check_format(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anye
                 var line_number: usize = 1;
                 while (lines.next()) |line| {
                     if (line.len > 95) {
-                        std.log.err("{s}:{} - too long {}\n{s}", .{
+                        const trimmed_line = std.mem.trim(u8, line, " ");
+                        try step.addError("Line too long: {s}:{}\n  {s}", .{
                             entry.path,
                             line_number,
-                            line.len,
-                            line,
+                            trimmed_line,
                         });
-                        failed = true;
                     }
                     line_number += 1;
                 }
             }
         }
     }
-
-    if (failed) return error.LinesTooLong;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
