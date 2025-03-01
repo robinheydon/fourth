@@ -1,5 +1,5 @@
 .{
-    .name = "fourth",
+    .name = .fourth,
     .version = "0.0.0",
     .dependencies = .{},
     .paths = .{
@@ -7,4 +7,5 @@
         "build.zig.zon",
         "src",
     },
+    .fingerprint = 0x77a31470d6d946ce,
 }
