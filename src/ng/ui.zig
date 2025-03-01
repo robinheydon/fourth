@@ -74,8 +74,6 @@ const ResizingMode = enum {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn init() !void {
-    log.info("init", .{});
-
     gpa = std.heap.GeneralPurposeAllocator(.{}){};
     allocator = gpa.allocator();
 
@@ -256,12 +254,14 @@ fn draw_internal(first_child: ?Handle) void {
         const obj = get(handle) catch return;
         if (obj.shown) {
             switch (obj.data) {
+                .window => {},
+                .vbox => {},
+                .hbox => {},
                 .text => |text| {
                     text.draw(obj);
                 },
-                .vbox => {},
-                else => {
-                    log.warn("Cannot draw_internal {s}", .{@tagName(obj.data)});
+                .button => |button| {
+                    button.draw(obj);
                 },
             }
             draw_internal(obj.first_child);
@@ -287,6 +287,8 @@ fn add_vertex(vertex: DebugTextVertex) void {
 
 pub const BeginWindowOptions = struct {
     unique: usize = 0,
+    title_bar: bool = true,
+    close_button: bool = true,
     title: []const u8,
     x: ?f32 = null,
     y: ?f32 = null,
@@ -296,6 +298,7 @@ pub const BeginWindowOptions = struct {
     min_height: ?f32 = null,
     max_width: ?f32 = null,
     max_height: ?f32 = null,
+    padding: Padding = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
     background_color: ng.Color = .@"dark grey",
     title_bar_height: f32 = 20 + 8,
     title_bar_color: ng.Color = .@"very dark blue",
@@ -303,6 +306,17 @@ pub const BeginWindowOptions = struct {
     resize_handle_color: ng.Color = .white,
     resize_handle_size: f32 = 20,
     resize_border_size: f32 = 10,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const Padding = struct {
+    left: f32 = 0,
+    top: f32 = 0,
+    right: f32 = 0,
+    bottom: f32 = 0,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -386,6 +400,7 @@ pub noinline fn end_window() void {
 
 pub const BeginBoxOptions = struct {
     unique: usize = 0,
+    padding: Padding = .{},
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -414,6 +429,7 @@ pub noinline fn begin_vbox(options: BeginBoxOptions) void {
             .ident = ident,
             .active = true,
             .shown = true,
+            .padding = options.padding,
             .data = .{
                 .vbox = .{},
             },
@@ -437,6 +453,52 @@ pub noinline fn end_vbox() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+pub noinline fn begin_hbox(options: BeginBoxOptions) void {
+    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
+
+    const parent = top_build_stack();
+
+    if (find_object(parent, ident)) |handle| {
+        var object = get(handle) catch return;
+        object.active = true;
+        object.shown = true;
+        push_build_stack(handle);
+    } else {
+        const handle = new() catch |err| {
+            log.err("begin_box {}", .{err});
+            return;
+        };
+
+        const object = get(handle) catch return;
+
+        object.* = .{
+            .ident = ident,
+            .active = true,
+            .shown = true,
+            .padding = options.padding,
+            .data = .{
+                .hbox = .{},
+            },
+        };
+
+        add_child_last(parent, handle);
+
+        push_build_stack(handle);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub noinline fn end_hbox() void {
+    pop_build_stack();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pub const FormatOptions = struct {
     unique: usize = 0,
 };
@@ -451,7 +513,20 @@ pub noinline fn add_text(
     args: anytype,
 ) void {
     const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
+    add_text_internal(options, fmt, args, ident);
+}
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn add_text_internal(
+    options: FormatOptions,
+    comptime fmt: []const u8,
+    args: anytype,
+    ident: Ident,
+) void {
+    _ = options;
     const parent = top_build_stack();
 
     if (find_object(parent, ident)) |handle| {
@@ -488,7 +563,7 @@ pub noinline fn add_text(
         const slice = std.fmt.bufPrint(buffer, fmt, args) catch return;
 
         const handle = new() catch |err| {
-            log.err("format_text {}", .{err});
+            log.err("text {}", .{err});
             return;
         };
 
@@ -509,6 +584,109 @@ pub noinline fn add_text(
 
         add_child_last(parent, handle);
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const AddButtonOptions = struct {
+    unique: usize = 0,
+    text: []const u8,
+    width: f32 = 100,
+    height: f32 = 40,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub noinline fn add_button(
+    options: AddButtonOptions,
+) bool {
+    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
+
+    const clicked = begin_button_internal(.{
+        .unique = options.unique,
+        .width = options.width,
+        .height = options.height,
+    }, ident);
+
+    begin_hbox(.{ .padding = .{ .left = 4, .top = 4, .right = 4, .bottom = 4 } });
+    add_text_internal(.{}, "{s}", .{options.text}, ident);
+    end_hbox();
+
+    end_button();
+
+    return clicked;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const ButtonOptions = struct {
+    unique: usize = 0,
+    width: f32 = 100,
+    height: f32 = 40,
+};
+
+pub noinline fn begin_button(
+    options: ButtonOptions,
+) bool {
+    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
+
+    return begin_button_internal(options, ident);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn begin_button_internal(options: ButtonOptions, ident: Ident) bool {
+    const parent = top_build_stack();
+
+    if (find_object(parent, ident)) |handle| {
+        var object = get(handle) catch return false;
+        object.active = true;
+        object.shown = true;
+
+        push_build_stack(handle);
+
+        return false;
+    } else {
+        const handle = new() catch |err| {
+            log.err("button {}", .{err});
+            return false;
+        };
+
+        const object = get(handle) catch return false;
+
+        object.* = .{
+            .ident = ident,
+            .active = true,
+            .shown = true,
+            .data = .{
+                .button = .{
+                    .min_size = .{ options.width, options.height },
+                },
+            },
+        };
+
+        add_child_last(parent, handle);
+
+        push_build_stack(handle);
+    }
+
+    return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub noinline fn end_button() void {
+    pop_build_stack();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -591,6 +769,18 @@ const Handle = enum(u32) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const UI_Type = enum {
+    window,
+    vbox,
+    hbox,
+    text,
+    button,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const Object = struct {
     pred: ?Handle = null,
     succ: ?Handle = null,
@@ -601,10 +791,13 @@ const Object = struct {
     shown: bool = true, // currently shown
     pos: Vec2 = .{ 0, 0 },
     size: Vec2 = .{ 0, 0 },
+    padding: Padding = .{},
     data: union(UI_Type) {
         window: Window,
         vbox: VBox,
+        hbox: HBox,
         text: Text,
+        button: Button,
     },
 
     const ObjectChildrenIterator = struct {
@@ -685,26 +878,18 @@ const Object = struct {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    pub fn layout(self: *Object, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
+    pub fn layout(self: *const Object, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
         if (self.shown) {
             return switch (self.data) {
                 .window => |*win| win.layout(handle, constraint),
                 .vbox => |*vbox| vbox.layout(handle, constraint),
+                .hbox => |*hbox| hbox.layout(handle, constraint),
                 .text => |*text| text.layout(handle, constraint),
+                .button => |*button| button.layout(handle, constraint),
             };
         }
         return .{ 0, 0 };
     }
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const UI_Type = enum {
-    window,
-    vbox,
-    text,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -930,7 +1115,7 @@ const Window = struct {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    pub fn layout(self: *Window, handle: Handle, _: LayoutConstraint) ng.Vec2 {
+    pub fn layout(self: *const Window, handle: Handle, _: LayoutConstraint) ng.Vec2 {
         _ = self;
 
         log.info("Layout Window {}", .{handle});
@@ -946,9 +1131,12 @@ const Window = struct {
         var iter = handle.children() catch return .{ 0, 0 };
         while (iter.next()) |child_handle| {
             var child_obj = get(child_handle) catch return obj.size;
+
             child_obj.pos = pos;
 
             const size = child_handle.layout(constraint);
+
+            child_obj.size = size;
 
             pos[1] += size[1];
         }
@@ -962,28 +1150,70 @@ const Window = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const VBox = struct {
-    pub fn layout(self: *VBox, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
+    pub fn layout(self: *const VBox, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
         _ = self;
         log.info("Layout VBox {} {}", .{ handle, constraint });
         const obj = get(handle) catch return .{ 0, 0 };
 
-        var pos = obj.pos;
+        var pos = obj.pos + Vec2{ obj.padding.left, obj.padding.top };
         var max_size = ng.Vec2{ 0, 0 };
 
         var iter = obj.children();
         while (iter.next()) |child| {
             var child_obj = get(child) catch return max_size;
+
+            child_obj.pos = pos;
+
             const size = child.layout(constraint);
             if (size[0] > max_size[0]) {
                 max_size[0] = size[0];
             }
-            child_obj.pos = pos;
+
+            child_obj.size = size;
+
             pos[1] += size[1];
             max_size[1] += size[1];
-            log.info("pos = {d}", .{pos});
         }
 
         log.info("Layout VBox {} {} -> {d}", .{ handle, constraint, max_size });
+        return max_size;
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const HBox = struct {
+    pub fn layout(self: *const HBox, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
+        _ = self;
+        log.info("Layout HBox {} {}", .{ handle, constraint });
+        const obj = get(handle) catch return .{ 0, 0 };
+
+        var pos = obj.pos + Vec2{ obj.padding.left, obj.padding.top };
+        var max_size = ng.Vec2{ 0, 0 };
+
+        var iter = obj.children();
+        while (iter.next()) |child| {
+            var child_obj = get(child) catch return max_size;
+
+            child_obj.pos = pos;
+
+            const size = child.layout(constraint);
+            if (size[1] > max_size[1]) {
+                max_size[1] = size[1];
+            }
+
+            child_obj.size = size;
+
+            pos[0] += size[0];
+            max_size[0] += size[0];
+        }
+
+        max_size += Vec2{ obj.padding.left, obj.padding.top };
+        max_size += Vec2{ obj.padding.right, obj.padding.bottom };
+
+        log.info("Layout HBox {} {} -> {d}", .{ handle, constraint, max_size });
         return max_size;
     }
 };
@@ -1010,9 +1240,50 @@ const Text = struct {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    pub fn layout(self: *Text, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
+    pub fn layout(self: *const Text, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
         const size = ng.Vec2{ @as(f32, @floatFromInt(self.text.len)) * 12, 20 };
         log.info("Layout Text {} {} -> {d}", .{ handle, constraint, size });
+        return size;
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const Button = struct {
+    min_size: Vec2,
+    background_color: Color = .@"dark grey",
+
+    pub fn draw(self: Button, obj: *const Object) void {
+        draw_rectangle(obj.pos, obj.size, self.background_color);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn layout(self: *const Button, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
+        const obj = get(handle) catch return .{ 0, 0 };
+
+        const internal_constraint = LayoutConstraint{
+            .min_size = @min(self.min_size, constraint.min_size),
+            .max_size = @max(self.min_size, constraint.max_size),
+        };
+
+        var size: ng.Vec2 = .{ 0, 0 };
+
+        var iter = handle.children() catch return .{ 0, 0 };
+        while (iter.next()) |child_handle| {
+            var child_obj = get(child_handle) catch return obj.size;
+
+            child_obj.pos = obj.pos;
+
+            const child_size = child_handle.layout(internal_constraint);
+
+            child_obj.size = child_size;
+
+            size = @max(child_size, size);
+        }
+
         return size;
     }
 };
@@ -1125,18 +1396,16 @@ fn move_to_top(handle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn dump_state(label: []const u8) void {
-    if (true) {
-        ng.debug_print("\n\n{s} : {?} : {?} : {?} : {} : {?}\n", .{
-            label,
-            first_window,
-            last_window,
-            captured_mouse,
-            app_captured_mouse,
-            hover,
-        });
-        if (first_window) |window| {
-            dump_state_internal(window, 1);
-        }
+    ng.debug_print("{s} : {?} : {?} : {?} : {} : {?}\n", .{
+        label,
+        first_window,
+        last_window,
+        captured_mouse,
+        app_captured_mouse,
+        hover,
+    });
+    if (first_window) |window| {
+        dump_state_internal(window, 1);
     }
 }
 
@@ -1159,6 +1428,7 @@ fn dump_state_internal(first_child: Handle, depth: usize) void {
             switch (obj.data) {
                 .window => {},
                 .vbox => {},
+                .hbox => {},
                 .text => |text| {
                     ng.debug_print(" \"{}\" {}/{}", .{
                         std.zig.fmtEscapes(text.text),
@@ -1166,6 +1436,7 @@ fn dump_state_internal(first_child: Handle, depth: usize) void {
                         text.memory.len,
                     });
                 },
+                .button => {},
             }
             ng.debug_print("\n", .{});
             if (obj.first_child) |first| {

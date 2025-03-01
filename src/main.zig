@@ -74,6 +74,8 @@ pub fn main() !void {
 
         render_pass.end();
         try command_buffer.submit();
+
+        // ng.sleep (0.5);
     }
 }
 
@@ -103,17 +105,24 @@ fn draw_ui() void {
 fn draw_debug_window() void {
     ng.ui_begin_window(.{
         .title = "Debug Window",
-        .x = 80,
-        .y = 100,
+        .x = 400,
+        .y = 300,
         .width = 320,
         .height = 200,
         .background_color = .black,
     });
     defer ng.ui_end_window();
 
-    ng.ui_begin_vbox(.{});
+    ng.ui_begin_vbox(.{ .padding = .{ .top = 4, .left = 4, .right = 4, .bottom = 4 } });
+    // ng.ui_begin_hbox(.{ .padding = .{ .top = 4, .left = 4, .right = 4, .bottom = 4 }});
     ng.ui_add_text(.{}, "{} fps", .{state.average_frame_rate});
     ng.ui_add_text(.{}, "{} frames", .{state.frame_counter});
+    // ng.ui.end_hbox ();
+
+    if (ng.ui_add_button(.{ .text = "Button", .width = 100, .height = 40 })) {
+        log.debug("Button pressed", .{});
+    }
+
     ng.ui_end_vbox();
 }
 

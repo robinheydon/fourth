@@ -64,7 +64,12 @@ pub const ui_begin_window = ui.begin_window;
 pub const ui_end_window = ui.end_window;
 pub const ui_begin_vbox = ui.begin_vbox;
 pub const ui_end_vbox = ui.end_vbox;
+pub const ui_begin_hbox = ui.begin_hbox;
+pub const ui_end_hbox = ui.end_hbox;
 pub const ui_add_text = ui.add_text;
+pub const ui_add_button = ui.add_button;
+pub const ui_begin_button = ui.begin_button;
+pub const ui_end_button = ui.end_button;
 
 pub const Color = color.Color;
 
@@ -80,6 +85,7 @@ pub const Pool = pool.Pool;
 pub const Logger = logger.Logger;
 
 pub const elapsed = time.elapsed;
+pub const sleep = time.sleep;
 
 pub const Entity = ecs.Entity;
 pub const register_component = ecs.register_component;
