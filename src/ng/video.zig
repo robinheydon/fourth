@@ -57,7 +57,8 @@ pub const Platform = struct {
 
     create_window: *const fn (CreateWindowOptions) VideoError!Window,
     close_window: *const fn (Window) void,
-    get_window_size: *const fn (Window) WindowSize,
+    get_window_size: *const fn (Window) ng.Vec2,
+    set_window_size: *const fn (Window, ng.Vec2) void,
     set_swap_interval: *const fn (Window, SwapInterval) void,
     toggle_fullscreen: *const fn (Window) void,
     acknowledge_resize: *const fn (Window) void,
@@ -139,8 +140,12 @@ pub const Window = struct {
         platform.set_swap_interval(self, interval);
     }
 
-    pub fn get_size(self: Window) WindowSize {
+    pub fn get_size(self: Window) ng.Vec2 {
         return platform.get_window_size(self);
+    }
+
+    pub fn set_size(self: Window, size: ng.Vec2) void {
+        platform.set_window_size(self, size);
     }
 
     pub fn acquire_command_buffer(self: Window) !CommandBuffer {

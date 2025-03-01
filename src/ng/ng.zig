@@ -167,8 +167,7 @@ pub fn poll_event() ?Event {
         event_queue_read_index = (event_queue_read_index + 1) % event_queue.len;
         event_queue_count -= 1;
 
-        if (ui.filter_event(ev)) |evn|
-        {
+        if (ui.filter_event(ev)) |evn| {
             return evn;
         }
     }
@@ -418,7 +417,7 @@ pub fn end_frame() void {
 
 pub fn debug_clear(window: video.Window) void {
     const size = window.get_size();
-    debug_text.reset(@intFromFloat(size.width), @intFromFloat(size.height));
+    debug_text.reset(size);
 }
 
 pub fn debug_puts(str: []const u8) void {

@@ -71,6 +71,7 @@ const API = struct {
     XGetIMValues: *const fn (c.XIM, ...) callconv(.c) [*c]const u8,
     XInternAtom: *const fn (*Display, [*:0]const u8, bool) callconv(.c) Atom,
     XKeycodeToKeysym: *const fn (*Display, u32, u32) callconv(.c) u32,
+    XResizeWindow: *const fn (*Display, Window, i32, i32) callconv(.c) void,
     XMapRaised: *const fn (*Display, Window) callconv(.c) void,
     XNextEvent: *const fn (*Display, *c.XEvent) callconv(.c) void,
     XOpenDisplay: *const fn ([*c]const u8) callconv(.c) *Display,
@@ -303,6 +304,7 @@ pub fn init() !video.Platform {
         .create_window = create_window,
         .close_window = close_window,
         .get_window_size = get_window_size,
+        .set_window_size = set_window_size,
         .set_swap_interval = set_swap_interval,
         .acquire_command_buffer = acquire_command_buffer,
         .toggle_fullscreen = toggle_fullscreen,
@@ -602,11 +604,20 @@ fn close_window(a_window: video.Window) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn get_window_size(_: video.Window) video.WindowSize {
+fn get_window_size(_: video.Window) ng.Vec2 {
     return .{
-        .width = window_width / high_dpi_scale,
-        .height = window_height / high_dpi_scale,
+        window_width / high_dpi_scale,
+        window_height / high_dpi_scale,
     };
+}
+
+fn set_window_size(a_window: video.Window, size: ng.Vec2) void {
+    api.XResizeWindow(
+        display,
+        a_window.handle,
+        @intFromFloat(size[0] * high_dpi_scale),
+        @intFromFloat(size[1] * high_dpi_scale),
+    );
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1377,8 +1388,8 @@ fn process_button_release(ev: c.XButtonEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_motion_notify(ev: c.XMotionEvent) void {
-    const x: f32 = @as (f32, @floatFromInt(ev.x)) / high_dpi_scale;
-    const y: f32 = @as (f32, @floatFromInt(ev.y)) / high_dpi_scale;
+    const x: f32 = @as(f32, @floatFromInt(ev.x)) / high_dpi_scale;
+    const y: f32 = @as(f32, @floatFromInt(ev.y)) / high_dpi_scale;
     ng.send_event(.{ .mouse_move = .{
         .pos = .{ x, y },
         .buttons = mouse_buttons,

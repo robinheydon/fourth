@@ -221,7 +221,7 @@ pub fn render(render_pass: ng.RenderPass) void {
     if (next_vertex > 0) {
         buffer.update(ng.as_bytes(vertices[0..next_vertex]));
 
-        const mvp: ng.Mat4 = ng.ortho(display_size[0], display_size[1]);
+        const mvp: ng.Mat4 = ng.ortho(display_size);
 
         render_pass.apply_pipeline(pipeline);
         render_pass.apply_bindings(binding);

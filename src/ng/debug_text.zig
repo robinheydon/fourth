@@ -39,10 +39,8 @@ var frame_width: usize = 0;
 var frame_height: usize = 0;
 var frame_dx: f32 = 0;
 var frame_dy: f32 = 0;
-var frame_offset_x: f32 = 0.5;
-var frame_offset_y: f32 = 0.5;
 
-var debug_scale: f32 = 1;
+var debug_scale: f32 = 2;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -154,24 +152,27 @@ pub fn deinit() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn reset(width: usize, height: usize) void {
+pub fn reset(size: ng.Vec2) void {
     cursor_x = 0;
     cursor_y = 0;
     @memset(&frame, 0);
-    const fwidth: f32 = @floatFromInt(width);
-    const fheight: f32 = @floatFromInt(height);
+    const fwidth: f32 = @max(1, size[0]);
+    const fheight: f32 = @max(1, size[1]);
 
-    if (fwidth > 12 * debug_scale and fheight > 20 * debug_scale) {
-        frame_width = @intFromFloat(fwidth / 12 / debug_scale - 1);
-        frame_height = @intFromFloat(fheight / 20 / debug_scale - 1);
-    } else {
-        frame_width = 1;
-        frame_height = 1;
-    }
+    frame_width = @intFromFloat(fwidth / (12 * debug_scale));
+    frame_height = @intFromFloat(fheight / (20 * debug_scale));
 
-    frame_dx = 2.0 / fwidth * debug_scale;
-    frame_dy = 2.0 / fheight * debug_scale;
+    frame_dx = (2.0 / fwidth) * debug_scale;
+    frame_dy = (2.0 / fheight) * debug_scale;
+
+    print("{d} {d}\n", .{ fwidth, fheight });
+    print("{d} {d}\n", .{ frame_width, frame_height });
+    print("{d} {d}\n", .{ frame_dx, frame_dy });
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn puts(str: []const u8) void {
     for (str) |ch| {
@@ -193,11 +194,19 @@ pub fn puts(str: []const u8) void {
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pub fn print(comptime fmt: []const u8, args: anytype) void {
     const debug_writer: void = {};
     const writer = std.io.AnyWriter{ .context = &debug_writer, .writeFn = debug_text_writer };
     std.fmt.format(writer, fmt, args) catch {};
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn debug_text_writer(self: *const anyopaque, bytes: []const u8) error{}!usize {
     _ = self;
@@ -220,8 +229,8 @@ pub fn draw(render_pass: ng.RenderPass) void {
             if (ch < 33) {
                 continue;
             } else {
-                const fx: f32 = @as(f32, @floatFromInt(x)) + frame_offset_x;
-                const fy: f32 = @as(f32, @floatFromInt(y)) + frame_offset_x;
+                const fx: f32 = @as(f32, @floatFromInt(x));
+                const fy: f32 = @as(f32, @floatFromInt(y));
                 const px1: f32 = fx * 12 * frame_dx - 1;
                 const py1: f32 = 1 - fy * 20 * frame_dy;
                 const px2: f32 = (fx + 1) * 12 * frame_dx - 1;

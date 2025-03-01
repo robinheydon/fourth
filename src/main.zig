@@ -218,13 +218,13 @@ fn init_draw_world() !void {
 
 fn draw_world(render_pass: ng.RenderPass) void {
     const window_size = state.window.get_size();
-    const projection = ng.ortho(window_size.width, window_size.height);
+    const projection = ng.ortho(window_size);
 
     state.camera = .identity();
     state.camera.zoom = state.map_zoom;
     state.camera.rotate = state.map_rotate;
     state.camera.origin = state.map_center;
-    state.camera.target = .{ window_size.width / 2, window_size.height / 2 };
+    state.camera.target = window_size / ng.Vec2 {2, 2};
     const view = state.camera.get_matrix();
     const mvp = ng.mat4_mul(view, projection);
 
