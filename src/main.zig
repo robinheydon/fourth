@@ -53,13 +53,6 @@ pub fn main() !void {
 
         update_fps(state.dt);
 
-        if (state.average_frame_rate > 0) {
-            ng.debug_print("{} Hz\n{} frames\n", .{
-                state.average_frame_rate,
-                state.frame_counter,
-            });
-        }
-
         process_events();
 
         draw_ui();
@@ -118,9 +111,10 @@ fn draw_debug_window() void {
     });
     defer ng.ui_end_window();
 
-    // ng.ui_begin_box(.{ .direction = .vertical });
-    // ng.ui_format_text(.{}, "{} fps", .{state.average_frame_rate});
-    // ng.ui_end_box();
+    ng.ui_begin_box(.{ .direction = .vertical });
+    ng.ui_add_text(.{}, "{} fps", .{state.average_frame_rate});
+    ng.ui_add_text(.{}, "{} frames", .{state.frame_counter});
+    ng.ui_end_box();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -193,8 +187,6 @@ fn init_draw_world() !void {
         },
     });
 
-    // green - x-axis
-    // red - y-axis
     state.axis_buffer = try ng.create_buffer(.{
         .label = "Axis Vertex Data",
         .data = ng.as_bytes(&state.axis_data),
@@ -452,7 +444,7 @@ fn debug_map_state() void {
     // const position = state.camera.to_world(state.map_last_mouse);
     // ng.debug_print("{d:8.5} -> {d:8.5}\n", .{ state.map_last_mouse, position });
 
-    ng.debug_print("{d:8.5} {d:8.5}\n", .{ state.map_move_velocity, state.map_center });
+    // ng.debug_print("{d:8.5} {d:8.5}\n", .{ state.map_move_velocity, state.map_center });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

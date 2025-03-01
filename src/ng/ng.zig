@@ -64,7 +64,7 @@ pub const ui_begin_window = ui.begin_window;
 pub const ui_end_window = ui.end_window;
 pub const ui_begin_box = ui.begin_box;
 pub const ui_end_box = ui.end_box;
-pub const ui_format_text = ui.format_text;
+pub const ui_add_text = ui.add_text;
 
 pub const Color = color.Color;
 

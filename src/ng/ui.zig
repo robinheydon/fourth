@@ -37,6 +37,9 @@ const Handle = enum(u32) { _ };
 
 var init_required: bool = false;
 
+var build_stack: [16]Handle = undefined;
+var build_stack_index: usize = 0;
+
 var first_window: ?Handle = null;
 var last_window: ?Handle = null;
 
@@ -46,12 +49,12 @@ var window_resizing: ResizingMode = .none;
 var captured_offset: Vec2 = .{ 0, 0 };
 var app_captured_mouse: bool = false;
 
-var shader: ng.video.Shader = undefined;
-var buffer: ng.video.Buffer = undefined;
-var image: ng.video.Image = undefined;
-var sampler: ng.video.Sampler = undefined;
-var binding: ng.video.Binding = undefined;
-var pipeline: ng.video.Pipeline = undefined;
+var ui_shader: ng.video.Shader = undefined;
+var ui_buffer: ng.video.Buffer = undefined;
+var ui_image: ng.video.Image = undefined;
+var ui_sampler: ng.video.Sampler = undefined;
+var ui_binding: ng.video.Binding = undefined;
+var ui_pipeline: ng.video.Pipeline = undefined;
 
 var vertices: [16384]DebugTextVertex = undefined;
 var next_vertex: usize = 0;
@@ -87,9 +90,20 @@ pub fn init() !void {
 pub fn deinit() void {
     log.info("deinit", .{});
 
-    shader.delete();
-    image.delete();
-    sampler.delete();
+    ui_shader.delete();
+    ui_image.delete();
+    ui_sampler.delete();
+
+    for (all_objects.items) |obj| {
+        switch (obj.data) {
+            .text => |text| {
+                if (text.allocated) {
+                    allocator.free(text.memory);
+                }
+            },
+            else => {},
+        }
+    }
 
     all_objects.deinit(allocator);
     used_objects.deinit(allocator);
@@ -106,14 +120,14 @@ pub fn init_render() !void {
         return;
     }
 
-    buffer = try ng.create_buffer(.{
+    ui_buffer = try ng.create_buffer(.{
         .label = "debug text vertex buffer",
         .kind = .vertex,
         .size = @sizeOf(DebugTextVertex) * vertices.len,
         .update = .stream,
     });
 
-    shader = try ng.create_shader(debug_text_shader);
+    ui_shader = try ng.create_shader(debug_text_shader);
 
     for (0..256) |ch| {
         const tx = ch & 15;
@@ -134,7 +148,7 @@ pub fn init_render() !void {
         }
     }
 
-    image = try ng.create_image(.{
+    ui_image = try ng.create_image(.{
         .label = "debug text font image",
         .width = 16 * 12,
         .height = 16 * 20,
@@ -142,7 +156,7 @@ pub fn init_render() !void {
         .data = &font_data,
     });
 
-    sampler = try ng.create_sampler(.{
+    ui_sampler = try ng.create_sampler(.{
         .label = "debug text sampler",
         .min_filter = .nearest,
         .mag_filter = .nearest,
@@ -150,16 +164,16 @@ pub fn init_render() !void {
         .wrap_v = .clamp_to_edge,
     });
 
-    binding = try ng.create_binding(.{
+    ui_binding = try ng.create_binding(.{
         .label = "debug text binding",
-        .vertex_buffers = &.{buffer},
-        .image = image,
-        .sampler = sampler,
+        .vertex_buffers = &.{ui_buffer},
+        .image = ui_image,
+        .sampler = ui_sampler,
     });
 
-    pipeline = try ng.create_pipeline(.{
+    ui_pipeline = try ng.create_pipeline(.{
         .label = "debug text pipeline",
-        .shader = shader,
+        .shader = ui_shader,
         .primitive = .triangle_list,
         .blend = .{
             .enabled = true,
@@ -207,8 +221,11 @@ pub fn render(render_pass: ng.RenderPass) void {
             switch (obj.data) {
                 .window => |window| {
                     window.draw();
+                    draw_internal(obj.first_child);
                 },
-                else => {},
+                else => {
+                    log.warn("Cannot draw {s}", .{@tagName(obj.data)});
+                },
             }
         }
 
@@ -219,16 +236,40 @@ pub fn render(render_pass: ng.RenderPass) void {
     }
 
     if (next_vertex > 0) {
-        buffer.update(ng.as_bytes(vertices[0..next_vertex]));
+        ui_buffer.update(ng.as_bytes(vertices[0..next_vertex]));
 
         const mvp: ng.Mat4 = ng.ortho(display_size);
 
-        render_pass.apply_pipeline(pipeline);
-        render_pass.apply_bindings(binding);
+        render_pass.apply_pipeline(ui_pipeline);
+        render_pass.apply_bindings(ui_binding);
         render_pass.apply_uniform_mat4(DebugTextUniforms.mvp, mvp);
         render_pass.apply_uniform_u32(DebugTextUniforms.smp, 0);
         render_pass.draw(next_vertex);
         next_vertex = 0;
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_internal(first_child: ?Handle) void {
+    var child: ?Handle = first_child;
+    while (child) |handle| {
+        const obj = get(handle) catch return;
+        if (obj.shown) {
+            switch (obj.data) {
+                .text => |text| {
+                    text.draw();
+                },
+                .box => {},
+                else => {
+                    log.warn("Cannot draw_internal {s}", .{@tagName(obj.data)});
+                },
+            }
+            draw_internal(obj.first_child);
+        }
+        child = obj.succ;
     }
 }
 
@@ -274,6 +315,11 @@ pub const BeginWindowOptions = struct {
 pub noinline fn begin_window(options: BeginWindowOptions) void {
     const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
 
+    while (!build_stack_empty()) {
+        log.err("Build stack not empty", .{});
+        pop_build_stack();
+    }
+
     if (find_window(ident)) |handle| {
         var window = get(handle) catch return;
         if (window.shown == false) {
@@ -281,6 +327,8 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
         }
         window.active = true;
         window.shown = true;
+
+        push_build_stack(handle);
     } else {
         const handle = new() catch |err| {
             log.err("begin_window {}", .{err});
@@ -322,6 +370,8 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
         };
 
         move_to_top(handle);
+
+        push_build_stack(handle);
     }
 }
 
@@ -329,7 +379,9 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub noinline fn end_window() void {}
+pub noinline fn end_window() void {
+    pop_build_stack();
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -354,14 +406,47 @@ pub const BoxDirection = enum {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub noinline fn begin_box(options: BeginBoxOptions) void {
-    log.note("Box {}:{}", .{ @returnAddress(), options.unique });
+    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
+
+    const parent = top_build_stack();
+
+    if (find_object(parent, ident)) |handle| {
+        var object = get(handle) catch return;
+        object.active = true;
+        object.shown = true;
+        push_build_stack(handle);
+    } else {
+        const handle = new() catch |err| {
+            log.err("begin_box {}", .{err});
+            return;
+        };
+
+        const object = get(handle) catch return;
+
+        object.* = .{
+            .ident = ident,
+            .active = true,
+            .shown = true,
+            .data = .{
+                .box = .{
+                    .direction = options.direction,
+                },
+            },
+        };
+
+        add_child_last(parent, handle);
+
+        push_build_stack(handle);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub noinline fn end_box() void {}
+pub noinline fn end_box() void {
+    pop_build_stack();
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -375,14 +460,117 @@ pub const FormatOptions = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub noinline fn format_text(
+pub noinline fn add_text(
     options: FormatOptions,
     comptime fmt: []const u8,
     args: anytype,
 ) void {
-    log.note("Format Text {}:{}", .{ @returnAddress(), options.unique });
-    _ = fmt;
-    _ = args;
+    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
+
+    const parent = top_build_stack();
+
+    if (find_object(parent, ident)) |handle| {
+        var object = get(handle) catch return;
+        object.active = true;
+        object.shown = true;
+
+        switch (object.data) {
+            .text => |*text| {
+                if (text.allocated) {
+                    const count = std.fmt.count(fmt, args);
+
+                    if (count <= text.memory.len) {
+                        const slice = std.fmt.bufPrint(text.memory, fmt, args) catch return;
+
+                        text.text = slice;
+                    } else {
+                        const block_count = (count + 7) & 0xFFFF_FFFF_FFFF_FFF8;
+                        const buffer = allocator.alloc(u8, block_count) catch return;
+                        const slice = std.fmt.bufPrint(buffer, fmt, args) catch return;
+
+                        allocator.free(text.memory);
+                        text.memory = buffer;
+                        text.text = slice;
+                    }
+                }
+            },
+            else => {},
+        }
+    } else {
+        const count = std.fmt.count(fmt, args);
+        const block_count = (count + 7) & 0xFFFF_FFFF_FFFF_FFF8;
+        const buffer = allocator.alloc(u8, block_count) catch return;
+        const slice = std.fmt.bufPrint(buffer, fmt, args) catch return;
+
+        const handle = new() catch |err| {
+            log.err("format_text {}", .{err});
+            return;
+        };
+
+        const object = get(handle) catch return;
+
+        object.* = .{
+            .ident = ident,
+            .active = true,
+            .shown = true,
+            .data = .{
+                .text = .{
+                    .pos = .{ 0, 0 },
+                    .memory = buffer,
+                    .text = slice,
+                    .allocated = true,
+                },
+            },
+        };
+
+        add_child_last(parent, handle);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn push_build_stack(handle: Handle) void {
+    if (build_stack_index < build_stack.len) {
+        build_stack[build_stack_index] = handle;
+        build_stack_index += 1;
+    } else {
+        log.err("Build stack overflow {}", .{handle});
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn pop_build_stack() void {
+    if (build_stack_index > 0) {
+        build_stack_index -= 1;
+    } else {
+        log.err("Build stack underflow", .{});
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn build_stack_empty() bool {
+    return build_stack_index == 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn top_build_stack() Handle {
+    if (build_stack_index > 0) {
+        return build_stack[build_stack_index - 1];
+    } else {
+        log.err("Build stack underflow", .{});
+        return build_stack[0];
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -394,15 +582,22 @@ const Ident = struct {
     unique: usize,
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const Object = struct {
     pred: ?Handle = null,
     succ: ?Handle = null,
+    first_child: ?Handle = null,
+    last_child: ?Handle = null,
     ident: Ident,
     active: bool = true, // active this frame
     shown: bool = true, // currently shown
     data: union(UI_Type) {
         window: Window,
         box: Box,
+        text: Text,
     },
 
     pub fn process_event(self: *Object, handle: Handle, event: ng.Event) bool {
@@ -414,9 +609,14 @@ const Object = struct {
     }
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const UI_Type = enum {
     window,
     box,
+    text,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -674,6 +874,65 @@ const Box = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const Text = struct {
+    memory: []u8,
+    text: []const u8,
+    pos: ng.Vec2,
+    allocated: bool,
+
+    pub fn draw(self: Text) void {
+        draw_text(
+            self.pos,
+            self.text,
+            120,
+            .purple,
+        );
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn find_object(phandle: Handle, ident: Ident) ?Handle {
+    const parent = get(phandle) catch return null;
+    var object = parent.first_child;
+    while (object) |handle| {
+        const obj = get(handle) catch return null;
+        if (obj.ident.addr == ident.addr and obj.ident.unique == ident.unique) {
+            return handle;
+        }
+        object = obj.succ;
+    }
+    return null;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn add_child_last(phandle: Handle, chandle: Handle) void {
+    const parent = get(phandle) catch return;
+    const child = get(chandle) catch return;
+
+    if (parent.last_child) |last| {
+        child.pred = last;
+        child.succ = null;
+        const last_obj = get(last) catch return;
+        last_obj.succ = chandle;
+        parent.last_child = chandle;
+    } else {
+        child.pred = null;
+        child.succ = null;
+        parent.first_child = chandle;
+        parent.last_child = chandle;
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 fn find_window(ident: Ident) ?Handle {
     var object = first_window;
     while (object) |handle| {
@@ -747,27 +1006,49 @@ fn dump_state(label: []const u8) void {
         app_captured_mouse,
         hover,
     });
-    var window = first_window;
-    while (window) |handle| {
+    if (first_window) |window| {
+        dump_state_internal(window, 1);
+    }
+}
+
+const lots_of_spaces = " " ** 256;
+
+fn dump_state_internal(first_child: Handle, depth: usize) void {
+    var child: ?Handle = first_child;
+    while (child) |handle| {
         const obj = get(handle) catch return;
-        ng.debug_print("  {} {?} {?} {} {}", .{
-            handle,
-            obj.pred,
-            obj.succ,
-            obj.active,
-            obj.shown,
-        });
-        switch (obj.data) {
-            .window => |win| {
-                ng.debug_print(" {d} {d}", .{
-                    win.pos,
-                    win.size,
-                });
-            },
-            else => {},
+        if (obj.shown) {
+            ng.debug_print("{s}", .{lots_of_spaces[0 .. depth * 2]});
+            ng.debug_print("{s}:{}", .{
+                @tagName(obj.data),
+                @intFromEnum(handle),
+            });
+            switch (obj.data) {
+                .window => |win| {
+                    ng.debug_print(" {d} {d}", .{
+                        win.pos,
+                        win.size,
+                    });
+                },
+                .box => |box| {
+                    ng.debug_print(" {s}", .{
+                        @tagName(box.direction),
+                    });
+                },
+                .text => |text| {
+                    ng.debug_print(" \"{}\" {}/{}", .{
+                        std.zig.fmtEscapes(text.text),
+                        text.text.len,
+                        text.memory.len,
+                    });
+                },
+            }
+            ng.debug_print("\n", .{});
+            if (obj.first_child) |first| {
+                dump_state_internal(first, depth + 1);
+            }
         }
-        ng.debug_print("\n", .{});
-        window = obj.succ;
+        child = obj.succ;
     }
 }
 
