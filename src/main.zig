@@ -81,8 +81,6 @@ pub fn main() !void {
 
         render_pass.end();
         try command_buffer.submit();
-
-        std.time.sleep (200 * std.time.ns_per_ms);
     }
 }
 
