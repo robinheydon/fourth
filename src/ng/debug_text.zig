@@ -164,10 +164,6 @@ pub fn reset(size: ng.Vec2) void {
 
     frame_dx = (2.0 / fwidth) * debug_scale;
     frame_dy = (2.0 / fheight) * debug_scale;
-
-    print("{d} {d}\n", .{ fwidth, fheight });
-    print("{d} {d}\n", .{ frame_width, frame_height });
-    print("{d} {d}\n", .{ frame_dx, frame_dy });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
