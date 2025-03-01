@@ -212,7 +212,7 @@ var window: Window = undefined;
 var xim: c.XIM = undefined;
 var xic: c.XIC = undefined;
 
-var high_dpi_scale: f32 = 2;
+var high_dpi_scale: f32 = 1;
 
 var window_width: f32 = 0;
 var window_height: f32 = 0;
