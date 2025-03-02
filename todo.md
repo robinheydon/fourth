@@ -33,6 +33,17 @@
   - create companies
   - just add an economy !!!
 
+- Immediate Mode UI
+  - events processing in sub-objects
+  - Button
+  - Scissor rect for each object
+  - Text
+  - CheckButton
+  - RadioButton
+  - Icons
+  - InputText
+  - themes
+
 - Graphics
   - Models
 

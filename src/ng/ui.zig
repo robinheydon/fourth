@@ -871,6 +871,7 @@ const Object = struct {
     pub fn process_event(self: *Object, handle: Handle, event: ng.Event) bool {
         switch (self.data) {
             .window => |*win| return win.process_event(handle, event),
+            .button => |*button| return button.process_event(handle, event),
             else => {},
         }
         return false;
@@ -1118,8 +1119,6 @@ const Window = struct {
     pub fn layout(self: *const Window, handle: Handle, _: LayoutConstraint) ng.Vec2 {
         _ = self;
 
-        log.info("Layout Window {}", .{handle});
-
         const constraint = LayoutConstraint{
             .min_size = .{ 0, 0 },
             .max_size = .{ std.math.inf(f32), std.math.inf(f32) },
@@ -1152,7 +1151,6 @@ const Window = struct {
 const VBox = struct {
     pub fn layout(self: *const VBox, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
         _ = self;
-        log.info("Layout VBox {} {}", .{ handle, constraint });
         const obj = get(handle) catch return .{ 0, 0 };
 
         var pos = obj.pos + Vec2{ obj.padding.left, obj.padding.top };
@@ -1175,7 +1173,6 @@ const VBox = struct {
             max_size[1] += size[1];
         }
 
-        log.info("Layout VBox {} {} -> {d}", .{ handle, constraint, max_size });
         return max_size;
     }
 };
@@ -1187,7 +1184,6 @@ const VBox = struct {
 const HBox = struct {
     pub fn layout(self: *const HBox, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
         _ = self;
-        log.info("Layout HBox {} {}", .{ handle, constraint });
         const obj = get(handle) catch return .{ 0, 0 };
 
         var pos = obj.pos + Vec2{ obj.padding.left, obj.padding.top };
@@ -1213,7 +1209,6 @@ const HBox = struct {
         max_size += Vec2{ obj.padding.left, obj.padding.top };
         max_size += Vec2{ obj.padding.right, obj.padding.bottom };
 
-        log.info("Layout HBox {} {} -> {d}", .{ handle, constraint, max_size });
         return max_size;
     }
 };
@@ -1240,10 +1235,8 @@ const Text = struct {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    pub fn layout(self: *const Text, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
-        const size = ng.Vec2{ @as(f32, @floatFromInt(self.text.len)) * 12, 20 };
-        log.info("Layout Text {} {} -> {d}", .{ handle, constraint, size });
-        return size;
+    pub fn layout(self: *const Text, _: Handle, _: LayoutConstraint) ng.Vec2 {
+        return ng.Vec2{ @as(f32, @floatFromInt(self.text.len)) * 12, 20 };
     }
 };
 
@@ -1254,6 +1247,38 @@ const Text = struct {
 const Button = struct {
     min_size: Vec2,
     background_color: Color = .@"dark grey",
+    clicked: bool = false,
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn process_event(self: *Button, handle: Handle, event: ng.Event) bool {
+        switch (event) {
+            .mouse_down => |ev| return self.process_mouse_down(handle, ev),
+            .mouse_up => |ev| return self.process_mouse_up(handle, ev),
+            else => {},
+        }
+        return false;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    fn process_mouse_down(self: *Button, handle: Handle, event: ng.MouseEvent) bool {
+        _ = self;
+        _ = handle;
+        _ = event;
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    fn process_mouse_up(self: *Button, handle: Handle, event: ng.MouseEvent) bool {
+        _ = self;
+        _ = handle;
+        _ = event;
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn draw(self: Button, obj: *const Object) void {
         draw_rectangle(obj.pos, obj.size, self.background_color);

@@ -31,8 +31,8 @@ pub fn main() !void {
 
     state.window = try ng.create_window(.{
         .name = "Fourth",
-        .width = 1280,
-        .height = 720,
+        .width = 1920,
+        .height = 1080,
         .resizable = true,
     });
     defer state.window.close();
