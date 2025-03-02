@@ -282,33 +282,28 @@ pub fn init() !video.Platform {
     screen = api.XDefaultScreenOfDisplay(display);
     screen_id = api.XDefaultScreen(display);
 
-    if (api.XResourceManagerString) |func|
-    {
-        const cdata = func (display);
-        const data = std.mem.span (cdata);
-        var lines = std.mem.splitScalar (u8, data, '\n');
-        while (lines.next ()) |line|
-        {
-            if (std.mem.startsWith (u8, line, "Xft.dpi:"))
-            {
-                var index : usize = 0;
-                while (index < line.len)
-                {
+    if (api.XResourceManagerString) |func| {
+        const cdata = func(display);
+        const data = std.mem.span(cdata);
+        var lines = std.mem.splitScalar(u8, data, '\n');
+        while (lines.next()) |line| {
+            if (std.mem.startsWith(u8, line, "Xft.dpi:")) {
+                var index: usize = 0;
+                while (index < line.len) {
                     if (line[index] == ' ' or line[index] == '\t') break;
                     index += 1;
                 }
-                while (index < line.len)
-                {
+                while (index < line.len) {
                     if (line[index] != ' ' and line[index] != '\t') break;
                     index += 1;
                 }
-                const dpi = try std.fmt.parseInt (u8, line[index..], 10);
-                high_dpi_scale = @as (f32, @floatFromInt (dpi)) / 96;
+                const dpi = try std.fmt.parseInt(u8, line[index..], 10);
+                high_dpi_scale = std.math.clamp(@as(f32, @floatFromInt(dpi)) / 96, 1, 4);
             }
         }
     }
 
-    log.note ("high_dpi_scale = {d}", .{high_dpi_scale});
+    log.note("high_dpi_scale = {d}", .{high_dpi_scale});
 
     root_window = api.XRootWindowOfScreen(screen);
 
@@ -347,6 +342,7 @@ pub fn init() !video.Platform {
         .apply_pipeline = apply_pipeline,
         .apply_bindings = apply_bindings,
         .apply_uniform = apply_uniform,
+        .apply_scissor = apply_scissor,
         .get_render_pass_size = get_render_pass_size,
         .draw = draw,
         .submit_command_buffer = submit_command_buffer,
@@ -915,6 +911,7 @@ const GL_Enum = enum(u32) {
     GL_MIRRORED_REPEAT = 0x8370,
 
     GL_BLEND = 0x0BE2,
+    GL_SCISSOR_TEXT = 0x0C11,
 
     GL_ONE_MINUS_SRC_ALPHA = 0x0303,
     GL_SRC_ALPHA = 0x0302,
@@ -1652,6 +1649,12 @@ fn apply_pipeline(self: video.RenderPass, opaque_pipeline: video.Pipeline) void 
         gl_blend_factor(pipeline.blend.src_factor_alpha),
         gl_blend_factor(pipeline.blend.dst_factor_alpha),
     );
+
+    if (pipeline.scissor_test) {
+        api.glEnable(.GL_SCISSOR_TEXT);
+    } else {
+        api.glDisable(.GL_SCISSOR_TEXT);
+    }
 }
 
 fn gl_blend_factor(factor: video.BlendFactor) GL_Enum {
@@ -1738,6 +1741,25 @@ fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
             api.glUniform1i(info.index, value.*);
         },
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn apply_scissor(self: video.RenderPass, pos: ng.Vec2, size: ng.Vec2) void {
+    _ = self;
+
+    const x: u32 = @intFromFloat(pos[0] * high_dpi_scale);
+    const y: u32 = @intFromFloat(window_height - (pos[1] + size[1]) * high_dpi_scale);
+    const w: u32 = @intFromFloat(size[0] * high_dpi_scale);
+    const h: u32 = @intFromFloat(size[1] * high_dpi_scale);
+
+    if (debug_api) {
+        log.debug("glScissor {} {} {} {}", .{ x, y, w, h });
+    }
+
+    api.glScissor(x, y, w, h);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2085,6 +2107,7 @@ const GL_Pipeline = struct {
     shader: video.Shader,
     primitive: video.Primitive,
     blend: video.BlendInfo,
+    scissor_test: bool,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2100,6 +2123,7 @@ fn create_pipeline(info: video.CreatePipelineInfo) video.VideoError!video.Pipeli
         .shader = info.shader,
         .primitive = info.primitive,
         .blend = info.blend,
+        .scissor_test = info.scissor_test,
     };
 
     return .{

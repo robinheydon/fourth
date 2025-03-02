@@ -58,7 +58,20 @@ var ui_pipeline: ng.video.Pipeline = undefined;
 var vertices: [16384]DebugTextVertex = undefined;
 var next_vertex: usize = 0;
 
-var font_data: [256 * 12 * 20]u8 = undefined;
+var commands: [4096]RenderCommand = undefined;
+var next_command: usize = 0;
+
+const RenderCommand = union(RenderCommandKind) {
+    none: void,
+    draw_triangles: struct { start: usize, end: usize },
+    scissor: struct { pos: ng.Vec2, size: ng.Vec2 },
+};
+
+const RenderCommandKind = enum {
+    none,
+    draw_triangles,
+    scissor,
+};
 
 const ResizingMode = enum {
     none,
@@ -68,6 +81,8 @@ const ResizingMode = enum {
     bottom,
     right,
 };
+
+var font_data: [256 * 12 * 20]u8 = undefined;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -179,6 +194,7 @@ pub fn init_render() !void {
             .src_factor_alpha = .one,
             .dst_factor_alpha = .zero,
         },
+        .scissor_test = true,
     });
 
     init_required = false;
@@ -207,7 +223,9 @@ pub fn render(render_pass: ng.RenderPass) void {
         object = obj.succ;
     }
 
-    dump_state("Render");
+    if (false) {
+        dump_state("Render");
+    }
 
     object = last_window;
     while (object) |handle| {
@@ -232,16 +250,31 @@ pub fn render(render_pass: ng.RenderPass) void {
 
     if (next_vertex > 0) {
         ui_buffer.update(ng.as_bytes(vertices[0..next_vertex]));
-
-        const mvp: ng.Mat4 = ng.ortho(display_size);
-
-        render_pass.apply_pipeline(ui_pipeline);
-        render_pass.apply_bindings(ui_binding);
-        render_pass.apply_uniform_mat4(DebugTextUniforms.mvp, mvp);
-        render_pass.apply_uniform_u32(DebugTextUniforms.smp, 0);
-        render_pass.draw(next_vertex);
-        next_vertex = 0;
     }
+
+    const mvp: ng.Mat4 = ng.ortho(display_size);
+
+    render_pass.apply_pipeline(ui_pipeline);
+    render_pass.apply_bindings(ui_binding);
+    render_pass.apply_uniform_mat4(DebugTextUniforms.mvp, mvp);
+    render_pass.apply_uniform_u32(DebugTextUniforms.smp, 0);
+
+    for (0..next_command) |i| {
+        const command = commands[i];
+
+        switch (command) {
+            .none => {},
+            .scissor => |cmd| {
+                render_pass.apply_scissor(cmd.pos, cmd.size);
+            },
+            .draw_triangles => {
+                render_pass.draw(next_vertex);
+            },
+        }
+    }
+
+    next_vertex = 0;
+    next_command = 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -275,9 +308,35 @@ fn draw_internal(first_child: ?Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn add_vertex(vertex: DebugTextVertex) void {
+    if (next_command == 0) {
+        commands[next_command] = .{ .draw_triangles = .{
+            .start = next_vertex,
+            .end = next_vertex,
+        } };
+        next_command += 1;
+    } else {
+        if (commands[next_command - 1] != .draw_triangles) {
+            if (next_command < commands.len) {
+                commands[next_command] = .{ .draw_triangles = .{
+                    .start = next_vertex,
+                    .end = next_vertex,
+                } };
+                next_command += 1;
+            }
+        }
+    }
+
     if (next_vertex < vertices.len) {
         vertices[next_vertex] = vertex;
         next_vertex += 1;
+        commands[next_command - 1].draw_triangles.end = next_vertex;
+    }
+}
+
+fn add_scissor(pos: ng.Vec2, size: ng.Vec2) void {
+    if (next_command < commands.len) {
+        commands[next_command] = .{ .scissor = .{ .pos = pos, .size = size } };
+        next_command += 1;
     }
 }
 
@@ -356,7 +415,7 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
             },
             .size = .{
                 options.width orelse 320,
-                options.width orelse 200,
+                options.height orelse 200,
             },
             .data = .{
                 .window = .{
@@ -595,6 +654,7 @@ const AddButtonOptions = struct {
     text: []const u8,
     width: f32 = 100,
     height: f32 = 40,
+    padding: Padding = .{},
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -612,7 +672,12 @@ pub noinline fn add_button(
         .height = options.height,
     }, ident);
 
-    begin_hbox(.{ .padding = .{ .left = 4, .top = 4, .right = 4, .bottom = 4 } });
+    begin_hbox(.{ .padding = .{
+        .left = options.padding.left,
+        .top = options.padding.top,
+        .right = options.padding.right,
+        .bottom = options.padding.bottom,
+    } });
     add_text_internal(.{}, "{s}", .{options.text}, ident);
     end_hbox();
 
@@ -930,6 +995,7 @@ const Window = struct {
     ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn draw(self: Window, obj: *const Object) void {
+        add_scissor(obj.pos, obj.size);
         draw_rectangle(obj.pos, obj.size, self.background_color);
 
         if (false) // let's not draw this anymore

@@ -73,6 +73,7 @@ pub const Platform = struct {
     apply_pipeline: *const fn (RenderPass, Pipeline) void,
     apply_bindings: *const fn (RenderPass, Binding) void,
     apply_uniform: *const fn (RenderPass, UniformInfo) void,
+    apply_scissor: *const fn (RenderPass, ng.Vec2, ng.Vec2) void,
     draw: *const fn (RenderPass, usize) void,
     get_render_pass_size: *const fn (RenderPass) ng.Vec2,
 
@@ -308,6 +309,10 @@ pub const RenderPass = struct {
         platform.apply_uniform(self, info);
     }
 
+    pub fn apply_scissor(self: RenderPass, pos: ng.Vec2, size: ng.Vec2) void {
+        platform.apply_scissor(self, pos, size);
+    }
+
     pub fn get_size(self: RenderPass) ng.Vec2 {
         return platform.get_render_pass_size(self);
     }
@@ -499,6 +504,7 @@ pub const CreatePipelineInfo = struct {
     shader: Shader,
     primitive: Primitive,
     blend: BlendInfo = .{},
+    scissor_test: bool = false,
 };
 
 pub const Primitive = enum {

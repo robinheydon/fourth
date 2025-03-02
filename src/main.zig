@@ -107,7 +107,7 @@ fn draw_debug_window() void {
         .title = "Debug Window",
         .x = 400,
         .y = 300,
-        .width = 320,
+        .width = 240,
         .height = 200,
         .background_color = .black,
     });
@@ -119,9 +119,18 @@ fn draw_debug_window() void {
     ng.ui_add_text(.{}, "{} frames", .{state.frame_counter});
     // ng.ui.end_hbox ();
 
-    if (ng.ui_add_button(.{ .text = "Button", .width = 100, .height = 40 })) {
+    if (ng.ui_add_button(.{ .text = "Button", .width = 100, .height = 40, .padding = .{
+        .top = 8,
+        .left = 8,
+        .right = 8,
+        .bottom = 8,
+    } })) {
         log.debug("Button pressed", .{});
     }
+
+    ng.ui_add_text(.{}, "abcdefghjiklmnopqrstuvwxyz", .{});
+    ng.ui_add_text(.{}, "ABCDEFGHJIKLMNOPQRSTUVWXYZ", .{});
+    ng.ui_add_text(.{}, "0123456789", .{});
 
     ng.ui_end_vbox();
 }
