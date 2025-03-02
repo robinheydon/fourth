@@ -2,7 +2,6 @@
   - Button
     - click
     - multiple clicks per frame
-  - scissor rectangles
   - CheckButton
   - RadioButton
   - Icon
