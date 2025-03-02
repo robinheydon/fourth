@@ -1,3 +1,16 @@
+- Immediate Mode UI
+  - Button
+    - click
+    - multiple clicks per frame
+  - scissor rectangles
+  - CheckButton
+  - RadioButton
+  - Icon
+  - InputText
+  - VerticalScrollBar
+  - HorizontalScrollBar
+  - themes
+
 - Map
   - nodes
   - zoom to object
@@ -9,11 +22,6 @@
   - buildings
 
 - Gameplay
-  - draw map background
-    - axes
-    - grid (10km, 1km, 100m, 10m, 1m)
-  - move map around
-  - zoom map
   - draw roads
   - draw junctions
   - edit roads
@@ -24,15 +32,6 @@
   - populate buildings
   - create companies
   - just add an economy !!!
-
-- Immediate Mode UI
-  - Button
-  - Text
-  - CheckButton
-  - RadioButton
-  - Icons
-  - InputText
-  - themes
 
 - Graphics
   - Models
