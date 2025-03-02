@@ -1,15 +1,3 @@
-- Immediate Mode UI
-  - Button
-    - click
-    - multiple clicks per frame
-  - CheckButton
-  - RadioButton
-  - Icon
-  - InputText
-  - VerticalScrollBar
-  - HorizontalScrollBar
-  - themes
-
 - Map
   - nodes
   - zoom to object
@@ -35,13 +23,23 @@
 - Immediate Mode UI
   - events processing in sub-objects
   - Button
+    - click
+    - multiple clicks per frame
   - Scissor rect for each object
-  - Text
+  - Text (wrapping / formatting)
+  - child gaps
+  - horizontal alignment - left, center, right
+  - vertical alignment - top, center, bottom
+  - Expand to fit
+  - Shrink to fit
   - CheckButton
   - RadioButton
   - Icons
   - InputText
+  - VerticalScrollBar
+  - HorizontalScrollBar
   - themes
+
 
 - Graphics
   - Models
