@@ -66,6 +66,8 @@ const API = struct {
     XDefaultScreen: *const fn (*Display) callconv(.c) u32,
     XDefaultScreenOfDisplay: *const fn (*Display) callconv(.c) *Screen,
     XDestroyWindow: *const fn (*Display, Window) callconv(.c) void,
+    XDisplayWidth: *const fn (*Display, u32) callconv(.c) i32,
+    XDisplayWidthMM: *const fn (*Display, u32) callconv(.c) i32,
     XFilterEvent: *const fn (*const c.XKeyEvent, Window) callconv(.c) bool,
     XFree: *const fn (*anyopaque) callconv(.c) void,
     XGetIMValues: *const fn (c.XIM, ...) callconv(.c) [*c]const u8,
@@ -84,6 +86,7 @@ const API = struct {
     XSetWMProtocols: *const fn (*Display, Window, [*c]XID, u32) callconv(.c) void,
     XStoreName: *const fn (*Display, Window, [*:0]const u8) callconv(.c) void,
     XSync: *const fn (*Display, bool) callconv(.c) void,
+    XResourceManagerString: ?*const fn (*Display) callconv(.c) [*c]const u8,
     Xutf8LookupString: *const fn (
         c.XIC,
         *const c.XKeyEvent,
@@ -212,7 +215,7 @@ var window: Window = undefined;
 var xim: c.XIM = undefined;
 var xic: c.XIC = undefined;
 
-var high_dpi_scale: f32 = 1.5;
+var high_dpi_scale: f32 = 2;
 
 var window_width: f32 = 0;
 var window_height: f32 = 0;
@@ -278,6 +281,34 @@ pub fn init() !video.Platform {
 
     screen = api.XDefaultScreenOfDisplay(display);
     screen_id = api.XDefaultScreen(display);
+
+    if (api.XResourceManagerString) |func|
+    {
+        const cdata = func (display);
+        const data = std.mem.span (cdata);
+        var lines = std.mem.splitScalar (u8, data, '\n');
+        while (lines.next ()) |line|
+        {
+            if (std.mem.startsWith (u8, line, "Xft.dpi:"))
+            {
+                var index : usize = 0;
+                while (index < line.len)
+                {
+                    if (line[index] == ' ' or line[index] == '\t') break;
+                    index += 1;
+                }
+                while (index < line.len)
+                {
+                    if (line[index] != ' ' and line[index] != '\t') break;
+                    index += 1;
+                }
+                const dpi = try std.fmt.parseInt (u8, line[index..], 10);
+                high_dpi_scale = @as (f32, @floatFromInt (dpi)) / 96;
+            }
+        }
+    }
+
+    log.note ("high_dpi_scale = {d}", .{high_dpi_scale});
 
     root_window = api.XRootWindowOfScreen(screen);
 
