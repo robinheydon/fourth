@@ -144,7 +144,7 @@ pub fn init(options: InitOptions) !void {
 
     prng = std.Random.DefaultPrng.init(now);
 
-    ecs.init();
+    ecs.init(null);
     try ui.init();
 }
 

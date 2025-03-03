@@ -11,6 +11,7 @@ const ng = @import("ng");
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const state = @import("state.zig");
+const com = @import("com.zig");
 
 pub const log = ng.Logger(.main);
 
@@ -470,12 +471,18 @@ fn debug_map_state() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn init_world() void {
-    ng.register_component("Node", state.Node);
-    ng.register_component("Link", state.Link);
-    ng.register_component("Construction", state.Construction);
+    ng.register_component("VehicleKind", com.VehicleKind);
+    ng.register_component("Node", com.Node);
+    ng.register_component("Link", com.Link);
+    ng.register_component("Construction", com.Construction);
+    ng.register_component("Position", com.Position);
+    ng.register_component("Velocity", com.Velocity);
 
     ng.register_system(
-        .{ .label = "construction_system" },
+        .{
+            .name = "construction_system",
+            .phase = .update,
+        },
         construction_system,
     );
 
@@ -487,14 +494,30 @@ fn init_world() void {
     const n5 = ng.new();
     const l2 = ng.new();
 
-    n1.set(state.Node{ .pos = .{ 10, 10 } });
-    n2.set(state.Node{ .pos = .{ 20, 25 } });
-    n3.set(state.Node{ .pos = .{ 30, 20 } });
-    l1.set(state.Link{ .start = n1, .mid = n2, .end = n3, .width = 72 });
-    n4.set(state.Node{ .pos = .{ 40, 10 } });
-    n5.set(state.Node{ .pos = .{ 50, 15 } });
-    l2.set(state.Link{ .start = n2, .mid = n4, .end = n5, .width = 72 });
-    l2.set(state.Construction{ .step = 10, .steps = 30 });
+    n1.set(com.Node{ .pos = .{ 10, 10 } });
+    n2.set(com.Node{ .pos = .{ 20, 25 } });
+    n3.set(com.Node{ .pos = .{ 30, 20 } });
+    l1.set(com.Link{ .start = n1, .mid = n2, .end = n3, .width = 72 });
+    n4.set(com.Node{ .pos = .{ 40, 10 } });
+    n5.set(com.Node{ .pos = .{ 50, 15 } });
+    l2.set(com.Link{ .start = n2, .mid = n4, .end = n5, .width = 72 });
+    l2.set(com.Construction{ .step = 10, .steps = 30 });
+
+    const p1 = ng.new();
+    const p2 = ng.new();
+    const p3 = ng.new();
+
+    p1.set(com.Position{ .pos = .{ 8, 10 } });
+    p2.set(com.Position{ .pos = .{ 12, 10 } });
+    p3.set(com.Position{ .pos = .{ 10, 12 } });
+
+    p1.set(com.Velocity{ .vel = .{ -1, 0 } });
+    p2.set(com.Velocity{ .vel = .{ 1, 0 } });
+    p3.set(com.Velocity{ .vel = .{ 0, 1 } });
+
+    p1.set(com.VehicleKind.person);
+    p2.set(com.VehicleKind.cart);
+    p3.set(com.VehicleKind.bicycle);
 
     ng.dump_ecs();
 }
@@ -503,8 +526,8 @@ fn init_world() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn construction_system(cons: []state.Construction) void {
-    log.info("Construction System {}", cons.len);
+fn construction_system(cons: []com.Construction) void {
+    log.info("Construction System {}", .{cons.len});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

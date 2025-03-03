@@ -23,7 +23,7 @@ var generations: std.ArrayListUnmanaged(EntityGeneration) = .empty;
 var recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 var old_recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 
-var components: std.AutoHashMapUnmanaged(TypeId, ComponentInfo) = .empty;
+var components: std.AutoHashMapUnmanaged(TypeId, ComponentTypeInfo) = .empty;
 
 var systems: std.AutoHashMapUnmanaged(TypeId, SystemInfo) = .empty;
 
@@ -131,9 +131,13 @@ pub const Entity = enum(u32) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn init() void {
+pub fn init(external_allocator: ?std.mem.Allocator) void {
     gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    allocator = gpa.allocator();
+    if (external_allocator) |alloc| {
+        allocator = alloc;
+    } else {
+        allocator = gpa.allocator();
+    }
 
     generations = .empty;
     recycled = .empty;
@@ -236,21 +240,58 @@ fn recycle_old_generations() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const max_component_fields = 16;
+const max_enum_values = 32;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const ComponentInfo = struct {
-    storage: ErasedComponentStorage,
-    name: []const u8,
-    size: usize,
-    num_fields: usize,
-    fields: [max_component_fields]ComponentField,
+const ComponentTypeInfo = struct {
+    storage: ErasedComponentStorage = undefined,
+    name: []const u8 = undefined,
+    size: usize = undefined,
+    info: ComponentData = undefined,
 
-    pub fn get_data(self: ComponentInfo, ent: Entity) ?[]const u8 {
+    pub fn get_data(self: ComponentTypeInfo, ent: Entity) ?[]const u8 {
         return self.storage.get_data(self.storage, ent);
     }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const ComponentData = union(ComponentKind) {
+    @"struct": ComponentStructInfo,
+    @"enum": ComponentEnumInfo,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const ComponentKind = enum {
+    @"struct",
+    @"enum",
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const ComponentStructInfo = struct {
+    num_fields: usize,
+    fields: [max_component_fields]ComponentField,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const ComponentEnumInfo = struct {
+    tag_type: ComponentEnumKind,
+    num_values: usize,
+    values: [max_enum_values]EnumValue,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -262,6 +303,16 @@ const ComponentField = struct {
     offset: usize,
     size: usize,
     kind: ComponentFieldKind,
+    component: usize,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const EnumValue = struct {
+    name: []const u8,
+    value: usize,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -282,6 +333,18 @@ const ComponentFieldKind = enum {
     f64,
     Entity,
     Vec2,
+    Component,
+    unknown,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const ComponentEnumKind = enum {
+    u8,
+    u16,
+    u32,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -385,47 +448,100 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
 
     log.info("register component {s} {s} {x}", .{ name, @typeName(Component), type_id });
 
-    var info: ComponentInfo = undefined;
+    const component_typeinfo = @typeInfo(Component);
 
-    info.name = name;
-    info.size = @sizeOf(Component);
+    switch (component_typeinfo) {
+        .@"struct" => {
+            var info: ComponentStructInfo = undefined;
+            inline for (0.., std.meta.fields(Component)) |i, field| {
+                const kind: ComponentFieldKind = switch (field.type) {
+                    bool => .bool,
+                    u8 => .u8,
+                    u16 => .u16,
+                    u32 => .u32,
+                    u64 => .u64,
+                    i8 => .i8,
+                    i16 => .i16,
+                    i32 => .i32,
+                    i64 => .i64,
+                    f32 => .f32,
+                    f64 => .f64,
+                    ng.Vec2 => .Vec2,
+                    Entity => .Entity,
+                    else => blk: {
+                        const field_type_id = get_type_id(field.type);
+                        if (components.get(field_type_id)) |field_com| {
+                            _ = field_com;
+                            info.fields[i].component = field_type_id;
+                            break :blk .Component;
+                        } else {
+                            log.fatal("{s} field {s} has an unsupported type : {s}", .{
+                                @typeName(Component),
+                                field.name,
+                                @typeName(field.type),
+                            });
+                        }
+                    },
+                };
+                info.fields[i].name = field.name;
+                info.fields[i].offset = @offsetOf(Component, field.name);
+                info.fields[i].size = @sizeOf(field.type);
+                info.fields[i].kind = kind;
+                info.num_fields = i + 1;
+            }
 
-    inline for (0.., std.meta.fields(Component)) |i, field| {
-        const kind: ComponentFieldKind = switch (field.type) {
-            bool => .bool,
-            u8 => .u8,
-            u16 => .u16,
-            u32 => .u32,
-            u64 => .u64,
-            i8 => .i8,
-            i16 => .i16,
-            i32 => .i32,
-            i64 => .i64,
-            f32 => .f32,
-            f64 => .f64,
-            ng.Vec2 => .Vec2,
-            Entity => .Entity,
-            else => @compileError(
-                @typeName(Component) ++
-                    " field '" ++
-                    field.name ++
-                    "' has an unsupported type for component info : " ++
-                    @typeName(field.type),
-            ),
-        };
-        info.fields[i].name = field.name;
-        info.fields[i].offset = @offsetOf(Component, field.name);
-        info.fields[i].size = @sizeOf(field.type);
-        info.fields[i].kind = kind;
-        info.num_fields = i + 1;
+            const type_info: ComponentTypeInfo = .{
+                .name = name,
+                .size = @sizeOf(Component),
+                .info = .{ .@"struct" = info },
+                .storage = init_erased_component_storage(Component),
+            };
+
+            components.put(allocator, type_id, type_info) catch |err| {
+                log.err("register_component failed {}", .{err});
+                return;
+            };
+        },
+        .@"enum" => |zig_enum| {
+            var info: ComponentEnumInfo = undefined;
+
+            info.tag_type = switch (zig_enum.tag_type) {
+                u8 => .u8,
+                u16 => .u16,
+                u32 => .u32,
+                else => {
+                    @compileError(
+                        @typeName(Component) ++
+                            " tag_type has an unsupported type for enum : " ++
+                            @typeName(zig_enum.tag_type),
+                    );
+                },
+            };
+
+            inline for (0.., std.meta.fields(Component)) |i, field| {
+                info.values[i].name = field.name;
+                info.values[i].value = field.value;
+                info.num_values = i + 1;
+            }
+
+            const type_info: ComponentTypeInfo = .{
+                .name = name,
+                .size = @sizeOf(Component),
+                .info = .{ .@"enum" = info },
+                .storage = init_erased_component_storage(Component),
+            };
+
+            components.put(allocator, type_id, type_info) catch |err| {
+                log.err("register_component failed {}", .{err});
+                return;
+            };
+        },
+        else => {
+            @compileError(@typeName(Component) ++
+                " is not a value type. : " ++
+                @tagName(component_typeinfo));
+        },
     }
-
-    info.storage = init_erased_component_storage(Component);
-
-    components.put(allocator, type_id, info) catch |err| {
-        log.err("register_component failed {}", .{err});
-        return;
-    };
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -450,9 +566,10 @@ fn get_type_id(comptime Component: type) TypeId {
 
 const SystemInfo = struct {
     name: []const u8,
+    func: *const fn () void,
     num_arguments: usize,
-    func: *const fn (void) void,
     argument_types: [max_system_arguments]ArgumentInfo,
+    phase: SystemPhase,
 };
 
 const max_system_arguments = 8;
@@ -467,7 +584,23 @@ const ArgumentInfo = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const SystemOptions = struct {
-    label: []const u8,
+    name: []const u8,
+    phase: SystemPhase = .update,
+};
+
+pub const SystemPhase = enum {
+    pre_run,
+    run,
+    post_run,
+    pre_update,
+    update,
+    post_update,
+    pre_store,
+    store,
+    post_store,
+    pre_render,
+    render,
+    post_render,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -475,8 +608,43 @@ pub const SystemOptions = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn register_system(options: SystemOptions, func: anytype) void {
-    _ = options;
-    _ = func;
+    const argument_types: [max_system_arguments]ArgumentInfo = undefined;
+    const num_arguments: usize = 0;
+
+    const info: SystemInfo = .{
+        .name = options.name,
+        .func = @ptrCast(&func),
+        .num_arguments = num_arguments,
+        .argument_types = argument_types,
+        .phase = options.phase,
+    };
+
+    const type_id = @intFromPtr(&func);
+
+    systems.put(allocator, type_id, info) catch |err| {
+        log.err("register_system failed {}", .{err});
+    };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn run_systems() void {
+    std.debug.print("run_systems\n", .{});
+
+    var iter = systems.iterator();
+    while (iter.next()) |entry| {
+        const key = entry.key_ptr;
+        const value = entry.value_ptr;
+        std.debug.print("{x} \"{}\" {s}\n", .{
+            key,
+            std.zig.fmtEscapes(value.name),
+            @tagName(value.phase),
+        });
+
+        @call(.never_inline, value.func, .{});
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -492,23 +660,57 @@ pub fn dump_ecs() void {
     const show_entity_data = true;
 
     if (show_components) {
+        log.msg("Components", .{});
         var component_iter = components.iterator();
         while (component_iter.next()) |entry| {
             const component = entry.value_ptr;
-            log.msg("  Component {s} ({} bytes)", .{ component.name, component.size });
-            for (0..component.num_fields) |i| {
-                const field = component.fields[i];
-                log.msg("    {s}: {s} (offset {}, {} bytes)", .{
-                    field.name,
-                    @tagName(field.kind),
-                    field.offset,
-                    field.size,
-                });
+            log.msg("  {s} {s} ({} bytes)", .{
+                @tagName(component.info),
+                component.name,
+                component.size,
+            });
+            switch (component.info) {
+                .@"struct" => |info| {
+                    for (0..info.num_fields) |i| {
+                        const field = info.fields[i];
+                        switch (field.kind) {
+                            .Component => {
+                                const opt_child = components.get(field.component);
+                                if (opt_child) |child| {
+                                    log.msg("    {s}: {s} (offset {}, {} bytes)", .{
+                                        field.name,
+                                        child.name,
+                                        field.offset,
+                                        field.size,
+                                    });
+                                }
+                            },
+                            else => {
+                                log.msg("    {s}: {s} (offset {}, {} bytes)", .{
+                                    field.name,
+                                    @tagName(field.kind),
+                                    field.offset,
+                                    field.size,
+                                });
+                            },
+                        }
+                    }
+                },
+                .@"enum" => |info| {
+                    for (0..info.num_values) |i| {
+                        const value = info.values[i];
+                        log.msg("    {s} = {}", .{
+                            value.name,
+                            value.value,
+                        });
+                    }
+                },
             }
         }
     }
 
     if (show_entities) {
+        log.msg("Entities", .{});
         for (0.., generations.items) |idx, gen| {
             const ent = mk_entity(gen, @intCast(idx));
             log.msg("  Entity {}", .{ent});
@@ -516,134 +718,251 @@ pub fn dump_ecs() void {
                 var component_iter = components.iterator();
                 while (component_iter.next()) |entry| {
                     const component = entry.value_ptr;
-                    if (component.get_data(ent)) |data| {
-                        for (0..component.num_fields) |i| {
-                            const field = component.fields[i];
-                            const field_data = data[field.offset .. field.offset + field.size];
-                            switch (field.kind) {
-                                .bool => {
-                                    const value: *const bool =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .u8 => {
-                                    const value: *const u8 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .u16 => {
-                                    const value: *const u16 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .u32 => {
-                                    const value: *const u32 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .u64 => {
-                                    const value: *const u64 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .i8 => {
-                                    const value: *const i8 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .i16 => {
-                                    const value: *const i16 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .i32 => {
-                                    const value: *const i32 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .i64 => {
-                                    const value: *const i64 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .f32 => {
-                                    const value: *const f32 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {d:.5}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .f64 => {
-                                    const value: *const f64 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {d:.8}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .Vec2 => {
-                                    const value: *const ng.Vec2 =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {d:.5}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                                .Entity => {
-                                    const value: *const Entity =
-                                        @alignCast(@ptrCast(&field_data[0]));
-                                    log.msg("    {s}.{s} = {}", .{
-                                        component.name,
-                                        field.name,
-                                        value.*,
-                                    });
-                                },
-                            }
-                        }
-                    }
+                    dump_entity_component("", ent, component);
                 }
             }
         }
+    }
+}
+
+fn dump_entity_component(
+    prefix: []const u8,
+    ent: Entity,
+    component: *const ComponentTypeInfo,
+) void {
+    switch (component.info) {
+        .@"struct" => |info| {
+            if (component.get_data(ent)) |data| {
+                for (0..info.num_fields) |i| {
+                    const field = info.fields[i];
+                    switch (field.kind) {
+                        .bool => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const bool =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .u8 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const u8 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .u16 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const u16 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .u32 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const u32 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .u64 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const u64 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .i8 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const i8 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .i16 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const i16 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .i32 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const i32 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .i64 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const i64 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .f32 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const f32 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {d:.5}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .f64 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const f64 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {d:.8}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .Vec2 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const ng.Vec2 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {d:.5}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .Entity => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const Entity =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .Component => {
+                            log.msg("    {s}{s}.{s} = ?", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                            });
+                        },
+                        .unknown => {
+                            log.msg("    {s}{s}.{s} = ??", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                            });
+                        },
+                    }
+                }
+            }
+        },
+        .@"enum" => |info| {
+            if (component.get_data(ent)) |data| {
+                switch (info.tag_type) {
+                    .u8 => {
+                        const field_data =
+                            data[0..1];
+                        const value_ptr: *const u8 =
+                            @alignCast(@ptrCast(&field_data[0]));
+                        const value = value_ptr.*;
+                        for (0..info.num_values) |i| {
+                            if (info.values[i].value == value) {
+                                log.msg("    {s}{s} = .{s}", .{
+                                    prefix,
+                                    component.name,
+                                    info.values[i].name,
+                                });
+                                break;
+                            }
+                        } else {
+                            log.msg("    {s}{s} = {}", .{
+                                prefix,
+                                component.name,
+                                value,
+                            });
+                        }
+                    },
+                    .u16 => {
+                        const field_data =
+                            data[0..2];
+                        const value_ptr: *const u16 =
+                            @alignCast(@ptrCast(&field_data[0]));
+                        const value = value_ptr.*;
+                        for (0..info.num_values) |i| {
+                            if (info.values[i].value == value) {
+                                log.msg("    {s}{s} = .{s}", .{
+                                    prefix,
+                                    component.name,
+                                    info.values[i].name,
+                                });
+                                break;
+                            }
+                        } else {
+                            log.msg("    {s}{s} = {}", .{
+                                prefix,
+                                component.name,
+                                value,
+                            });
+                        }
+                    },
+                    .u32 => {},
+                }
+            }
+        },
     }
 }
 
@@ -652,7 +971,7 @@ pub fn dump_ecs() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "init / deinit" {
-    init();
+    init(std.testing.allocator);
     defer deinit();
 }
 
@@ -661,7 +980,7 @@ test "init / deinit" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "create" {
-    init();
+    init(std.testing.allocator);
     defer deinit();
 
     const e0 = new();
@@ -685,7 +1004,7 @@ test "create" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "delete" {
-    init();
+    init(std.testing.allocator);
     defer deinit();
 
     const e0 = new();
@@ -714,7 +1033,7 @@ test "delete" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "recycle" {
-    init();
+    init(std.testing.allocator);
     defer deinit();
 
     const e0 = new();
@@ -758,7 +1077,7 @@ test "recycle" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "generation wrap" {
-    init();
+    init(std.testing.allocator);
     defer deinit();
 
     var e0 = new();
@@ -786,6 +1105,131 @@ test "generation wrap" {
 
     try std.testing.expectEqual(mk_entity(0, 0), e1);
     try std.testing.expectEqual(true, e1.is_valid());
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "set values" {
+    init(std.testing.allocator);
+    defer deinit();
+
+    const Position = struct {
+        x: f32,
+        y: f32,
+    };
+
+    const Velocity = struct {
+        dx: f32,
+        dy: f32,
+    };
+
+    const Health = struct {
+        hp: u8,
+    };
+
+    const e0 = new();
+    const e1 = new();
+    const e2 = new();
+    const e3 = new();
+
+    register_component("Position", Position);
+    register_component("Velocity", Velocity);
+    register_component("Health", Health);
+
+    e0.set(Position{ .x = 2, .y = 3 });
+    e0.set(Velocity{ .dx = 0.1, .dy = -0.1 });
+    e0.set(Health{ .hp = 20 });
+
+    e1.set(Position{ .x = 4, .y = 5 });
+    e1.set(Velocity{ .dx = 0.2, .dy = -0.2 });
+
+    e2.set(Position{ .x = 7, .y = 6 });
+
+    e3.set(Position{ .x = 8, .y = 9 });
+    e3.set(Health{ .hp = 10 });
+
+    {
+        const pos = e0.get(Position);
+        const vel = e0.get(Velocity);
+        const hp = e0.get(Health);
+
+        try std.testing.expectEqual(Position{ .x = 2, .y = 3 }, pos);
+        try std.testing.expectEqual(Velocity{ .dx = 0.1, .dy = -0.1 }, vel);
+        try std.testing.expectEqual(Health{ .hp = 20 }, hp);
+    }
+
+    {
+        const pos = e1.get(Position);
+        const vel = e1.get(Velocity);
+        const hp = e1.get(Health);
+
+        try std.testing.expectEqual(Position{ .x = 4, .y = 5 }, pos);
+        try std.testing.expectEqual(Velocity{ .dx = 0.2, .dy = -0.2 }, vel);
+        try std.testing.expectEqual(null, hp);
+    }
+
+    {
+        const pos = e2.get(Position);
+        const vel = e2.get(Velocity);
+        const hp = e2.get(Health);
+
+        try std.testing.expectEqual(Position{ .x = 7, .y = 6 }, pos);
+        try std.testing.expectEqual(null, vel);
+        try std.testing.expectEqual(null, hp);
+    }
+
+    {
+        const pos = e3.get(Position);
+        const vel = e3.get(Velocity);
+        const hp = e3.get(Health);
+
+        try std.testing.expectEqual(Position{ .x = 8, .y = 9 }, pos);
+        try std.testing.expectEqual(null, vel);
+        try std.testing.expectEqual(Health{ .hp = 10 }, hp);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "movement system" {
+    init(std.testing.allocator);
+    defer deinit();
+
+    const Position = struct {
+        x: f32,
+        y: f32,
+    };
+
+    const Velocity = struct {
+        dx: f32,
+        dy: f32,
+    };
+
+    register_component("Position", Position);
+    register_component("Velocity", Velocity);
+
+    const movement_system = (struct {
+        fn movement_system() void {
+            std.debug.print("movement system\n", .{});
+        }
+    }).movement_system;
+
+    register_system(.{ .name = "Movement System" }, movement_system);
+
+    const e0 = new();
+    const e1 = new();
+
+    e0.set(Position{ .x = 2, .y = 3 });
+    e0.set(Velocity{ .dx = 0.1, .dy = -0.1 });
+
+    e1.set(Position{ .x = 4, .y = 5 });
+    e1.set(Velocity{ .dx = 0.2, .dy = -0.2 });
+
+    run_systems();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
