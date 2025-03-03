@@ -267,8 +267,8 @@ pub fn render(render_pass: ng.RenderPass) void {
             .scissor => |cmd| {
                 render_pass.apply_scissor(cmd.pos, cmd.size);
             },
-            .draw_triangles => {
-                render_pass.draw(next_vertex);
+            .draw_triangles => |cmd| {
+                render_pass.draw_subset(cmd.start, cmd.end - cmd.start);
             },
         }
     }

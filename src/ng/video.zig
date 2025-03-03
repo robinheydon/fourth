@@ -74,7 +74,7 @@ pub const Platform = struct {
     apply_bindings: *const fn (RenderPass, Binding) void,
     apply_uniform: *const fn (RenderPass, UniformInfo) void,
     apply_scissor: *const fn (RenderPass, ng.Vec2, ng.Vec2) void,
-    draw: *const fn (RenderPass, usize) void,
+    draw: *const fn (RenderPass, usize, usize) void,
     get_render_pass_size: *const fn (RenderPass) ng.Vec2,
 
     create_shader: *const fn (CreateShaderInfo) VideoError!Shader,
@@ -318,7 +318,11 @@ pub const RenderPass = struct {
     }
 
     pub fn draw(self: RenderPass, num_vertexes: usize) void {
-        platform.draw(self, num_vertexes);
+        platform.draw(self, 0, num_vertexes);
+    }
+
+    pub fn draw_subset(self: RenderPass, start: usize, count: usize) void {
+        platform.draw(self, start, count);
     }
 };
 

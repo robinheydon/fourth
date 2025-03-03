@@ -185,7 +185,7 @@ const API = struct {
 
 var api: API = undefined;
 
-const debug_api = false;
+const debug_api = true;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1775,13 +1775,13 @@ fn get_render_pass_size(self: video.RenderPass) ng.Vec2 {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw(self: video.RenderPass, num_vertexes: usize) void {
+fn draw(self: video.RenderPass, start: usize, count: usize) void {
     _ = self;
 
     if (debug_api) {
-        log.debug("glDrawArrays {} {} {}", .{ draw_primitive, 0, num_vertexes });
+        log.debug("glDrawArrays {} {} {}", .{ draw_primitive, start, count });
     }
-    api.glDrawArrays(draw_primitive, 0, @intCast(num_vertexes));
+    api.glDrawArrays(draw_primitive, @intCast (start), @intCast(count));
     if (debug_api) {
         log.debug("     -----", .{});
     }
