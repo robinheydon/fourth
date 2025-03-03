@@ -474,6 +474,11 @@ fn init_world() void {
     ng.register_component("Link", state.Link);
     ng.register_component("Construction", state.Construction);
 
+    ng.register_system(
+        .{ .label = "construction_system" },
+        construction_system,
+    );
+
     const n1 = ng.new();
     const n2 = ng.new();
     const n3 = ng.new();
@@ -492,6 +497,14 @@ fn init_world() void {
     l2.set(state.Construction{ .step = 10, .steps = 30 });
 
     ng.dump_ecs();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn construction_system(cons: []state.Construction) void {
+    log.info("Construction System {}", cons.len);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

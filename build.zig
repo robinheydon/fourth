@@ -12,11 +12,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    ///////////////////////////////////////////////////////////////////////////////////////////
 
     const ng_mod = b.createModule(.{
         .root_source_file = b.path("src/ng/ng.zig"),
@@ -26,12 +22,26 @@ pub fn build(b: *std.Build) !void {
     });
     ng_mod.addImport("ng", ng_mod);
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     exe_mod.addImport("ng", ng_mod);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
 
     const exe = b.addExecutable(.{
         .name = "fourth",
         .root_module = exe_mod,
     });
+
+    b.installArtifact(exe);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
 
     const check_format_step = try b.allocator.create(std.Build.Step);
     check_format_step.* = std.Build.Step.init(.{
@@ -42,7 +52,7 @@ pub fn build(b: *std.Build) !void {
     });
     exe.step.dependOn(check_format_step);
 
-    b.installArtifact(exe);
+    ///////////////////////////////////////////////////////////////////////////////////////////
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -52,6 +62,33 @@ pub fn build(b: *std.Build) !void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    const ng_mod_test = b.createModule(.{
+        .root_source_file = b.path("src/ng/ng.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .stack_protector = true,
+        .omit_frame_pointer = false,
+        .error_tracing = true,
+    });
+    ng_mod_test.addImport("ng", ng_mod_test);
+
+    const ng_test = b.addTest(.{
+        .name = "test",
+        .root_module = ng_mod_test,
+        .test_runner = .{
+            .path = b.path("tools/test_runner.zig"),
+            .mode = .simple,
+        },
+    });
+
+    const test_run = b.addRunArtifact(ng_test);
+
+    const test_step = b.step("test", "Test the ng");
+    test_step.dependOn(&test_run.step);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

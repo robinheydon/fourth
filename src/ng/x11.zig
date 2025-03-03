@@ -1789,7 +1789,7 @@ fn draw(self: video.RenderPass, start: usize, count: usize) void {
     if (debug_api) {
         log.debug("glDrawArrays {} {} {}", .{ draw_primitive, start, count });
     }
-    api.glDrawArrays(draw_primitive, @intCast (start), @intCast(count));
+    api.glDrawArrays(draw_primitive, @intCast(start), @intCast(count));
     if (debug_api) {
         log.debug("     -----", .{});
     }
@@ -2078,7 +2078,7 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn bind_array_buffer (self: video.Buffer) void {
+fn bind_array_buffer(self: video.Buffer) void {
     _ = self;
 }
 
