@@ -595,14 +595,14 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
     }
 
     if (debug_api) {
-        log.debug("glObjectLabel {} {} {s}", .{ .GL_VERTEX_ARRAY, vao, "VAO" });
-    }
-    api.glObjectLabel(.GL_VERTEX_ARRAY, vao, 3, "VAO");
-
-    if (debug_api) {
         log.debug("glBindVertexArray {}", .{vao});
     }
     api.glBindVertexArray(vao);
+
+    if (debug_api) {
+        log.debug("glObjectLabel {} {} {s}", .{ .GL_VERTEX_ARRAY, vao, "VAO" });
+    }
+    api.glObjectLabel(.GL_VERTEX_ARRAY, vao, 3, "VAO");
 
     if (options.name) |name| {
         api.XStoreName(display, window, name);
@@ -2029,13 +2029,6 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
         .index => .GL_ELEMENT_ARRAY_BUFFER,
     };
 
-    if (info.label) |label| {
-        if (debug_api) {
-            log.debug("glObjectLabel {} {} {s}", .{ .GL_BUFFER, buffer_object, label });
-        }
-        api.glObjectLabel(.GL_BUFFER, buffer_object, @intCast(label.len), label.ptr);
-    }
-
     if (info.data) |data| {
         if (debug_api) {
             log.debug("glBindBuffer {} {}", .{ kind, buffer_object });
@@ -2067,6 +2060,13 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
             log.debug("glBindBuffer {} {}", .{ kind, 0 });
         }
         api.glBindBuffer(kind, 0);
+    }
+
+    if (info.label) |label| {
+        if (debug_api) {
+            log.debug("glObjectLabel {} {} {s}", .{ .GL_BUFFER, buffer_object, label });
+        }
+        api.glObjectLabel(.GL_BUFFER, buffer_object, @intCast(label.len), label.ptr);
     }
 
     return .{
@@ -2259,13 +2259,6 @@ fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
 
     const format = gl_image_format(info.format);
 
-    if (info.label) |label| {
-        if (debug_api) {
-            log.debug("glObjectLabel {} {} {s}", .{ .GL_TEXTURE, image_object, label });
-        }
-        api.glObjectLabel(.GL_TEXTURE, image_object, @intCast(label.len), label.ptr);
-    }
-
     if (info.data) |data| {
         if (debug_api) {
             log.debug("glTexImage2D {} {} {} {} {} {} {} {} {?*}", .{
@@ -2302,6 +2295,13 @@ fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
         .label = info.label,
         .object = image_object,
     };
+
+    if (info.label) |label| {
+        if (debug_api) {
+            log.debug("glObjectLabel {} {} {s}", .{ .GL_TEXTURE, image_object, label });
+        }
+        api.glObjectLabel(.GL_TEXTURE, image_object, @intCast(label.len), label.ptr);
+    }
 
     return .{
         .handle = index,
