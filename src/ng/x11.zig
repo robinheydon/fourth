@@ -595,6 +595,11 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
     }
 
     if (debug_api) {
+        log.debug("glObjectLabel {} {} {s}", .{ .GL_VERTEX_ARRAY, vao, "VAO" });
+    }
+    api.glObjectLabel(.GL_VERTEX_ARRAY, vao, 3, "VAO");
+
+    if (debug_api) {
         log.debug("glBindVertexArray {}", .{vao});
     }
     api.glBindVertexArray(vao);
@@ -886,6 +891,9 @@ const GL_Enum = enum(u32) {
     GL_HALF_FLOAT = 0x140B,
 
     GL_BUFFER = 0x82E0,
+    GL_PROGRAM = 0x82E2,
+    GL_TEXTURE = 0x1702,
+    GL_VERTEX_ARRAY = 0x8074,
 
     GL_TEXTURE0 = 0x84C0,
     GL_TEXTURE1 = 0x84C1,
@@ -1828,6 +1836,13 @@ fn create_shader(info: video.CreateShaderInfo) video.VideoError!video.Shader {
 
     const program = try link_shader_parts(vertex, fragment);
 
+    if (info.label) |label| {
+        if (debug_api) {
+            log.debug("glObjectLabel {} {} {s}", .{ .GL_PROGRAM, program, label });
+        }
+        api.glObjectLabel(.GL_PROGRAM, program, @intCast(label.len), label.ptr);
+    }
+
     const index = shader_pool.create() orelse return error.TooManyShaders;
     const shader = shader_pool.get(index) orelse return error.TooManyShaders;
 
@@ -1995,12 +2010,6 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
         log.debug("glGenBuffers {} {}", .{ 1, buffer_object });
     }
 
-    if (info.label) |label| {
-        api.glBindBuffer(.GL_ARRAY_BUFFER, buffer_object);
-        api.glObjectLabel(.GL_BUFFER, buffer_object, @intCast(label.len), label.ptr);
-        api.glBindBuffer(.GL_ARRAY_BUFFER, 0);
-    }
-
     buffer.* = .{
         .label = info.label,
         .object = buffer_object,
@@ -2019,6 +2028,13 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
         .vertex => .GL_ARRAY_BUFFER,
         .index => .GL_ELEMENT_ARRAY_BUFFER,
     };
+
+    if (info.label) |label| {
+        if (debug_api) {
+            log.debug("glObjectLabel {} {} {s}", .{ .GL_BUFFER, buffer_object, label });
+        }
+        api.glObjectLabel(.GL_BUFFER, buffer_object, @intCast(label.len), label.ptr);
+    }
 
     if (info.data) |data| {
         if (debug_api) {
@@ -2056,6 +2072,14 @@ fn create_buffer(info: video.CreateBufferInfo) video.VideoError!video.Buffer {
     return .{
         .handle = index,
     };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn bind_array_buffer (self: video.Buffer) void {
+    _ = self;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2234,6 +2258,13 @@ fn create_image(info: video.CreateImageInfo) video.VideoError!video.Image {
     api.glBindTexture(.GL_TEXTURE_2D, image_object);
 
     const format = gl_image_format(info.format);
+
+    if (info.label) |label| {
+        if (debug_api) {
+            log.debug("glObjectLabel {} {} {s}", .{ .GL_TEXTURE, image_object, label });
+        }
+        api.glObjectLabel(.GL_TEXTURE, image_object, @intCast(label.len), label.ptr);
+    }
 
     if (info.data) |data| {
         if (debug_api) {

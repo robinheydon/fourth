@@ -133,7 +133,7 @@ pub fn init_render() !void {
     }
 
     ui_buffer = try ng.create_buffer(.{
-        .label = "debug text vertex buffer",
+        .label = "UI vertex buffer",
         .kind = .vertex,
         .size = @sizeOf(DebugTextVertex) * vertices.len,
         .update = .stream,
@@ -161,7 +161,7 @@ pub fn init_render() !void {
     }
 
     ui_image = try ng.create_image(.{
-        .label = "debug text font image",
+        .label = "UI font image",
         .width = 16 * 12,
         .height = 16 * 20,
         .format = .r8,
@@ -169,7 +169,7 @@ pub fn init_render() !void {
     });
 
     ui_sampler = try ng.create_sampler(.{
-        .label = "debug text sampler",
+        .label = "UI sampler",
         .min_filter = .nearest,
         .mag_filter = .nearest,
         .wrap_u = .clamp_to_edge,
@@ -177,14 +177,14 @@ pub fn init_render() !void {
     });
 
     ui_binding = try ng.create_binding(.{
-        .label = "debug text binding",
+        .label = "UI binding",
         .vertex_buffers = &.{ui_buffer},
         .image = ui_image,
         .sampler = ui_sampler,
     });
 
     ui_pipeline = try ng.create_pipeline(.{
-        .label = "debug text pipeline",
+        .label = "UI pipeline",
         .shader = ui_shader,
         .primitive = .triangle_list,
         .blend = .{
