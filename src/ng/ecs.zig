@@ -21,6 +21,7 @@ var next_entity_index: usize = 0;
 
 var generations: std.ArrayListUnmanaged(EntityGeneration) = .empty;
 var recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
+var old_recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 
 var components: std.AutoHashMapUnmanaged(TypeId, ComponentInfo) = .empty;
 
@@ -87,12 +88,18 @@ pub const Entity = enum(u32) {
         const gen = get_generation(self);
         const idx = get_index(self);
 
-        generations.items[idx] = gen + 1;
-
-        recycled.append(allocator, idx) catch |err| {
-            log.err("delete entity failed {}", .{err});
-            return;
-        };
+        generations.items[idx] = gen +% 1;
+        if (generations.items[idx] == 255) {
+            old_recycled.append(allocator, idx) catch |err| {
+                log.err("delete entity failed {}", .{err});
+                return;
+            };
+        } else {
+            recycled.append(allocator, idx) catch |err| {
+                log.err("delete entity failed {}", .{err});
+                return;
+            };
+        }
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -130,6 +137,7 @@ pub fn init() void {
 
     generations = .empty;
     recycled = .empty;
+    old_recycled = .empty;
     components = .empty;
     systems = .empty;
 
@@ -149,6 +157,7 @@ pub fn deinit() void {
 
     generations.deinit(allocator);
     recycled.deinit(allocator);
+    old_recycled.deinit(allocator);
     components.deinit(allocator);
     systems.deinit(allocator);
 
@@ -184,6 +193,42 @@ fn get_generation(entity: Entity) EntityGeneration {
 fn mk_entity(gen: EntityGeneration, idx: EntityIndex) Entity {
     const ent: u32 = (@as(u32, @intCast(gen)) << 24) | (@as(u32, @intCast(idx)) & 0xFFFFFF);
     return @enumFromInt(ent);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn new() Entity {
+    std.debug.assert(initialized);
+
+    if (recycled.pop()) |idx| {
+        const gen = generations.items[idx];
+        return mk_entity(gen, idx);
+    }
+
+    const index: EntityIndex = @intCast(generations.items.len);
+    generations.append(allocator, 0) catch |err| {
+        log.err("new {}", .{err});
+        return .null_entity;
+    };
+
+    return mk_entity(0, index);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn recycle_old_generations() void {
+    while (old_recycled.pop()) |idx| {
+        const gen = generations.items[idx];
+        generations.items[idx] = gen +% 1;
+        recycled.append(allocator, idx) catch |err|
+            {
+                log.err("recycle_old_generations {}", .{err});
+            };
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -403,27 +448,6 @@ fn get_type_id(comptime Component: type) TypeId {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn new() Entity {
-    std.debug.assert(initialized);
-
-    if (recycled.pop()) |idx| {
-        const gen = generations.items[idx];
-        return mk_entity(gen, idx);
-    }
-
-    const index: EntityIndex = @intCast(generations.items.len);
-    generations.append(allocator, 0) catch |err| {
-        log.err("new {}", .{err});
-        return .null_entity;
-    };
-
-    return mk_entity(0, index);
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
 const SystemInfo = struct {
     name: []const u8,
     num_arguments: usize,
@@ -627,7 +651,7 @@ pub fn dump_ecs() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-test "ecs init / deinit" {
+test "init / deinit" {
     init();
     defer deinit();
 }
@@ -636,7 +660,7 @@ test "ecs init / deinit" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-test "ecs create entity" {
+test "create" {
     init();
     defer deinit();
 
@@ -660,7 +684,7 @@ test "ecs create entity" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-test "ecs delete entity" {
+test "delete" {
     init();
     defer deinit();
 
@@ -689,48 +713,79 @@ test "ecs delete entity" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn test_one () !void {
-    try test_two ();
+test "recycle" {
+    init();
+    defer deinit();
+
+    const e0 = new();
+    const e1 = new();
+    const e2 = new();
+    const e3 = new();
+
+    e0.delete();
+    e1.delete();
+    e2.delete();
+    e3.delete();
+
+    const e4 = new();
+    const e5 = new();
+    const e6 = new();
+    const e7 = new();
+    const e8 = new();
+
+    try std.testing.expectEqual(mk_entity(0, 0), e0);
+    try std.testing.expectEqual(mk_entity(0, 1), e1);
+    try std.testing.expectEqual(mk_entity(0, 2), e2);
+    try std.testing.expectEqual(mk_entity(0, 3), e3);
+    try std.testing.expectEqual(mk_entity(1, 3), e4);
+    try std.testing.expectEqual(mk_entity(1, 2), e5);
+    try std.testing.expectEqual(mk_entity(1, 1), e6);
+    try std.testing.expectEqual(mk_entity(1, 0), e7);
+    try std.testing.expectEqual(mk_entity(0, 4), e8);
+    try std.testing.expectEqual(false, e0.is_valid());
+    try std.testing.expectEqual(false, e1.is_valid());
+    try std.testing.expectEqual(false, e2.is_valid());
+    try std.testing.expectEqual(false, e3.is_valid());
+    try std.testing.expectEqual(true, e4.is_valid());
+    try std.testing.expectEqual(true, e5.is_valid());
+    try std.testing.expectEqual(true, e6.is_valid());
+    try std.testing.expectEqual(true, e7.is_valid());
+    try std.testing.expectEqual(true, e8.is_valid());
 }
 
-fn test_two () !void {
-    try test_three ();
-}
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn test_three () !void {
-    try test_four ();
-}
+test "generation wrap" {
+    init();
+    defer deinit();
 
-fn test_four () !void {
-    try test_five ();
-}
+    var e0 = new();
+    e0.delete();
 
-fn test_five () !void {
-    try test_six ();
-}
+    try std.testing.expectEqual(mk_entity(0, 0), e0);
+    try std.testing.expectEqual(false, e0.is_valid());
 
-fn test_six () !void {
-    try test_seven ();
-}
+    for (0..254) |_| {
+        e0 = new();
+        e0.delete();
+    }
 
-fn test_seven () !void {
-    try test_eight ();
-}
+    e0 = new();
+    try std.testing.expectEqual(mk_entity(0, 1), e0);
+    try std.testing.expectEqual(true, e0.is_valid());
 
-fn test_eight () !void {
-    try test_nine ();
-}
+    for (0..254) |i| {
+        try std.testing.expectEqual(false, mk_entity(@intCast(i), 0).is_valid());
+    }
 
-fn test_nine () !void {
-    try test_ten ();
-}
+    recycle_old_generations();
 
-fn test_ten () !void {
-    try std.testing.expectEqual(true, false);
-}
+    const e1 = new();
 
-test "bad test" {
-    try test_one ();
+    try std.testing.expectEqual(mk_entity(0, 0), e1);
+    try std.testing.expectEqual(true, e1.is_valid());
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

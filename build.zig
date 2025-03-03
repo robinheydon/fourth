@@ -86,6 +86,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const test_run = b.addRunArtifact(ng_test);
+    test_run.step.dependOn(check_format_step);
 
     const test_step = b.step("test", "Test the ng");
     test_step.dependOn(&test_run.step);
@@ -104,6 +105,7 @@ fn check_format(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anye
     });
     const b = step.owner;
 
+    var had_error: bool = false;
     var iter = try dir.walk(b.allocator);
     while (try iter.next()) |entry| {
         if (entry.kind == .file) {
@@ -122,6 +124,7 @@ fn check_format(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anye
                 var line_number: usize = 1;
                 while (lines.next()) |line| {
                     if (line.len > 95) {
+                        had_error = true;
                         const trimmed_line = std.mem.trim(u8, line, " ");
                         try step.addError("Line too long: {s}:{}\n  {s}", .{
                             entry.path,
@@ -134,6 +137,8 @@ fn check_format(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anye
             }
         }
     }
+
+    if (had_error) return error.LineTooLong;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

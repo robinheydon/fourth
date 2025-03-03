@@ -24,16 +24,16 @@ pub fn main() void {
 
         if (test_fn.func()) |_| {
             passed += 1;
-            std.debug.print("{}/{} \"{}\" OK\n", .{
+            std.debug.print("{}/{} OK   \"{}\"\n", .{
                 i,
                 test_functions.len,
-                std.zig.fmtEscapes (test_fn.name),
+                std.zig.fmtEscapes(test_fn.name),
             });
         } else |err| {
             switch (err) {
                 error.SkipZigTest => {
                     skipped += 1;
-                    std.debug.print("{}/{} \"{}\" SKIP\n", .{
+                    std.debug.print("{}/{} SKIP \"{}\"\n", .{
                         i,
                         test_functions.len,
                         std.zig.fmtEscapes(test_fn.name),
@@ -41,7 +41,7 @@ pub fn main() void {
                 },
                 else => {
                     failed += 1;
-                    std.debug.print("{}/{} \"{}\" FAIL {s}\n", .{
+                    std.debug.print("{}/{} FAIL \"{}\" {s}\n", .{
                         i,
                         test_functions.len,
                         std.zig.fmtEscapes(test_fn.name),
@@ -58,30 +58,29 @@ pub fn main() void {
 
         if (std.testing.allocator_instance.deinit() == .leak) {
             leaked += 1;
-            std.debug.print("{s} LEAK\n", .{test_fn.name});
+            std.debug.print("{}/{} LEAK \"{}\"\n", .{
+                i,
+                test_functions.len,
+                std.zig.fmtEscapes(test_fn.name),
+            });
         }
     }
 
     root_node.end();
 
-    if (passed == test_functions.len)
-    {
-        std.debug.print("{} passed\n", .{ passed });
-    }
-    else if (passed + skipped == test_functions.len)
-    {
+    if (passed == test_functions.len) {
+        std.debug.print("{} passed\n", .{passed});
+    } else if (passed + skipped == test_functions.len) {
         std.debug.print("{} passed ({} skipped)\n", .{ passed, skipped });
-    }
-    else if (leaked > 0)
-    {
-        std.debug.print ("{} leaked\n", .{ failed });
-    }
-    else if (failed > 0)
-    {
-        std.debug.print ("{} failed\n", .{ failed });
+    } else if (leaked > 0) {
+        std.debug.print("{} leaked\n", .{failed});
+    } else if (failed > 0) {
+        std.debug.print("{} failed\n", .{failed});
     }
 
-    if (leaked != 0 or failed != 0 or passed != 0) {
+    if (leaked != 0 or failed != 0) {
         std.process.exit(1);
     }
+
+    std.process.exit(0);
 }
