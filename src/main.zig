@@ -15,6 +15,8 @@ const com = @import("com.zig");
 
 pub const log = ng.Logger(.main);
 
+var headless = true;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -25,24 +27,28 @@ pub fn main() !void {
     defer log.info("ending", .{});
 
     try ng.init(.{
-        .video = true,
-        .audio = true,
+        .video = false,
+        .audio = false,
     });
     defer ng.deinit();
 
-    state.window = try ng.create_window(.{
-        .name = "Fourth",
-        .width = 1920,
-        .height = 1080,
-        .resizable = true,
-    });
-    defer state.window.close();
+    if (!headless) {
+        state.window = try ng.create_window(.{
+            .name = "Fourth",
+            .width = 1920,
+            .height = 1080,
+            .resizable = true,
+        });
+        defer state.window.close();
 
-    state.window.set_swap_interval(.lowpower);
+        state.window.set_swap_interval(.lowpower);
+    }
 
     init_world();
 
-    try init_draw_world();
+    if (!headless) {
+        try init_draw_world();
+    }
 
     while (state.running) {
         state.frame_counter +%= 1;
@@ -50,31 +56,35 @@ pub fn main() !void {
         state.dt = ng.start_frame();
         defer ng.end_frame();
 
-        ng.debug_clear(state.window);
+        if (!headless) {
+            ng.debug_clear(state.window);
+        }
 
         update_fps(state.dt);
 
-        process_events();
+        if (!headless) {
+            process_events();
 
-        draw_ui();
+            draw_ui();
 
-        const command_buffer = try state.window.acquire_command_buffer();
-        const swapchain_texture = try command_buffer.acquire_swapchain_texture();
-        const render_pass = try command_buffer.begin_render_pass(.{
-            .texture = swapchain_texture,
-            .clear_color = .@"dark grey",
-            .load = .clear,
-            .store = .store,
-        });
+            const command_buffer = try state.window.acquire_command_buffer();
+            const swapchain_texture = try command_buffer.acquire_swapchain_texture();
+            const render_pass = try command_buffer.begin_render_pass(.{
+                .texture = swapchain_texture,
+                .clear_color = .@"dark grey",
+                .load = .clear,
+                .store = .store,
+            });
 
-        draw_world(render_pass);
+            draw_world(render_pass);
 
-        ng.ui_render(render_pass);
+            ng.ui_render(render_pass);
 
-        ng.debug_text_draw(render_pass);
+            ng.debug_text_draw(render_pass);
 
-        render_pass.end();
-        try command_buffer.submit();
+            render_pass.end();
+            try command_buffer.submit();
+        }
 
         // ng.sleep (0.5);
     }

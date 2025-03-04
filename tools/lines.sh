@@ -2,4 +2,9 @@
 
 cloc . \
     --by-file \
-    --exclude-dir=.zig-cache
+    --exclude-dir=.zig-cache \
+    --include-ext=zig,glsl
+
+cloc . \
+    --exclude-dir=.zig-cache \
+    --include-ext=zig
