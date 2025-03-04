@@ -62,6 +62,8 @@ pub fn main() !void {
 
         update_fps(state.dt);
 
+        ng.progress(state.dt);
+
         if (!headless) {
             process_events();
 
@@ -86,7 +88,13 @@ pub fn main() !void {
             try command_buffer.submit();
         }
 
-        // ng.sleep (0.5);
+        if (headless) {
+            if (state.frame_counter > 2) {
+                state.running = false;
+            } else {
+                ng.sleep(0.1);
+            }
+        }
     }
 }
 
@@ -494,6 +502,30 @@ fn init_world() void {
             .phase = .update,
         },
         construction_system,
+        .{com.Construction},
+    );
+
+    ng.register_system(
+        .{
+            .name = "movement_system",
+            .phase = .update,
+        },
+        movement_system,
+        .{
+            com.Position,
+            com.Velocity,
+        },
+    );
+
+    ng.register_system(
+        .{
+            .name = "vehicle_system",
+            .phase = .pre_update,
+        },
+        vehicle_system,
+        .{
+            com.VehicleKind,
+        },
     );
 
     const n1 = ng.new();
@@ -529,15 +561,31 @@ fn init_world() void {
     p2.set(com.VehicleKind.cart);
     p3.set(com.VehicleKind.bicycle);
 
-    ng.dump_ecs();
+    // ng.dump_ecs();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn construction_system(cons: []com.Construction) void {
-    log.info("Construction System {}", .{cons.len});
+fn construction_system(iter: *const ng.SystemIterator) void {
+    log.info("  Construction System {d}", .{iter.delta_time});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn vehicle_system(iter: *const ng.SystemIterator) void {
+    log.info("  Vehicle System {d}", .{iter.delta_time});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn movement_system(iter: *const ng.SystemIterator) void {
+    log.info("  Movement System {d}", .{iter.delta_time});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

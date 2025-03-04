@@ -102,23 +102,25 @@ pub fn init() !void {
 pub fn deinit() void {
     log.info("deinit", .{});
 
-    ui_shader.delete();
-    ui_image.delete();
-    ui_sampler.delete();
+    if (!init_required) {
+        ui_shader.delete();
+        ui_image.delete();
+        ui_sampler.delete();
 
-    for (all_objects.items) |obj| {
-        switch (obj.data) {
-            .text => |text| {
-                if (text.allocated) {
-                    allocator.free(text.memory);
-                }
-            },
-            else => {},
+        for (all_objects.items) |obj| {
+            switch (obj.data) {
+                .text => |text| {
+                    if (text.allocated) {
+                        allocator.free(text.memory);
+                    }
+                },
+                else => {},
+            }
         }
-    }
 
-    all_objects.deinit(allocator);
-    used_objects.deinit(allocator);
+        all_objects.deinit(allocator);
+        used_objects.deinit(allocator);
+    }
 
     std.debug.assert(gpa.deinit() == .ok);
 }

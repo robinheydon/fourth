@@ -88,10 +88,12 @@ pub const elapsed = time.elapsed;
 pub const sleep = time.sleep;
 
 pub const Entity = ecs.Entity;
+pub const SystemIterator = ecs.SystemIterator;
 pub const register_component = ecs.register_component;
 pub const register_system = ecs.register_system;
 pub const new = ecs.new;
 pub const dump_ecs = ecs.dump_ecs;
+pub const progress = ecs.progress;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////

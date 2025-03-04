@@ -25,7 +25,7 @@ var old_recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 
 var components: std.AutoHashMapUnmanaged(TypeId, ComponentTypeInfo) = .empty;
 
-var systems: std.AutoHashMapUnmanaged(TypeId, SystemInfo) = .empty;
+var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -566,17 +566,16 @@ fn get_type_id(comptime Component: type) TypeId {
 
 const SystemInfo = struct {
     name: []const u8,
-    func: *const fn () void,
-    num_arguments: usize,
-    argument_types: [max_system_arguments]ArgumentInfo,
+    func: *const fn (*const SystemIterator) void,
     phase: SystemPhase,
 };
 
-const max_system_arguments = 8;
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-const ArgumentInfo = struct {
-    is_slice: bool,
-    component: TypeId,
+pub const SystemIterator = struct {
+    delta_time: f32,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -607,21 +606,22 @@ pub const SystemPhase = enum {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn register_system(options: SystemOptions, func: anytype) void {
-    const argument_types: [max_system_arguments]ArgumentInfo = undefined;
-    const num_arguments: usize = 0;
-
+pub fn register_system(
+    options: SystemOptions,
+    func: *const fn (*const SystemIterator) void,
+    expression: anytype,
+) void {
     const info: SystemInfo = .{
         .name = options.name,
-        .func = @ptrCast(&func),
-        .num_arguments = num_arguments,
-        .argument_types = argument_types,
+        .func = func,
         .phase = options.phase,
     };
 
-    const type_id = @intFromPtr(&func);
+    log.info("register system {s} {x}", .{ options.name, func });
 
-    systems.put(allocator, type_id, info) catch |err| {
+    _ = expression;
+
+    systems.append(allocator, info) catch |err| {
         log.err("register_system failed {}", .{err});
     };
 }
@@ -630,21 +630,23 @@ pub fn register_system(options: SystemOptions, func: anytype) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn run_systems() void {
-    std.debug.print("run_systems\n", .{});
+pub fn progress(dt: f32) void {
+    log.info("------------------------", .{});
+    log.info("progress ({d:0.3})", .{dt});
 
-    var iter = systems.iterator();
-    while (iter.next()) |entry| {
-        const key = entry.key_ptr;
-        const value = entry.value_ptr;
-        std.debug.print("{x} \"{}\" {s}\n", .{
-            key,
-            std.zig.fmtEscapes(value.name),
-            @tagName(value.phase),
-        });
+    std.sort.block(SystemInfo, systems.items, {}, system_sorter);
 
-        @call(.never_inline, value.func, .{});
+    for (systems.items) |system| {
+        const iterator = SystemIterator{
+            .delta_time = dt,
+        };
+
+        system.func(&iterator);
     }
+}
+
+fn system_sorter(_: void, a: SystemInfo, b: SystemInfo) bool {
+    return @intFromEnum(a.phase) < @intFromEnum(b.phase);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1213,23 +1215,30 @@ test "movement system" {
     register_component("Velocity", Velocity);
 
     const movement_system = (struct {
-        fn movement_system() void {
-            std.debug.print("movement system\n", .{});
+        fn movement_system(pos: []Position) void {
+            _ = pos;
         }
     }).movement_system;
 
-    register_system(.{ .name = "Movement System" }, movement_system);
+    register_system(.{ .name = "Movement System" }, movement_system, .{ Position, Velocity });
 
     const e0 = new();
     const e1 = new();
 
     e0.set(Position{ .x = 2, .y = 3 });
-    e0.set(Velocity{ .dx = 0.1, .dy = -0.1 });
+    e0.set(Velocity{ .dx = 0.2, .dy = -0.1 });
 
     e1.set(Position{ .x = 4, .y = 5 });
-    e1.set(Velocity{ .dx = 0.2, .dy = -0.2 });
+    e1.set(Velocity{ .dx = 0.1, .dy = -0.2 });
 
-    run_systems();
+    progress(1);
+    progress(1);
+
+    const p0 = e0.get(Position);
+    const p1 = e0.get(Position);
+
+    try std.testing.expectEqual(Position{ .x = 2.4, .y = 2.8 }, p0);
+    try std.testing.expectEqual(Position{ .x = 4.2, .y = 4.6 }, p1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
