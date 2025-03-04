@@ -26,6 +26,7 @@ var old_recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 var components: std.AutoHashMapUnmanaged(TypeId, ComponentTypeInfo) = .empty;
 
 var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
+var entity_changes: std.AutoArrayHashMapUnmanaged(Entity, void) = .empty;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -52,7 +53,12 @@ pub const Entity = enum(u32) {
 
         if (components.getPtr(typeid)) |info| {
             var storage = info.storage.cast(Component);
-            storage.set(self, value);
+            if (storage.get(self)) |_| {
+                storage.set(self, value);
+            } else {
+                entity_changes.put(allocator, self, {}) catch {};
+                storage.set(self, value);
+            }
         } else {
             log.err("Component {s} not registered", .{@typeName(Component)});
         }
@@ -84,6 +90,8 @@ pub const Entity = enum(u32) {
             log.err("delete invalid entity {}", .{self});
             return;
         }
+
+        entity_changes.put(allocator, self, {}) catch {};
 
         const gen = get_generation(self);
         const idx = get_index(self);
@@ -144,6 +152,7 @@ pub fn init(external_allocator: ?std.mem.Allocator) void {
     old_recycled = .empty;
     components = .empty;
     systems = .empty;
+    entity_changes = .empty;
 
     initialized = true;
 }
@@ -164,6 +173,7 @@ pub fn deinit() void {
     old_recycled.deinit(allocator);
     components.deinit(allocator);
     systems.deinit(allocator);
+    entity_changes.deinit(allocator);
 
     std.debug.assert(gpa.deinit() == .ok);
 }
@@ -208,7 +218,9 @@ pub fn new() Entity {
 
     if (recycled.pop()) |idx| {
         const gen = generations.items[idx];
-        return mk_entity(gen, idx);
+        const self = mk_entity(gen, idx);
+        entity_changes.put(allocator, self, {}) catch {};
+        return self;
     }
 
     const index: EntityIndex = @intCast(generations.items.len);
@@ -217,7 +229,10 @@ pub fn new() Entity {
         return .null_entity;
     };
 
-    return mk_entity(0, index);
+    const self = mk_entity(0, index);
+    entity_changes.put(allocator, self, {}) catch {};
+
+    return self;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -228,10 +243,9 @@ fn recycle_old_generations() void {
     while (old_recycled.pop()) |idx| {
         const gen = generations.items[idx];
         generations.items[idx] = gen +% 1;
-        recycled.append(allocator, idx) catch |err|
-            {
-                log.err("recycle_old_generations {}", .{err});
-            };
+        recycled.append(allocator, idx) catch |err| {
+            log.err("recycle_old_generations {}", .{err});
+        };
     }
 }
 
@@ -568,6 +582,18 @@ const SystemInfo = struct {
     name: []const u8,
     func: *const fn (*const SystemIterator) void,
     phase: SystemPhase,
+    num_arguments: usize,
+    arguments: [max_system_arguments]TypeId,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const max_system_arguments = 16;
+
+pub const SystemArgument = struct {
+    component: TypeId,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -586,6 +612,10 @@ pub const SystemOptions = struct {
     name: []const u8,
     phase: SystemPhase = .update,
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const SystemPhase = enum {
     pre_run,
@@ -611,15 +641,23 @@ pub fn register_system(
     func: *const fn (*const SystemIterator) void,
     expression: anytype,
 ) void {
+    log.info("register system {s}", .{options.name});
+
+    var num_arguments: usize = 0;
+    var arguments: [max_system_arguments]TypeId = undefined;
+
+    inline for (expression) |arg| {
+        arguments[num_arguments] = get_type_id(arg);
+        num_arguments += 1;
+    }
+
     const info: SystemInfo = .{
         .name = options.name,
         .func = func,
         .phase = options.phase,
+        .num_arguments = num_arguments,
+        .arguments = arguments,
     };
-
-    log.info("register system {s} {x}", .{ options.name, func });
-
-    _ = expression;
 
     systems.append(allocator, info) catch |err| {
         log.err("register_system failed {}", .{err});
@@ -633,6 +671,13 @@ pub fn register_system(
 pub fn progress(dt: f32) void {
     log.info("------------------------", .{});
     log.info("progress ({d:0.3})", .{dt});
+
+    const keys = entity_changes.keys();
+    for (keys) |entity|
+    {
+        log.info ("{} changed", .{entity});
+    }
+    entity_changes.clearRetainingCapacity ();
 
     std.sort.block(SystemInfo, systems.items, {}, system_sorter);
 
