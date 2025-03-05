@@ -29,6 +29,7 @@ var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
 var entity_changes: std.AutoArrayHashMapUnmanaged(Entity, void) = .empty;
 
 var inside_system: bool = false;
+var current_system: *const SystemInfo = undefined;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -96,6 +97,20 @@ pub const Entity = packed struct(u32) {
         }
 
         const typeid = get_type_id(Component);
+
+        if (inside_system) {
+            for (0..current_system.num_arguments) |i| {
+                if (typeid == current_system.arguments[i]) {
+                    if (!current_system.mutable[i]) {
+                        log.err("System {s} called getPtr on a non-mutable component {s}", .{
+                            current_system.name,
+                            @typeName(Component),
+                        });
+                        return null;
+                    }
+                }
+            }
+        }
 
         if (components.getPtr(typeid)) |info| {
             var storage = info.storage.cast(Component);
@@ -730,9 +745,11 @@ pub fn progress(dt: f32) void {
         };
 
         const start_time = ng.elapsed();
+        current_system = system;
         inside_system = true;
         defer inside_system = false;
         system.func(&iterator);
+        current_system = undefined;
         const end_time = ng.elapsed();
         system.last_elapsed = end_time - start_time;
     }
@@ -1427,7 +1444,7 @@ test "movement system" {
         fn movement_system(iter: *const SystemIterator) void {
             for (iter.entities) |entity| {
                 if (entity.getPtr(Position)) |pos| {
-                    if (entity.getPtr(Velocity)) |vel| {
+                    if (entity.get(Velocity)) |vel| {
                         pos.x = pos.x + vel.dx * iter.delta_time;
                         pos.y = pos.y + vel.dy * iter.delta_time;
                     }
