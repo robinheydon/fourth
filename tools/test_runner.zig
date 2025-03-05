@@ -32,14 +32,14 @@ pub fn main() void {
         if (test_fn.func()) |_| {
             if (std.testing.allocator_instance.deinit() == .leak) {
                 leaked += 1;
-                std.debug.print("{}/{} LEAK \"{}\"\n", .{
+                std.debug.print("\x1b[31;1m{}/{} LEAK \"{}\"\x1b[0m\n", .{
                     i,
                     test_functions.len,
                     std.zig.fmtEscapes(test_fn.name),
                 });
             } else {
                 passed += 1;
-                happy_writer.print("{}/{} OK   \"{}\"\n", .{
+                happy_writer.print("\x1b[32m{}/{} OK   \"{}\"\x1b[0m\n", .{
                     i,
                     test_functions.len,
                     std.zig.fmtEscapes(test_fn.name),
@@ -48,7 +48,7 @@ pub fn main() void {
         } else |err| {
             if (std.testing.allocator_instance.deinit() == .leak) {
                 leaked += 1;
-                std.debug.print("{}/{} LEAK \"{}\"\n", .{
+                std.debug.print("\x1b[31;1m{}/{} LEAK \"{}\"\x1b[0m\n", .{
                     i,
                     test_functions.len,
                     std.zig.fmtEscapes(test_fn.name),
@@ -57,7 +57,7 @@ pub fn main() void {
                 switch (err) {
                     error.SkipZigTest => {
                         skipped += 1;
-                        happy_writer.print("{}/{} SKIP \"{}\"\n", .{
+                        happy_writer.print("\x1b[37;3m{}/{} SKIP \"{}\"\x1b[0m\n", .{
                             i,
                             test_functions.len,
                             std.zig.fmtEscapes(test_fn.name),
@@ -65,7 +65,7 @@ pub fn main() void {
                     },
                     else => {
                         failed += 1;
-                        std.debug.print("{}/{} FAIL \"{}\" {s}\n", .{
+                        std.debug.print("\x1b[31;1m{}/{} FAIL \"{}\" {s}\x1b[0m\n", .{
                             i,
                             test_functions.len,
                             std.zig.fmtEscapes(test_fn.name),
