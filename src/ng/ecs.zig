@@ -730,6 +730,8 @@ pub fn progress(dt: f32) void {
         };
 
         const start_time = ng.elapsed();
+        inside_system = true;
+        defer inside_system = false;
         system.func(&iterator);
         const end_time = ng.elapsed();
         system.last_elapsed = end_time - start_time;
@@ -869,8 +871,7 @@ pub fn dump_ecs(options: DumpOptions) void {
                     if (joint) {
                         writer.print(", ", .{}) catch {};
                     }
-                    if (sys.mutable[i])
-                    {
+                    if (sys.mutable[i]) {
                         writer.print("*", .{}) catch {};
                     }
                     writer.print("{s}", .{info.name}) catch {};
