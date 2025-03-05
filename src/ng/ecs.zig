@@ -35,9 +35,11 @@ var entity_changes: std.AutoArrayHashMapUnmanaged(Entity, void) = .empty;
 const EntityIndex = u24;
 const EntityGeneration = u8;
 
-pub const Entity = enum(u32) {
-    null_entity = 0xFFFFFFFF,
-    _,
+pub const Entity = packed struct (u32) {
+    gen: EntityGeneration,
+    idx: EntityIndex,
+
+    const null_entity : Entity = .{ .idx = 0xFFFFFF, .gen = 0xFF };
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -93,8 +95,8 @@ pub const Entity = enum(u32) {
 
         entity_changes.put(allocator, self, {}) catch {};
 
-        const gen = get_generation(self);
-        const idx = get_index(self);
+        const gen = self.gen;
+        const idx = self.idx;
 
         generations.items[idx] = gen +% 1;
         if (generations.items[idx] == 255) {
@@ -113,8 +115,8 @@ pub const Entity = enum(u32) {
     ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn is_valid(self: Entity) bool {
-        const gen = get_generation(self);
-        const idx = get_index(self);
+        const gen = self.gen;
+        const idx = self.idx;
 
         if (idx >= generations.items.len) {
             return false;
@@ -128,8 +130,8 @@ pub const Entity = enum(u32) {
     ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn format(self: Entity, _: anytype, _: anytype, writer: anytype) !void {
-        const gen = get_generation(self);
-        const idx = get_index(self);
+        const gen = self.gen;
+        const idx = self.idx;
 
         try writer.print("E({x:0>2}:{x:0>6})", .{ gen, idx });
     }
@@ -182,43 +184,12 @@ pub fn deinit() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn get_index(entity: Entity) EntityIndex {
-    const ent: u32 = @intFromEnum(entity);
-
-    const index: EntityIndex = @truncate(ent);
-    return index;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn get_generation(entity: Entity) EntityGeneration {
-    const ent = @intFromEnum(entity);
-
-    const gen: EntityGeneration = @truncate(ent >> 24);
-    return gen;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn mk_entity(gen: EntityGeneration, idx: EntityIndex) Entity {
-    const ent: u32 = (@as(u32, @intCast(gen)) << 24) | (@as(u32, @intCast(idx)) & 0xFFFFFF);
-    return @enumFromInt(ent);
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
 pub fn new() Entity {
     std.debug.assert(initialized);
 
     if (recycled.pop()) |idx| {
         const gen = generations.items[idx];
-        const self = mk_entity(gen, idx);
+        const self = Entity { .gen =gen, .idx = idx};
         entity_changes.put(allocator, self, {}) catch {};
         return self;
     }
@@ -229,7 +200,7 @@ pub fn new() Entity {
         return .null_entity;
     };
 
-    const self = mk_entity(0, index);
+    const self = Entity { .gen =0, .idx = index};
     entity_changes.put(allocator, self, {}) catch {};
 
     return self;
@@ -380,19 +351,19 @@ pub fn ComponentStorage(Component: type) type {
         }
 
         pub fn set(self: *Self, key: Entity, value: anytype) void {
-            const idx = get_index(key);
+            const idx = key.idx;
             self.store.put(allocator, idx, value) catch |err| {
                 log.err("Cannot set component {} {} : {}", .{ key, value, err });
             };
         }
 
         pub fn get(self: *Self, key: Entity) ?Component {
-            const idx = get_index(key);
+            const idx = key.idx;
             return self.store.get(idx);
         }
 
         pub fn get_data(self: *Self, key: Entity) ?[]const u8 {
-            const idx = get_index(key);
+            const idx = key.idx;
             if (self.store.getPtr(idx)) |value| {
                 var ptr: []const u8 = undefined;
                 ptr.ptr = @ptrCast(value);
@@ -673,11 +644,10 @@ pub fn progress(dt: f32) void {
     log.info("progress ({d:0.3})", .{dt});
 
     const keys = entity_changes.keys();
-    for (keys) |entity|
-    {
-        log.info ("{} changed", .{entity});
+    for (keys) |entity| {
+        log.info("{} changed", .{entity});
     }
-    entity_changes.clearRetainingCapacity ();
+    entity_changes.clearRetainingCapacity();
 
     std.sort.block(SystemInfo, systems.items, {}, system_sorter);
 
@@ -759,7 +729,7 @@ pub fn dump_ecs() void {
     if (show_entities) {
         log.msg("Entities", .{});
         for (0.., generations.items) |idx, gen| {
-            const ent = mk_entity(gen, @intCast(idx));
+            const ent = Entity {.gen=gen, .idx = @intCast(idx)};
             log.msg("  Entity {}", .{ent});
             if (show_entity_data) {
                 var component_iter = components.iterator();
@@ -1035,10 +1005,10 @@ test "create" {
     const e2 = new();
     const e3 = new();
 
-    try std.testing.expectEqual(mk_entity(0, 0), e0);
-    try std.testing.expectEqual(mk_entity(0, 1), e1);
-    try std.testing.expectEqual(mk_entity(0, 2), e2);
-    try std.testing.expectEqual(mk_entity(0, 3), e3);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=0}, e0);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=1}, e1);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=2}, e2);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=3}, e3);
 
     try std.testing.expectEqual(true, e0.is_valid());
     try std.testing.expectEqual(true, e1.is_valid());
@@ -1064,10 +1034,10 @@ test "delete" {
     e2.delete();
     e3.delete();
 
-    try std.testing.expectEqual(mk_entity(0, 0), e0);
-    try std.testing.expectEqual(mk_entity(0, 1), e1);
-    try std.testing.expectEqual(mk_entity(0, 2), e2);
-    try std.testing.expectEqual(mk_entity(0, 3), e3);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=0}, e0);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=1}, e1);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=2}, e2);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=3}, e3);
 
     try std.testing.expectEqual(false, e0.is_valid());
     try std.testing.expectEqual(false, e1.is_valid());
@@ -1099,15 +1069,15 @@ test "recycle" {
     const e7 = new();
     const e8 = new();
 
-    try std.testing.expectEqual(mk_entity(0, 0), e0);
-    try std.testing.expectEqual(mk_entity(0, 1), e1);
-    try std.testing.expectEqual(mk_entity(0, 2), e2);
-    try std.testing.expectEqual(mk_entity(0, 3), e3);
-    try std.testing.expectEqual(mk_entity(1, 3), e4);
-    try std.testing.expectEqual(mk_entity(1, 2), e5);
-    try std.testing.expectEqual(mk_entity(1, 1), e6);
-    try std.testing.expectEqual(mk_entity(1, 0), e7);
-    try std.testing.expectEqual(mk_entity(0, 4), e8);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=0}, e0);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=1}, e1);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=2}, e2);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=3}, e3);
+    try std.testing.expectEqual(Entity{.gen=1, .idx=3}, e4);
+    try std.testing.expectEqual(Entity{.gen=1, .idx=2}, e5);
+    try std.testing.expectEqual(Entity{.gen=1, .idx=1}, e6);
+    try std.testing.expectEqual(Entity{.gen=1, .idx=0}, e7);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=4}, e8);
     try std.testing.expectEqual(false, e0.is_valid());
     try std.testing.expectEqual(false, e1.is_valid());
     try std.testing.expectEqual(false, e2.is_valid());
@@ -1130,7 +1100,7 @@ test "generation wrap" {
     var e0 = new();
     e0.delete();
 
-    try std.testing.expectEqual(mk_entity(0, 0), e0);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=0}, e0);
     try std.testing.expectEqual(false, e0.is_valid());
 
     for (0..254) |_| {
@@ -1139,18 +1109,19 @@ test "generation wrap" {
     }
 
     e0 = new();
-    try std.testing.expectEqual(mk_entity(0, 1), e0);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=1}, e0);
     try std.testing.expectEqual(true, e0.is_valid());
 
     for (0..254) |i| {
-        try std.testing.expectEqual(false, mk_entity(@intCast(i), 0).is_valid());
+        const e = Entity {.gen=@intCast (i), .idx = 0};
+        try std.testing.expectEqual(false, e.is_valid());
     }
 
     recycle_old_generations();
 
     const e1 = new();
 
-    try std.testing.expectEqual(mk_entity(0, 0), e1);
+    try std.testing.expectEqual(Entity{.gen=0, .idx=0}, e1);
     try std.testing.expectEqual(true, e1.is_valid());
 }
 
@@ -1260,8 +1231,8 @@ test "movement system" {
     register_component("Velocity", Velocity);
 
     const movement_system = (struct {
-        fn movement_system(pos: []Position) void {
-            _ = pos;
+        fn movement_system(iter: *const SystemIterator) void {
+            _ = iter;
         }
     }).movement_system;
 
