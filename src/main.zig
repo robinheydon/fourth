@@ -15,40 +15,34 @@ const com = @import("com.zig");
 
 pub const log = ng.Logger(.main);
 
-var headless = true;
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
+    try ng.init(.{
+        .video = true,
+        .audio = true,
+    });
+    defer ng.deinit();
+
     log.set_min_level(.note);
     log.info("starting", .{});
     defer log.info("ending", .{});
 
-    try ng.init(.{
-        .video = false,
-        .audio = false,
+    state.window = try ng.create_window(.{
+        .name = "Fourth",
+        .width = 1920,
+        .height = 1080,
+        .resizable = true,
     });
-    defer ng.deinit();
+    defer state.window.close();
 
-    if (!headless) {
-        state.window = try ng.create_window(.{
-            .name = "Fourth",
-            .width = 1920,
-            .height = 1080,
-            .resizable = true,
-        });
-        defer state.window.close();
-
-        state.window.set_swap_interval(.lowpower);
-    }
+    state.window.set_swap_interval(.lowpower);
 
     init_world();
 
-    if (!headless) {
-        try init_draw_world();
-    }
+    try init_draw_world();
 
     while (state.running) {
         state.frame_counter +%= 1;
@@ -56,46 +50,36 @@ pub fn main() !void {
         state.dt = ng.start_frame();
         defer ng.end_frame();
 
-        if (!headless) {
-            ng.debug_clear(state.window);
-        }
+        ng.debug_clear(state.window);
 
         update_fps(state.dt);
 
         ng.progress(state.dt);
 
-        if (!headless) {
-            process_events();
+        process_events();
 
-            draw_ui();
+        draw_ui();
 
-            const command_buffer = try state.window.acquire_command_buffer();
-            const swapchain_texture = try command_buffer.acquire_swapchain_texture();
-            const render_pass = try command_buffer.begin_render_pass(.{
-                .texture = swapchain_texture,
-                .clear_color = .@"dark grey",
-                .load = .clear,
-                .store = .store,
-            });
+        const command_buffer = try state.window.acquire_command_buffer();
+        const swapchain_texture = try command_buffer.acquire_swapchain_texture();
+        const render_pass = try command_buffer.begin_render_pass(.{
+            .texture = swapchain_texture,
+            .clear_color = .@"dark grey",
+            .load = .clear,
+            .store = .store,
+        });
 
-            draw_world(render_pass);
+        draw_world(render_pass);
 
-            ng.ui_render(render_pass);
+        ng.ui_render(render_pass);
 
-            ng.debug_text_draw(render_pass);
+        ng.debug_text_draw(render_pass);
 
-            render_pass.end();
-            try command_buffer.submit();
-        }
-
-        if (headless) {
-            if (state.frame_counter > 2) {
-                state.running = false;
-            } else {
-                ng.sleep(0.0);
-            }
-        }
+        render_pass.end();
+        try command_buffer.submit();
     }
+
+    ng.ecs.dump_ecs(.all);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -498,15 +482,6 @@ fn init_world() void {
 
     ng.register_system(
         .{
-            .name = "construction_system",
-            .phase = .update,
-        },
-        construction_system,
-        .{com.Construction},
-    );
-
-    ng.register_system(
-        .{
             .name = "render_system",
             .phase = .post_update,
         },
@@ -523,9 +498,18 @@ fn init_world() void {
         },
         movement_system,
         .{
-            com.Position,
+            *com.Position,
             com.Velocity,
         },
+    );
+
+    ng.register_system(
+        .{
+            .name = "construction_system",
+            .phase = .update,
+        },
+        construction_system,
+        .{com.Construction},
     );
 
     ng.register_system(
@@ -578,7 +562,7 @@ fn init_world() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn construction_system(iter: *const ng.SystemIterator) void {
-    log.info("Construction System {d} {d}", .{ iter.delta_time, iter.entities.len });
+    _ = iter;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -586,7 +570,7 @@ fn construction_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn vehicle_system(iter: *const ng.SystemIterator) void {
-    log.info("Vehicle System {d} {d}", .{ iter.delta_time, iter.entities.len });
+    _ = iter;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -594,23 +578,12 @@ fn vehicle_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn movement_system(iter: *const ng.SystemIterator) void {
-    log.info("Movement System {d} {d}", .{ iter.delta_time, iter.entities.len });
-    log.inc_depth();
-    defer log.dec_depth();
     const dt: ng.Vec2 = @splat(iter.delta_time);
 
     for (iter.entities) |entity| {
-        if (entity.get(com.Position)) |*position| {
+        if (entity.getPtr(com.Position)) |position| {
             if (entity.get(com.Velocity)) |velocity| {
-                const new_position = position.pos + velocity.vel * dt;
-                log.info("{} = {} * {} * {}", .{
-                    new_position,
-                    position,
-                    velocity,
-                    iter.delta_time,
-                });
-
-                entity.set(new_position);
+                position.pos += velocity.vel * dt;
             }
         }
     }
@@ -621,13 +594,9 @@ fn movement_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn render_system(iter: *const ng.SystemIterator) void {
-    log.info("Render System {d} {d}", .{ iter.delta_time, iter.entities.len });
-    log.inc_depth();
-    defer log.dec_depth();
-
     for (iter.entities) |entity| {
         if (entity.get(com.Position)) |position| {
-            log.info("Position {}", .{position});
+            _ = position;
         }
     }
 }

@@ -4,6 +4,9 @@
 
 const std = @import("std");
 
+const time = @import("time.zig");
+
+var start_time: f64 = 0;
 var min_level: Level = .debug;
 var depth: usize = 0;
 const lots_of_spaces = "  " ** 256;
@@ -20,8 +23,8 @@ fn log_print(
 ) void {
     if (@intFromEnum(level) >= @intFromEnum(min_level)) {
         std.debug.print(
-            level.string() ++ "{s: <8}{s}" ++ format ++ "\n",
-            .{ @tagName(scope), lots_of_spaces[0 .. depth * 2] } ++ args,
+            level.string() ++ "{s: <8}{d:12.6} | {s}" ++ format ++ "\n",
+            .{ @tagName(scope), time.elapsed(), lots_of_spaces[0 .. depth * 2] } ++ args,
         );
     }
 }

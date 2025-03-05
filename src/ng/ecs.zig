@@ -28,6 +28,8 @@ var components: std.AutoHashMapUnmanaged(TypeId, ComponentTypeInfo) = .empty;
 var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
 var entity_changes: std.AutoArrayHashMapUnmanaged(Entity, void) = .empty;
 
+var inside_system: bool = false;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -592,8 +594,10 @@ const SystemInfo = struct {
     name: []const u8,
     func: *const fn (*const SystemIterator) void,
     phase: SystemPhase,
+    last_elapsed: f64 = 0,
     num_arguments: usize,
     arguments: [max_system_arguments]TypeId,
+    mutable: [max_system_arguments]bool,
     entities: std.AutoArrayHashMapUnmanaged(Entity, void),
 };
 
@@ -657,10 +661,42 @@ pub fn register_system(
 
     var num_arguments: usize = 0;
     var arguments: [max_system_arguments]TypeId = undefined;
+    var mutable: [max_system_arguments]bool = undefined;
 
     inline for (expression) |arg| {
-        arguments[num_arguments] = get_type_id(arg);
-        num_arguments += 1;
+        const type_info = @typeInfo(arg);
+        switch (type_info) {
+            .pointer => |ptr| {
+                const child = ptr.child;
+                comptime std.debug.assert(ptr.size == .one);
+                if (@typeInfo(child) == .@"struct") {
+                    arguments[num_arguments] = get_type_id(type_info.pointer.child);
+                    mutable[num_arguments] = true;
+                    num_arguments += 1;
+                } else if (@typeInfo(child) == .@"enum") {
+                    arguments[num_arguments] = get_type_id(type_info.pointer.child);
+                    mutable[num_arguments] = true;
+                    num_arguments += 1;
+                } else {
+                    @compileError("Invalid type in register_system expression : " ++
+                        @typeName(arg));
+                }
+            },
+            .@"struct" => |_| {
+                arguments[num_arguments] = get_type_id(arg);
+                mutable[num_arguments] = false;
+                num_arguments += 1;
+            },
+            .@"enum" => |_| {
+                arguments[num_arguments] = get_type_id(arg);
+                mutable[num_arguments] = false;
+                num_arguments += 1;
+            },
+            else => {
+                @compileError("Invalid type in register_system expression : " ++
+                    @typeName(arg));
+            },
+        }
     }
 
     const info: SystemInfo = .{
@@ -669,6 +705,7 @@ pub fn register_system(
         .phase = options.phase,
         .num_arguments = num_arguments,
         .arguments = arguments,
+        .mutable = mutable,
         .entities = .empty,
     };
 
@@ -682,26 +719,20 @@ pub fn register_system(
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn progress(dt: f32) void {
-    log.info("------------------------", .{});
-    log.info("progress ({d:0.3})", .{dt});
-    log.inc_depth();
-    defer log.dec_depth();
-
     update_system_entities();
 
-    log.info("Sort Systems", .{});
     std.sort.block(SystemInfo, systems.items, {}, system_sorter);
 
-    log.info("Systems Iterator", .{});
-    log.inc_depth();
-    defer log.dec_depth();
-    for (systems.items) |system| {
+    for (systems.items) |*system| {
         const iterator = SystemIterator{
             .delta_time = dt,
             .entities = system.entities.keys(),
         };
 
+        const start_time = ng.elapsed();
         system.func(&iterator);
+        const end_time = ng.elapsed();
+        system.last_elapsed = end_time - start_time;
     }
 }
 
@@ -710,6 +741,9 @@ pub fn progress(dt: f32) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn system_sorter(_: void, a: SystemInfo, b: SystemInfo) bool {
+    if (a.phase == b.phase) {
+        return a.last_elapsed > b.last_elapsed;
+    }
     return @intFromEnum(a.phase) < @intFromEnum(b.phase);
 }
 
@@ -718,14 +752,8 @@ fn system_sorter(_: void, a: SystemInfo, b: SystemInfo) bool {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn update_system_entities() void {
-    log.info("Update System Entities", .{});
-    log.inc_depth();
-    defer log.dec_depth();
     const keys = entity_changes.keys();
     for (keys) |entity| {
-        log.info("{} changed", .{entity});
-        log.inc_depth();
-        defer log.dec_depth();
         for (systems.items) |*sys| {
             var matches = true;
             for (sys.arguments[0..sys.num_arguments]) |arg| {
@@ -736,7 +764,6 @@ fn update_system_entities() void {
             }
             if (matches) {
                 sys.entities.put(allocator, entity, {}) catch {};
-                log.info("{s}", .{sys.name});
             } else {
                 _ = sys.entities.swapRemove(entity);
             }
@@ -832,12 +859,19 @@ pub fn dump_ecs(options: DumpOptions) void {
             var buffer = std.ArrayList(u8).init(allocator);
             defer buffer.deinit();
             var writer = buffer.writer();
-            writer.print("{s} {s} (", .{ sys.name, @tagName(sys.phase) }) catch {};
+            writer.print(
+                "{s} {s} {d:.6} (",
+                .{ sys.name, @tagName(sys.phase), sys.last_elapsed },
+            ) catch {};
             var joint = false;
             for (0..sys.num_arguments) |i| {
                 if (components.get(sys.arguments[i])) |info| {
                     if (joint) {
                         writer.print(", ", .{}) catch {};
+                    }
+                    if (sys.mutable[i])
+                    {
+                        writer.print("*", .{}) catch {};
                     }
                     writer.print("{s}", .{info.name}) catch {};
                     joint = true;
@@ -1404,7 +1438,7 @@ test "movement system" {
     register_system(
         .{ .name = "Movement System" },
         movement_system,
-        .{ Position, Velocity },
+        .{ *Position, Velocity },
     );
 
     const e0 = new();
@@ -1418,6 +1452,8 @@ test "movement system" {
 
     progress(1);
     progress(1);
+
+    dump_ecs(.all);
 
     const v0 = e0.get(Velocity) orelse return error.EntityHasNoVelocity;
     const v1 = e1.get(Velocity) orelse return error.EntityHasNoVelocity;
