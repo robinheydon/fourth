@@ -5,6 +5,8 @@
 const std = @import("std");
 
 var min_level: Level = .debug;
+var depth: usize = 0;
+const lots_of_spaces = "  " ** 256;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -18,8 +20,8 @@ fn log_print(
 ) void {
     if (@intFromEnum(level) >= @intFromEnum(min_level)) {
         std.debug.print(
-            level.string() ++ "{s: <8}" ++ format ++ "\n",
-            .{@tagName(scope)} ++ args,
+            level.string() ++ "{s: <8}{s}" ++ format ++ "\n",
+            .{ @tagName(scope), lots_of_spaces[0 .. depth * 2] } ++ args,
         );
     }
 }
@@ -54,6 +56,12 @@ pub fn Logger(comptime scope: @Type(.enum_literal)) type {
         }
         pub fn set_min_level(level: Level) void {
             min_level = level;
+        }
+        pub fn inc_depth() void {
+            depth += 1;
+        }
+        pub fn dec_depth() void {
+            depth -= 1;
         }
     };
 }

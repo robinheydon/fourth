@@ -92,7 +92,7 @@ pub fn main() !void {
             if (state.frame_counter > 2) {
                 state.running = false;
             } else {
-                ng.sleep(0.1);
+                ng.sleep(0.0);
             }
         }
     }
@@ -507,6 +507,17 @@ fn init_world() void {
 
     ng.register_system(
         .{
+            .name = "render_system",
+            .phase = .post_update,
+        },
+        render_system,
+        .{
+            com.Position,
+        },
+    );
+
+    ng.register_system(
+        .{
             .name = "movement_system",
             .phase = .update,
         },
@@ -560,8 +571,6 @@ fn init_world() void {
     p1.set(com.VehicleKind.person);
     p2.set(com.VehicleKind.cart);
     p3.set(com.VehicleKind.bicycle);
-
-    // ng.dump_ecs();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -569,7 +578,7 @@ fn init_world() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn construction_system(iter: *const ng.SystemIterator) void {
-    log.info("  Construction System {d}", .{iter.delta_time});
+    log.info("Construction System {d} {d}", .{ iter.delta_time, iter.entities.len });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -577,7 +586,7 @@ fn construction_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn vehicle_system(iter: *const ng.SystemIterator) void {
-    log.info("  Vehicle System {d}", .{iter.delta_time});
+    log.info("Vehicle System {d} {d}", .{ iter.delta_time, iter.entities.len });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -585,7 +594,42 @@ fn vehicle_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn movement_system(iter: *const ng.SystemIterator) void {
-    log.info("  Movement System {d}", .{iter.delta_time});
+    log.info("Movement System {d} {d}", .{ iter.delta_time, iter.entities.len });
+    log.inc_depth();
+    defer log.dec_depth();
+    const dt: ng.Vec2 = @splat(iter.delta_time);
+
+    for (iter.entities) |entity| {
+        if (entity.get(com.Position)) |*position| {
+            if (entity.get(com.Velocity)) |velocity| {
+                const new_position = position.pos + velocity.vel * dt;
+                log.info("{} = {} * {} * {}", .{
+                    new_position,
+                    position,
+                    velocity,
+                    iter.delta_time,
+                });
+
+                entity.set(new_position);
+            }
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn render_system(iter: *const ng.SystemIterator) void {
+    log.info("Render System {d} {d}", .{ iter.delta_time, iter.entities.len });
+    log.inc_depth();
+    defer log.dec_depth();
+
+    for (iter.entities) |entity| {
+        if (entity.get(com.Position)) |position| {
+            log.info("Position {}", .{position});
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

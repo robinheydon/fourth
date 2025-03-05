@@ -1,6 +1,6 @@
 #!/usr/bin/sh
 
-zig build \
+time -f "%e seconds (%x exit code)" zig build \
     --color on \
     --summary all \
     -Dcpu=broadwell \

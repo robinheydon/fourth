@@ -87,6 +87,36 @@ pub const Entity = packed struct(u32) {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
+    pub fn getPtr(self: Entity, comptime Component: type) ?*Component {
+        if (!self.is_valid()) {
+            log.err("get invalid entity {}", .{self});
+            return null;
+        }
+
+        const typeid = get_type_id(Component);
+
+        if (components.getPtr(typeid)) |info| {
+            var storage = info.storage.cast(Component);
+            return storage.getPtr(self);
+        } else {
+            log.err("Component {s} not registered", .{@typeName(Component)});
+        }
+        return null;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn has_component_type(self: Entity, typeid: TypeId) bool {
+        if (components.getPtr(typeid)) |info| {
+            if (info.storage.get_data(info.storage, self)) |_| {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     pub fn delete(self: Entity) void {
         if (!self.is_valid()) {
             log.err("delete invalid entity {}", .{self});
@@ -168,6 +198,10 @@ pub fn deinit() void {
     while (component_iter.next()) |entry| {
         const component = entry.value_ptr;
         component.storage.deinit(component.storage);
+    }
+
+    for (systems.items) |*sys| {
+        sys.entities.deinit(allocator);
     }
 
     generations.deinit(allocator);
@@ -360,6 +394,11 @@ pub fn ComponentStorage(Component: type) type {
         pub fn get(self: *Self, key: Entity) ?Component {
             const idx = key.idx;
             return self.store.get(idx);
+        }
+
+        pub fn getPtr(self: *Self, key: Entity) ?*Component {
+            const idx = key.idx;
+            return self.store.getPtr(idx);
         }
 
         pub fn get_data(self: *Self, key: Entity) ?[]const u8 {
@@ -555,6 +594,7 @@ const SystemInfo = struct {
     phase: SystemPhase,
     num_arguments: usize,
     arguments: [max_system_arguments]TypeId,
+    entities: std.AutoArrayHashMapUnmanaged(Entity, void),
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -573,6 +613,7 @@ pub const SystemArgument = struct {
 
 pub const SystemIterator = struct {
     delta_time: f32,
+    entities: []Entity,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -628,6 +669,7 @@ pub fn register_system(
         .phase = options.phase,
         .num_arguments = num_arguments,
         .arguments = arguments,
+        .entities = .empty,
     };
 
     systems.append(allocator, info) catch |err| {
@@ -642,23 +684,30 @@ pub fn register_system(
 pub fn progress(dt: f32) void {
     log.info("------------------------", .{});
     log.info("progress ({d:0.3})", .{dt});
+    log.inc_depth();
+    defer log.dec_depth();
 
-    const keys = entity_changes.keys();
-    for (keys) |entity| {
-        log.info("{} changed", .{entity});
-    }
-    entity_changes.clearRetainingCapacity();
+    update_system_entities();
 
+    log.info("Sort Systems", .{});
     std.sort.block(SystemInfo, systems.items, {}, system_sorter);
 
+    log.info("Systems Iterator", .{});
+    log.inc_depth();
+    defer log.dec_depth();
     for (systems.items) |system| {
         const iterator = SystemIterator{
             .delta_time = dt,
+            .entities = system.entities.keys(),
         };
 
         system.func(&iterator);
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn system_sorter(_: void, a: SystemInfo, b: SystemInfo) bool {
     return @intFromEnum(a.phase) < @intFromEnum(b.phase);
@@ -668,24 +717,73 @@ fn system_sorter(_: void, a: SystemInfo, b: SystemInfo) bool {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn dump_ecs() void {
+fn update_system_entities() void {
+    log.info("Update System Entities", .{});
+    log.inc_depth();
+    defer log.dec_depth();
+    const keys = entity_changes.keys();
+    for (keys) |entity| {
+        log.info("{} changed", .{entity});
+        log.inc_depth();
+        defer log.dec_depth();
+        for (systems.items) |*sys| {
+            var matches = true;
+            for (sys.arguments[0..sys.num_arguments]) |arg| {
+                if (!entity.has_component_type(arg)) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                sys.entities.put(allocator, entity, {}) catch {};
+                log.info("{s}", .{sys.name});
+            } else {
+                _ = sys.entities.swapRemove(entity);
+            }
+        }
+    }
+    entity_changes.clearRetainingCapacity();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const DumpOptions = packed struct(u8) {
+    components: bool = false,
+    entities: bool = false,
+    entity_data: bool = false,
+    systems: bool = false,
+    _: u4 = 0,
+
+    pub const all: DumpOptions = .{
+        .components = true,
+        .entities = true,
+        .entity_data = true,
+        .systems = true,
+    };
+};
+
+pub fn dump_ecs(options: DumpOptions) void {
     std.debug.assert(initialized);
     log.msg("Dump ECS", .{});
+    log.inc_depth();
+    defer log.dec_depth();
 
-    const show_components = true;
-    const show_entities = true;
-    const show_entity_data = true;
-
-    if (show_components) {
+    if (options.components) {
         log.msg("Components", .{});
+        log.inc_depth();
+        defer log.dec_depth();
         var component_iter = components.iterator();
         while (component_iter.next()) |entry| {
             const component = entry.value_ptr;
-            log.msg("  {s} {s} ({} bytes)", .{
+            log.msg("{s} {s} ({} bytes)", .{
                 @tagName(component.info),
                 component.name,
                 component.size,
             });
+            log.inc_depth();
+            defer log.dec_depth();
             switch (component.info) {
                 .@"struct" => |info| {
                     for (0..info.num_fields) |i| {
@@ -694,7 +792,7 @@ pub fn dump_ecs() void {
                             .Component => {
                                 const opt_child = components.get(field.component);
                                 if (opt_child) |child| {
-                                    log.msg("    {s}: {s} (offset {}, {} bytes)", .{
+                                    log.msg("{s}: {s} (offset {}, {} bytes)", .{
                                         field.name,
                                         child.name,
                                         field.offset,
@@ -703,7 +801,7 @@ pub fn dump_ecs() void {
                                 }
                             },
                             else => {
-                                log.msg("    {s}: {s} (offset {}, {} bytes)", .{
+                                log.msg("{s}: {s} (offset {}, {} bytes)", .{
                                     field.name,
                                     @tagName(field.kind),
                                     field.offset,
@@ -716,7 +814,7 @@ pub fn dump_ecs() void {
                 .@"enum" => |info| {
                     for (0..info.num_values) |i| {
                         const value = info.values[i];
-                        log.msg("    {s} = {}", .{
+                        log.msg("{s} = {}", .{
                             value.name,
                             value.value,
                         });
@@ -726,12 +824,47 @@ pub fn dump_ecs() void {
         }
     }
 
-    if (show_entities) {
+    if (options.systems) {
+        log.msg("Systems", .{});
+        log.inc_depth();
+        defer log.dec_depth();
+        for (systems.items) |sys| {
+            var buffer = std.ArrayList(u8).init(allocator);
+            defer buffer.deinit();
+            var writer = buffer.writer();
+            writer.print("{s} {s} (", .{ sys.name, @tagName(sys.phase) }) catch {};
+            var joint = false;
+            for (0..sys.num_arguments) |i| {
+                if (components.get(sys.arguments[i])) |info| {
+                    if (joint) {
+                        writer.print(", ", .{}) catch {};
+                    }
+                    writer.print("{s}", .{info.name}) catch {};
+                    joint = true;
+                }
+            }
+            writer.print(")", .{}) catch {};
+            log.msg("{s}", .{buffer.items});
+
+            log.inc_depth();
+            defer log.dec_depth();
+
+            const system_entities = sys.entities.keys();
+            log.msg("System Entities ({})", .{system_entities.len});
+            log.inc_depth();
+            defer log.dec_depth();
+            for (system_entities) |ent| {
+                log.msg("{}", .{ent});
+            }
+        }
+    }
+
+    if (options.entities) {
         log.msg("Entities", .{});
         for (0.., generations.items) |idx, gen| {
             const ent = Entity{ .gen = gen, .idx = @intCast(idx) };
             log.msg("  Entity {}", .{ent});
-            if (show_entity_data) {
+            if (options.entity_data) {
                 var component_iter = components.iterator();
                 while (component_iter.next()) |entry| {
                     const component = entry.value_ptr;
@@ -1239,55 +1372,72 @@ test "simple system" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "movement system" {
-    if (false) {
-        init(std.testing.allocator);
-        defer deinit();
+    init(std.testing.allocator);
+    defer deinit();
 
-        const Position = struct {
-            x: f32,
-            y: f32,
-        };
+    const Position = struct {
+        x: f32,
+        y: f32,
+    };
 
-        const Velocity = struct {
-            dx: f32,
-            dy: f32,
-        };
+    const Velocity = struct {
+        dx: f32,
+        dy: f32,
+    };
 
-        register_component("Position", Position);
-        register_component("Velocity", Velocity);
+    register_component("Position", Position);
+    register_component("Velocity", Velocity);
 
-        const movement_system = (struct {
-            fn movement_system(iter: *const SystemIterator) void {
-                _ = iter;
+    const movement_system = (struct {
+        fn movement_system(iter: *const SystemIterator) void {
+            for (iter.entities) |entity| {
+                if (entity.getPtr(Position)) |pos| {
+                    if (entity.getPtr(Velocity)) |vel| {
+                        pos.x = pos.x + vel.dx * iter.delta_time;
+                        pos.y = pos.y + vel.dy * iter.delta_time;
+                    }
+                }
             }
-        }).movement_system;
+        }
+    }).movement_system;
 
-        register_system(
-            .{ .name = "Movement System" },
-            movement_system,
-            .{ Position, Velocity },
-        );
+    register_system(
+        .{ .name = "Movement System" },
+        movement_system,
+        .{ Position, Velocity },
+    );
 
-        const e0 = new();
-        const e1 = new();
+    const e0 = new();
+    const e1 = new();
 
-        e0.set(Position{ .x = 2, .y = 3 });
-        e0.set(Velocity{ .dx = 0.2, .dy = -0.1 });
+    e0.set(Position{ .x = 2, .y = 3 });
+    e0.set(Velocity{ .dx = 0.2, .dy = -0.1 });
 
-        e1.set(Position{ .x = 4, .y = 5 });
-        e1.set(Velocity{ .dx = 0.1, .dy = -0.2 });
+    e1.set(Position{ .x = 4, .y = 5 });
+    e1.set(Velocity{ .dx = 0.1, .dy = -0.2 });
 
-        progress(1);
-        progress(1);
+    progress(1);
+    progress(1);
 
-        const p0 = e0.get(Position);
-        const p1 = e0.get(Position);
+    const v0 = e0.get(Velocity) orelse return error.EntityHasNoVelocity;
+    const v1 = e1.get(Velocity) orelse return error.EntityHasNoVelocity;
 
-        try std.testing.expectEqual(Position{ .x = 2.4, .y = 2.8 }, p0);
-        try std.testing.expectEqual(Position{ .x = 4.2, .y = 4.6 }, p1);
-    }
+    const p0 = e0.get(Position) orelse return error.EntityHasNoPosition;
+    const p1 = e1.get(Position) orelse return error.EntityHasNoPosition;
 
-    return error.SkipZigTest;
+    const epsilon = 0.00001;
+
+    try std.testing.expectApproxEqAbs(0.2, v0.dx, epsilon);
+    try std.testing.expectApproxEqAbs(-0.1, v0.dy, epsilon);
+
+    try std.testing.expectApproxEqAbs(0.1, v1.dx, epsilon);
+    try std.testing.expectApproxEqAbs(-0.2, v1.dy, epsilon);
+
+    try std.testing.expectApproxEqAbs(2.4, p0.x, epsilon);
+    try std.testing.expectApproxEqAbs(2.8, p0.y, epsilon);
+
+    try std.testing.expectApproxEqAbs(4.2, p1.x, epsilon);
+    try std.testing.expectApproxEqAbs(4.6, p1.y, epsilon);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

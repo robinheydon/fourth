@@ -38,20 +38,32 @@ pub fn build(b: *std.Build) !void {
         .name = "fourth",
         .root_module = exe_mod,
         .use_llvm = false,
+        .use_lld = false,
     });
 
     b.installArtifact(exe);
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    const check_format_step = try b.allocator.create(std.Build.Step);
-    check_format_step.* = std.Build.Step.init(.{
+    const check_line_lengths_step = try b.allocator.create(std.Build.Step);
+    check_line_lengths_step.* = std.Build.Step.init(.{
         .id = std.Build.Step.Id.custom,
-        .name = "check format",
+        .name = "check line lengths",
         .owner = exe.step.owner,
-        .makeFn = check_format,
+        .makeFn = check_line_lengths,
     });
-    exe.step.dependOn(check_format_step);
+    exe.step.dependOn(check_line_lengths_step);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    const check_fmt_step = try b.allocator.create(std.Build.Step);
+    check_fmt_step.* = std.Build.Step.init(.{
+        .id = std.Build.Step.Id.custom,
+        .name = "check fmt",
+        .owner = exe.step.owner,
+        .makeFn = check_fmt,
+    });
+    exe.step.dependOn(check_fmt_step);
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -87,7 +99,8 @@ pub fn build(b: *std.Build) !void {
     });
 
     const test_run = b.addRunArtifact(ng_test);
-    test_run.step.dependOn(check_format_step);
+    test_run.step.dependOn(check_line_lengths_step);
+    test_run.step.dependOn(check_fmt_step);
 
     const test_step = b.step("test", "Test the ng");
     test_step.dependOn(&test_run.step);
@@ -97,7 +110,10 @@ pub fn build(b: *std.Build) !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn check_format(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anyerror!void {
+fn check_line_lengths(
+    step: *std.Build.Step,
+    options: std.Build.Step.MakeOptions,
+) anyerror!void {
     _ = options;
 
     const cwd = std.fs.cwd();
@@ -139,7 +155,40 @@ fn check_format(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anye
         }
     }
 
-    if (had_error) return error.LineTooLong;
+    if (had_error) return error.MakeFailed;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn check_fmt(
+    step: *std.Build.Step,
+    options: std.Build.Step.MakeOptions,
+) anyerror!void {
+    const progress_node = options.progress_node;
+    const b = step.owner;
+
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    try argv.ensureUnusedCapacity(b.allocator, 16);
+
+    argv.appendAssumeCapacity(b.graph.zig_exe);
+    argv.appendAssumeCapacity("fmt");
+    argv.appendAssumeCapacity("--check");
+    argv.appendAssumeCapacity(".");
+
+    const run_result = try step.captureChildProcess(progress_node, argv.items);
+    switch (run_result.term) {
+        .Exited => |code| {
+            if (code != 0 and run_result.stdout.len != 0) {
+                var iter = std.mem.tokenizeScalar(u8, run_result.stdout, '\n');
+                while (iter.next()) |filename| {
+                    try step.addError("{s}: needs formatting", .{filename});
+                }
+            }
+        },
+        else => {},
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
