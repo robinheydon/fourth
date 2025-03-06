@@ -62,7 +62,7 @@ pub const Entity = packed struct(u32) {
     gen: EntityGeneration,
     idx: EntityIndex,
 
-    const null_entity: Entity = .{ .idx = 0xFFFFFF, .gen = 0xFF };
+    pub const null_entity: Entity = .{ .idx = 0xFFFFFF, .gen = 0xFF };
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
