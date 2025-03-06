@@ -50,17 +50,15 @@
 - Graphics
   - Models
 
-- Linux X11
-  - Window Icon
-  - Window Title
+- Platforms
+  - Linux
+    - x11 OpenGL
+      - Window Icon
+      - Window Title
 
-- Windows
-  - Vulkan
-  - DirectX
+  - Windows
+    - Vulkan
+    - DirectX
 
-- Linux Wayland
-  - x11
-  - Vulkan
-
-- github
-  - do fossil git export from robinheydon.net
+  - Linux Wayland
+    - x11 Vulkan

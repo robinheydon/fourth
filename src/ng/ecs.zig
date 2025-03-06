@@ -244,13 +244,10 @@ pub const Entity = packed struct(u32) {
     ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn is_valid(self: Entity) bool {
-        const gen = self.gen;
-        const idx = self.idx;
-
-        if (idx >= generations.items.len) {
+        if (self.idx >= generations.items.len) {
             return false;
         }
-        if (generations.items[idx] != gen) {
+        if (generations.items[self.idx] != self.gen) {
             return false;
         }
         return true;
@@ -479,9 +476,7 @@ pub fn ComponentStorage(Component: type) type {
 
         const Self = @This();
 
-        pub const empty: Self = .{
-            .store = .empty,
-        };
+        pub const empty: Self = .{ .store = .empty };
 
         pub fn deinit(self: *Self) void {
             self.store.deinit(allocator);
@@ -495,8 +490,7 @@ pub fn ComponentStorage(Component: type) type {
         }
 
         pub fn get(self: *Self, key: Entity) ?Component {
-            const idx = key.idx;
-            return self.store.get(idx);
+            return self.store.get(key.idx);
         }
 
         pub fn getPtr(self: *Self, key: Entity) ?*Component {
