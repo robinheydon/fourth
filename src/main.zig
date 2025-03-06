@@ -562,7 +562,16 @@ fn init_world() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn construction_system(iter: *const ng.SystemIterator) void {
-    _ = iter;
+    for (iter.entities) |entity| {
+        if (entity.get(com.Construction)) |con| {
+            const new_step = con.step + iter.delta_time;
+            if (new_step >= con.steps) {
+                entity.remove(com.Construction);
+            } else {
+                entity.set(com.Construction{ .step = new_step, .steps = con.steps });
+            }
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

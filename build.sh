@@ -1,6 +1,6 @@
 #!/usr/bin/sh
 
-time zig build \
+zig build \
     --color on \
     --summary all \
     -freference-trace=32 \

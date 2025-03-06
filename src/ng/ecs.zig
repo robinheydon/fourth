@@ -28,8 +28,28 @@ var components: std.AutoHashMapUnmanaged(TypeId, ComponentTypeInfo) = .empty;
 var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
 var entity_changes: std.AutoArrayHashMapUnmanaged(Entity, void) = .empty;
 
+var staged: bool = false;
+var entity_update_data: std.ArrayListUnmanaged(u8) = .empty;
+var entity_updates: std.ArrayListUnmanaged(EntityCommand) = .empty;
+
 var inside_system: bool = false;
 var current_system: *const SystemInfo = undefined;
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const EntityCommand = union(EntityCommandKind) {
+    set: struct { entity: Entity, typeid: usize, start: usize, len: usize },
+    remove: struct { entity: Entity, typeid: usize },
+    delete: struct { entity: Entity },
+};
+
+pub const EntityCommandKind = enum {
+    set,
+    remove,
+    delete,
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -57,12 +77,34 @@ pub const Entity = packed struct(u32) {
         const typeid = get_type_id(Component);
 
         if (components.getPtr(typeid)) |info| {
-            var storage = info.storage.cast(Component);
-            if (storage.get(self)) |_| {
-                storage.set(self, value);
+            if (staged) {
+                const bytes = ng.as_bytes(&value);
+
+                const start = entity_update_data.items.len;
+                entity_update_data.appendSlice(allocator, bytes) catch {
+                    log.err("OOM set staged {} {s}", .{ self, info.name });
+                    return;
+                };
+
+                entity_updates.append(allocator, .{ .set = .{
+                    .entity = self,
+                    .typeid = typeid,
+                    .start = start,
+                    .len = bytes.len,
+                } }) catch {
+                    log.err("OOM set staged {} {s}", .{ self, info.name });
+                    return;
+                };
             } else {
-                entity_changes.put(allocator, self, {}) catch {};
-                storage.set(self, value);
+                var storage = info.storage.cast(Component);
+                if (storage.get(self)) |_| {
+                    storage.set(self, value);
+                } else {
+                    entity_changes.put(allocator, self, {}) catch {
+                        log.err("OOM set entity changes {} {s}", .{ self, info.name });
+                    };
+                    storage.set(self, value);
+                }
             }
         } else {
             log.err("Component {s} not registered", .{@typeName(Component)});
@@ -134,28 +176,68 @@ pub const Entity = packed struct(u32) {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
+    pub fn remove(self: Entity, Component: type) void {
+        if (!self.is_valid()) {
+            log.err("remove invalid entity component {} {s}", .{ self, @typeName(Component) });
+            return;
+        }
+
+        const typeid = get_type_id(Component);
+
+        if (components.getPtr(typeid)) |info| {
+            if (staged) {
+                entity_updates.append(allocator, .{ .remove = .{
+                    .entity = self,
+                    .typeid = typeid,
+                } }) catch {
+                    log.err("OOM remove {} {s}", .{ self, info.name });
+                    return;
+                };
+            } else {
+                var storage = info.storage.cast(Component);
+                entity_changes.put(allocator, self, {}) catch {
+                    log.err("OOM remove {} {s}", .{ self, info.name });
+                };
+                storage.remove(self);
+            }
+        } else {
+            log.err("Component {s} not registered", .{@typeName(Component)});
+        }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     pub fn delete(self: Entity) void {
         if (!self.is_valid()) {
             log.err("delete invalid entity {}", .{self});
             return;
         }
 
-        entity_changes.put(allocator, self, {}) catch {};
-
-        const gen = self.gen;
-        const idx = self.idx;
-
-        generations.items[idx] = gen +% 1;
-        if (generations.items[idx] == 255) {
-            old_recycled.append(allocator, idx) catch |err| {
-                log.err("delete entity failed {}", .{err});
+        if (staged) {
+            entity_updates.append(allocator, .{ .delete = .{
+                .entity = self,
+            } }) catch {
+                log.err("OOM delete {}", .{self});
                 return;
             };
         } else {
-            recycled.append(allocator, idx) catch |err| {
-                log.err("delete entity failed {}", .{err});
-                return;
-            };
+            entity_changes.put(allocator, self, {}) catch {};
+
+            const gen = self.gen;
+            const idx = self.idx;
+
+            generations.items[idx] = gen +% 1;
+            if (generations.items[idx] == 255) {
+                old_recycled.append(allocator, idx) catch |err| {
+                    log.err("delete entity failed {}", .{err});
+                    return;
+                };
+            } else {
+                recycled.append(allocator, idx) catch |err| {
+                    log.err("delete entity failed {}", .{err});
+                    return;
+                };
+            }
         }
     }
 
@@ -202,6 +284,8 @@ pub fn init(external_allocator: ?std.mem.Allocator) void {
     components = .empty;
     systems = .empty;
     entity_changes = .empty;
+    entity_updates = .empty;
+    entity_update_data = .empty;
 
     initialized = true;
 }
@@ -227,6 +311,8 @@ pub fn deinit() void {
     components.deinit(allocator);
     systems.deinit(allocator);
     entity_changes.deinit(allocator);
+    entity_updates.deinit(allocator);
+    entity_update_data.deinit(allocator);
 
     std.debug.assert(gpa.deinit() == .ok);
 }
@@ -418,6 +504,11 @@ pub fn ComponentStorage(Component: type) type {
             return self.store.getPtr(idx);
         }
 
+        pub fn remove(self: *Self, key: Entity) void {
+            const idx = key.idx;
+            _ = self.store.swapRemove(idx);
+        }
+
         pub fn get_data(self: *Self, key: Entity) ?[]const u8 {
             const idx = key.idx;
             if (self.store.getPtr(idx)) |value| {
@@ -427,6 +518,13 @@ pub fn ComponentStorage(Component: type) type {
                 return ptr;
             }
             return null;
+        }
+
+        pub fn set_data(self: *Self, key: Entity, data: []const u8) void {
+            const value: *Component = @constCast(@alignCast(@ptrCast(data)));
+            self.store.put(allocator, key.idx, value.*) catch |err| {
+                log.err("Cannot set component {} {} : {}", .{ key, value, err });
+            };
         }
     };
 }
@@ -439,6 +537,8 @@ pub const ErasedComponentStorage = struct {
     ptr: *anyopaque,
     deinit: *const fn (self: ErasedComponentStorage) void,
     get_data: *const fn (self: ErasedComponentStorage, ent: Entity) ?[]const u8,
+    set_data: *const fn (self: ErasedComponentStorage, ent: Entity, data: []const u8) void,
+    remove: *const fn (self: ErasedComponentStorage, ent: Entity) void,
 
     pub fn cast(
         self: ErasedComponentStorage,
@@ -471,6 +571,18 @@ fn init_erased_component_storage(Component: type) ErasedComponentStorage {
                 return cast_ptr.get_data(ent);
             }
         }).get_data,
+        .set_data = (struct {
+            fn set_data(self: ErasedComponentStorage, ent: Entity, data: []const u8) void {
+                const cast_ptr = self.cast(Component);
+                cast_ptr.set_data(ent, data);
+            }
+        }).set_data,
+        .remove = (struct {
+            fn remove(self: ErasedComponentStorage, ent: Entity) void {
+                const cast_ptr = self.cast(Component);
+                cast_ptr.remove(ent);
+            }
+        }).remove,
     };
 }
 
@@ -738,6 +850,8 @@ pub fn progress(dt: f32) void {
 
     std.sort.block(SystemInfo, systems.items, {}, system_sorter);
 
+    staged = true;
+
     for (systems.items) |*system| {
         const iterator = SystemIterator{
             .delta_time = dt,
@@ -753,6 +867,43 @@ pub fn progress(dt: f32) void {
         const end_time = ng.elapsed();
         system.last_elapsed = end_time - start_time;
     }
+
+    staged = false;
+
+    for (entity_updates.items) |command| {
+        switch (command) {
+            .set => |cmd| {
+                const data = entity_update_data.items[cmd.start .. cmd.start + cmd.len];
+
+                if (components.getPtr(cmd.typeid)) |info| {
+                    info.storage.set_data(info.storage, cmd.entity, data);
+                }
+
+                entity_changes.put(allocator, cmd.entity, {}) catch {
+                    log.err("OOM set entity changes {}", .{cmd.entity});
+                };
+            },
+            .remove => |cmd| {
+                if (components.getPtr(cmd.typeid)) |info| {
+                    info.storage.remove(info.storage, cmd.entity);
+                }
+
+                entity_changes.put(allocator, cmd.entity, {}) catch {
+                    log.err("OOM remove entity changes {}", .{cmd.entity});
+                };
+            },
+            .delete => |cmd| {
+                cmd.entity.delete();
+
+                entity_changes.put(allocator, cmd.entity, {}) catch {
+                    log.err("OOM delete entity changes {}", .{cmd.entity});
+                };
+            },
+        }
+    }
+
+    entity_updates.clearRetainingCapacity();
+    entity_update_data.clearRetainingCapacity();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
