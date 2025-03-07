@@ -62,3 +62,6 @@
 
   - Linux Wayland
     - x11 Vulkan
+
+- Hotreload
+  - Linux
