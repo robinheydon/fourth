@@ -19,11 +19,9 @@
   - themes
 
 - ECS
-  - systems
-  - parallel execution
-  - ordered execution
   - save to binary file
   - load from binary file
+  - (low) parallel execution
 
 - Map
   - nodes
