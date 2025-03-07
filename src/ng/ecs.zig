@@ -855,21 +855,16 @@ pub fn progress(dt: f32) void {
 
     for (systems.items) |*system| {
         var run_system = false;
-        if (system.interval > 0)
-        {
+        if (system.interval > 0) {
             system.wait_time -= dt;
-            if (system.wait_time < 0)
-            {
+            if (system.wait_time < 0) {
                 system.wait_time += system.interval;
                 run_system = true;
             }
-        }
-        else
-        {
+        } else {
             run_system = true;
         }
-        if (run_system)
-        {
+        if (run_system) {
             const iterator = SystemIterator{
                 .delta_time = dt,
                 .entities = system.entities.keys(),
