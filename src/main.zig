@@ -523,6 +523,16 @@ fn init_world() void {
         },
     );
 
+    ng.register_system(
+        .{
+            .name = "autosave",
+            .phase = .last_phase,
+            .interval = 1,
+        },
+        autosave_system,
+        .{},
+    );
+
     const n1 = ng.new();
     const n2 = ng.new();
     const n3 = ng.new();
@@ -608,6 +618,17 @@ fn render_system(iter: *const ng.SystemIterator) void {
             _ = position;
         }
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn autosave_system (iter: *const ng.SystemIterator) void {
+    _ = iter;
+    log.info ("Autosave system", .{});
+
+    ng.dump_ecs (.all);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

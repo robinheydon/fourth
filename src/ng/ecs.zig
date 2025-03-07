@@ -716,6 +716,8 @@ const SystemInfo = struct {
     func: *const fn (*const SystemIterator) void,
     phase: SystemPhase,
     last_elapsed: f64 = 0,
+    interval: f32 = 0,
+    wait_time: f32 = 0,
     num_arguments: usize,
     arguments: [max_system_arguments]TypeId,
     mutable: [max_system_arguments]bool,
@@ -748,6 +750,7 @@ pub const SystemIterator = struct {
 pub const SystemOptions = struct {
     name: []const u8,
     phase: SystemPhase = .update,
+    interval: f32 = 0,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -755,6 +758,7 @@ pub const SystemOptions = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const SystemPhase = enum {
+    first_phase,
     pre_run,
     run,
     post_run,
@@ -767,6 +771,7 @@ pub const SystemPhase = enum {
     pre_render,
     render,
     post_render,
+    last_phase,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -824,6 +829,8 @@ pub fn register_system(
         .name = options.name,
         .func = func,
         .phase = options.phase,
+        .interval = options.interval,
+        .wait_time = options.interval,
         .num_arguments = num_arguments,
         .arguments = arguments,
         .mutable = mutable,
@@ -847,19 +854,36 @@ pub fn progress(dt: f32) void {
     staged = true;
 
     for (systems.items) |*system| {
-        const iterator = SystemIterator{
-            .delta_time = dt,
-            .entities = system.entities.keys(),
-        };
+        var run_system = false;
+        if (system.interval > 0)
+        {
+            system.wait_time -= dt;
+            if (system.wait_time < 0)
+            {
+                system.wait_time += system.interval;
+                run_system = true;
+            }
+        }
+        else
+        {
+            run_system = true;
+        }
+        if (run_system)
+        {
+            const iterator = SystemIterator{
+                .delta_time = dt,
+                .entities = system.entities.keys(),
+            };
 
-        const start_time = ng.elapsed();
-        current_system = system;
-        inside_system = true;
-        defer inside_system = false;
-        system.func(&iterator);
-        current_system = undefined;
-        const end_time = ng.elapsed();
-        system.last_elapsed = end_time - start_time;
+            const start_time = ng.elapsed();
+            current_system = system;
+            inside_system = true;
+            defer inside_system = false;
+            system.func(&iterator);
+            current_system = undefined;
+            const end_time = ng.elapsed();
+            system.last_elapsed = end_time - start_time;
+        }
     }
 
     staged = false;
