@@ -851,72 +851,93 @@ pub fn progress(dt: f32) void {
 
     std.sort.block(SystemInfo, systems.items, {}, system_sorter);
 
-    staged = true;
+    var number_used_phases: usize = 0;
+    var used_phases: [16]SystemPhase = undefined;
 
-    for (systems.items) |*system| {
-        var run_system = false;
-        if (system.interval > 0) {
-            system.wait_time -= dt;
-            if (system.wait_time < 0) {
-                system.wait_time += system.interval;
-                run_system = true;
+    for (systems.items) |system| {
+        if (number_used_phases == 0 or used_phases[number_used_phases - 1] != system.phase)
+        {
+            used_phases[number_used_phases] = system.phase;
+            number_used_phases += 1;
+        }
+    }
+
+    for (used_phases[0..number_used_phases]) |phase|
+    {
+        staged = true;
+        for (systems.items) |*system| {
+            if (system.phase == phase)
+            {
+                var run_system : bool = undefined;
+                if (system.interval > 0) {
+                    system.wait_time -= dt;
+                    if (system.wait_time < 0) {
+                        system.wait_time += system.interval;
+                        run_system = true;
+                    }
+                    else
+                    {
+                        run_system = false;
+                    }
+                } else {
+                    run_system = true;
+                }
+                if (run_system) {
+                    const start_time = ng.elapsed();
+
+                    const iterator = SystemIterator{
+                        .delta_time = dt,
+                        .entities = system.entities.keys(),
+                    };
+
+                    current_system = system;
+                    inside_system = true;
+                    defer inside_system = false;
+                    system.func(&iterator);
+                    current_system = undefined;
+
+                    const end_time = ng.elapsed();
+                    system.last_elapsed = end_time - start_time;
+                }
             }
-        } else {
-            run_system = true;
         }
-        if (run_system) {
-            const iterator = SystemIterator{
-                .delta_time = dt,
-                .entities = system.entities.keys(),
-            };
+        staged = false;
 
-            const start_time = ng.elapsed();
-            current_system = system;
-            inside_system = true;
-            defer inside_system = false;
-            system.func(&iterator);
-            current_system = undefined;
-            const end_time = ng.elapsed();
-            system.last_elapsed = end_time - start_time;
+        for (entity_updates.items) |command| {
+            switch (command) {
+                .set => |cmd| {
+                    const data = entity_update_data.items[cmd.start .. cmd.start + cmd.len];
+
+                    if (components.getPtr(cmd.typeid)) |info| {
+                        info.storage.set_data(info.storage, cmd.entity, data);
+                    }
+
+                    entity_changes.put(allocator, cmd.entity, {}) catch {
+                        log.err("OOM set entity changes {}", .{cmd.entity});
+                    };
+                },
+                .remove => |cmd| {
+                    if (components.getPtr(cmd.typeid)) |info| {
+                        info.storage.remove(info.storage, cmd.entity);
+                    }
+
+                    entity_changes.put(allocator, cmd.entity, {}) catch {
+                        log.err("OOM remove entity changes {}", .{cmd.entity});
+                    };
+                },
+                .delete => |cmd| {
+                    cmd.entity.delete();
+
+                    entity_changes.put(allocator, cmd.entity, {}) catch {
+                        log.err("OOM delete entity changes {}", .{cmd.entity});
+                    };
+                },
+            }
         }
+
+        entity_updates.clearRetainingCapacity();
+        entity_update_data.clearRetainingCapacity();
     }
-
-    staged = false;
-
-    for (entity_updates.items) |command| {
-        switch (command) {
-            .set => |cmd| {
-                const data = entity_update_data.items[cmd.start .. cmd.start + cmd.len];
-
-                if (components.getPtr(cmd.typeid)) |info| {
-                    info.storage.set_data(info.storage, cmd.entity, data);
-                }
-
-                entity_changes.put(allocator, cmd.entity, {}) catch {
-                    log.err("OOM set entity changes {}", .{cmd.entity});
-                };
-            },
-            .remove => |cmd| {
-                if (components.getPtr(cmd.typeid)) |info| {
-                    info.storage.remove(info.storage, cmd.entity);
-                }
-
-                entity_changes.put(allocator, cmd.entity, {}) catch {
-                    log.err("OOM remove entity changes {}", .{cmd.entity});
-                };
-            },
-            .delete => |cmd| {
-                cmd.entity.delete();
-
-                entity_changes.put(allocator, cmd.entity, {}) catch {
-                    log.err("OOM delete entity changes {}", .{cmd.entity});
-                };
-            },
-        }
-    }
-
-    entity_updates.clearRetainingCapacity();
-    entity_update_data.clearRetainingCapacity();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -938,10 +959,10 @@ fn update_system_entities() void {
     const keys = entity_changes.keys();
     for (keys) |entity| {
         for (systems.items) |*sys| {
-            var matches = true;
+            var matches = false;
             for (sys.arguments[0..sys.num_arguments]) |arg| {
-                if (!entity.has_component_type(arg)) {
-                    matches = false;
+                if (entity.has_component_type(arg)) {
+                    matches = true;
                     break;
                 }
             }
