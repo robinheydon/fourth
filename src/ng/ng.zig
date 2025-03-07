@@ -92,8 +92,9 @@ pub const SystemIterator = ecs.SystemIterator;
 pub const register_component = ecs.register_component;
 pub const register_system = ecs.register_system;
 pub const new = ecs.new;
-pub const dump_ecs = ecs.dump_ecs;
+pub const dump = ecs.dump;
 pub const progress = ecs.progress;
+pub const save = ecs.save;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////

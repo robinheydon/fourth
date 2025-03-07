@@ -79,7 +79,7 @@ pub fn main() !void {
         try command_buffer.submit();
     }
 
-    ng.ecs.dump_ecs(.all);
+    ng.dump(.all);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -628,7 +628,9 @@ fn autosave_system(iter: *const ng.SystemIterator) void {
     _ = iter;
     log.info("Autosave system", .{});
 
-    ng.dump_ecs(.all);
+    ng.save("autosave.dat") catch |err| {
+        log.err("Failed to save {}", .{err});
+    };
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

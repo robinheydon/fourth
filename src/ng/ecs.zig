@@ -59,8 +59,8 @@ const EntityIndex = u24;
 const EntityGeneration = u8;
 
 pub const Entity = packed struct(u32) {
-    gen: EntityGeneration,
     idx: EntityIndex,
+    gen: EntityGeneration,
 
     pub const null_entity: Entity = .{ .idx = 0xFFFFFF, .gen = 0xFF };
 
@@ -407,22 +407,22 @@ const ComponentStructInfo = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const ComponentEnumInfo = struct {
-    tag_type: ComponentEnumKind,
-    num_values: usize,
-    values: [max_enum_values]EnumValue,
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
 const ComponentField = struct {
     name: []const u8,
     offset: usize,
     size: usize,
     kind: ComponentFieldKind,
     component: usize,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const ComponentEnumInfo = struct {
+    tag_type: ComponentEnumKind,
+    num_values: u8,
+    values: [max_enum_values]EnumValue,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -634,6 +634,7 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
                 info.fields[i].offset = @offsetOf(Component, field.name);
                 info.fields[i].size = @sizeOf(field.type);
                 info.fields[i].kind = kind;
+                info.fields[i].component = 0;
                 info.num_fields = i + 1;
             }
 
@@ -855,28 +856,23 @@ pub fn progress(dt: f32) void {
     var used_phases: [16]SystemPhase = undefined;
 
     for (systems.items) |system| {
-        if (number_used_phases == 0 or used_phases[number_used_phases - 1] != system.phase)
-        {
+        if (number_used_phases == 0 or used_phases[number_used_phases - 1] != system.phase) {
             used_phases[number_used_phases] = system.phase;
             number_used_phases += 1;
         }
     }
 
-    for (used_phases[0..number_used_phases]) |phase|
-    {
+    for (used_phases[0..number_used_phases]) |phase| {
         staged = true;
         for (systems.items) |*system| {
-            if (system.phase == phase)
-            {
-                var run_system : bool = undefined;
+            if (system.phase == phase) {
+                var run_system: bool = undefined;
                 if (system.interval > 0) {
                     system.wait_time -= dt;
                     if (system.wait_time < 0) {
                         system.wait_time += system.interval;
                         run_system = true;
-                    }
-                    else
-                    {
+                    } else {
                         run_system = false;
                     }
                 } else {
@@ -980,6 +976,194 @@ fn update_system_entities() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const InternedStrings = struct {
+    data: std.ArrayListUnmanaged(u8) = .empty,
+
+    pub fn intern(self: *InternedStrings, string: []const u8) u32 {
+        if (std.mem.indexOf(u8, self.data.items, string)) |index| {
+            return @intCast(index);
+        }
+        const offset = self.data.items.len;
+        self.data.appendSlice(allocator, string) catch return 0;
+        return @intCast(offset);
+    }
+};
+
+var save_string_data: InternedStrings = .{};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn save(filename: []const u8) !void {
+    const cwd = std.fs.cwd();
+    const file = try cwd.createFile(filename, .{});
+    defer file.close();
+
+    save_string_data = .{};
+
+    const head_offset = try write_header(file, "HEAD");
+    try write_u32(file, 0);
+    try write_header_length(file, head_offset);
+
+    try save_component_info(file);
+
+    try save_entity_info(file);
+
+    const strings_offset = try save_strings(file);
+    save_string_data.data.deinit(allocator);
+
+    try file.seekTo(head_offset + 8);
+    try write_u32(file, @intCast(strings_offset));
+}
+
+fn save_component_info(file: std.fs.File) !void {
+    var component_iter = components.iterator();
+    while (component_iter.next()) |entry| {
+        const offset = try write_header(file, "COMP");
+
+        const typeid = entry.key_ptr.*;
+        const component = entry.value_ptr;
+
+        try write_int(file, typeid);
+
+        try write_string(file, component.name);
+
+        try write_int(file, @intCast(component.size));
+
+        switch (component.info) {
+            .@"struct" => |info| {
+                try write_int(file, 0);
+                try write_int(file, info.num_fields);
+                for (0..info.num_fields) |i| {
+                    const field = info.fields[i];
+                    try write_string(file, field.name);
+                    try write_int(file, field.offset);
+                    try write_int(file, field.size);
+                    try write_int(file, @intFromEnum(field.kind));
+                    try write_int(file, field.component);
+                }
+            },
+            .@"enum" => |info| {
+                try write_int(file, 1);
+                try write_int(file, @intFromEnum(info.tag_type));
+                try write_int(file, info.num_values);
+
+                for (0..info.num_values) |i| {
+                    const enum_value = info.values[i];
+                    try write_int(file, enum_value.value);
+                    try write_string(file, enum_value.name);
+                }
+            },
+        }
+
+        try write_header_length(file, offset);
+    }
+}
+
+fn save_entity_info(file: std.fs.File) !void {
+    for (0.., generations.items) |idx, gen| {
+        const offset = try write_header(file, "ENTT");
+        const ent = Entity{ .gen = gen, .idx = @intCast(idx) };
+        try write_u32(file, @bitCast(ent));
+        var component_iter = components.iterator();
+        while (component_iter.next()) |entry| {
+            const typeid = entry.key_ptr.*;
+            const component = entry.value_ptr;
+            if (component.get_data(ent)) |data| {
+                try write_int(file, typeid);
+                try write_int(file, data.len);
+                _ = try file.write(data);
+            }
+        }
+        try write_header_length(file, offset);
+    }
+}
+
+fn write_int(file: std.fs.File, value: usize) !void {
+    if (value <= 0x7F) {
+        try write_u8(file, @intCast(value));
+    } else if (value <= 0x3FFF) {
+        const new_value: u16 = @intCast(value | 0x8000);
+        try write_u16(file, new_value);
+    } else if (value <= 0x1FFF_FFFF) {
+        const new_value: u32 = @intCast(value | 0xC000_0000);
+        try write_u32(file, new_value);
+    } else {
+        try write_u8(file, 0xF0);
+        try write_u64(file, value);
+    }
+}
+
+fn write_u8(file: std.fs.File, value: u8) !void {
+    var data: []u8 = undefined;
+    data.ptr = @constCast(@ptrCast(&value));
+    data.len = 1;
+    _ = try file.write(data);
+}
+
+fn write_u16(file: std.fs.File, value: u16) !void {
+    const bsv = @byteSwap(value);
+    var data: []u8 = undefined;
+    data.ptr = @constCast(@ptrCast(&bsv));
+    data.len = 2;
+    _ = try file.write(data);
+}
+
+fn write_u32(file: std.fs.File, value: u32) !void {
+    const bsv = @byteSwap(value);
+    var data: []u8 = undefined;
+    data.ptr = @constCast(@ptrCast(&bsv));
+    data.len = 4;
+    _ = try file.write(data);
+}
+
+fn write_u64(file: std.fs.File, value: u64) !void {
+    const bsv = @byteSwap(value);
+    var data: []u8 = undefined;
+    data.ptr = @constCast(@ptrCast(&bsv));
+    data.len = 8;
+    _ = try file.write(data);
+}
+
+fn write_string(file: std.fs.File, string: []const u8) !void {
+    const interned = save_string_data.intern(string);
+    const len: u32 = @intCast(string.len);
+
+    try write_int(file, interned);
+    try write_int(file, len);
+}
+
+fn write_header(file: std.fs.File, label: *const [4:0]u8) !u64 {
+    const offset = file.getPos();
+    try write_u32(file, 0);
+    _ = try file.write(label);
+
+    return offset;
+}
+
+fn write_header_length(file: std.fs.File, offset: u64) !void {
+    const new_offset = try file.getPos();
+    const length: u32 = @intCast(new_offset - offset);
+    try file.seekTo(offset);
+    try write_u32(file, length);
+    try file.seekTo(new_offset);
+}
+
+fn save_strings(file: std.fs.File) !u64 {
+    const offset = try write_header(file, "STR:");
+
+    _ = try file.write(save_string_data.data.items);
+
+    try write_header_length(file, offset);
+
+    return offset;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const DumpOptions = packed struct(u8) {
     components: bool = false,
     entities: bool = false,
@@ -995,7 +1179,7 @@ const DumpOptions = packed struct(u8) {
     };
 };
 
-pub fn dump_ecs(options: DumpOptions) void {
+pub fn dump(options: DumpOptions) void {
     std.debug.assert(initialized);
     log.msg("Dump ECS", .{});
     log.inc_depth();
@@ -1656,7 +1840,7 @@ test "movement system" {
     progress(1);
     progress(1);
 
-    dump_ecs(.all);
+    dump(.all);
 
     const v0 = e0.get(Velocity) orelse return error.EntityHasNoVelocity;
     const v1 = e1.get(Velocity) orelse return error.EntityHasNoVelocity;
