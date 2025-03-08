@@ -21,6 +21,7 @@
 - ECS
   - save to binary file
   - load from binary file
+  - (low) create webserver to expose state of ECS
   - (low) parallel execution
 
 - Map
@@ -44,6 +45,11 @@
   - populate buildings
   - create companies
   - just add an economy !!!
+  - Trees
+    - plant trees
+    - grow trees
+    - harvest trees -> trunks / branches / leaves
+    - cut branches -> planks / posts / sawdust
 
 - Graphics
   - Models
