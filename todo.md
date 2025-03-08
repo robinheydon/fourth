@@ -50,9 +50,30 @@
     - grow trees
     - harvest trees -> trunks / branches / leaves
     - cut branches -> planks / posts / sawdust
+  - Education
+    - skills
+    - schools
+    - job learnt skills
+  - Health
+    - activity level
+    - food quality
+    - water quality
+    - waste management
+  - Domesticated Animals
+    - wool (sheep)
+    - feathers (duck)
+    - meat (sheep / pigs / goat / cow / horse / chicken / duck)
+    - milk (cow / goat / sheep)
+    - eggs (chicken / duck)
+  - Wild Animals
+    - fox
+    - bear
+    - dear
+    - rabbit
 
 - Graphics
   - Models
+  - Instanced draw
 
 - Platforms
   - Linux

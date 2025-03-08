@@ -78,8 +78,6 @@ pub fn main() !void {
         render_pass.end();
         try command_buffer.submit();
     }
-
-    ng.dump(.all);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -539,6 +537,8 @@ fn init_world() void {
     const l1 = ng.new();
     const n4 = ng.new();
     const n5 = ng.new();
+    const l2a = ng.new();
+    l2a.delete();
     const l2 = ng.new();
 
     n1.set(com.Node{ .pos = .{ 10, 10 } });
@@ -565,6 +565,18 @@ fn init_world() void {
     p1.set(com.VehicleKind.person);
     p2.set(com.VehicleKind.cart);
     p3.set(com.VehicleKind.bicycle);
+
+    const p4 = ng.new();
+    p4.set(com.Position{ .pos = .{ 10, 8 } });
+    p4.set(com.Velocity{ .vel = .{ 0, -1 } });
+    p4.set(com.VehicleKind.truck);
+
+    for (0..1000) |_| {
+        const p5 = ng.new();
+        p5.delete();
+    }
+
+    p4.delete();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -626,8 +638,6 @@ fn render_system(iter: *const ng.SystemIterator) void {
 
 fn autosave_system(iter: *const ng.SystemIterator) void {
     _ = iter;
-    log.info("Autosave system", .{});
-
     ng.save("autosave.dat") catch |err| {
         log.err("Failed to save {}", .{err});
     };

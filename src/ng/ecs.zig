@@ -17,8 +17,6 @@ var allocator: std.mem.Allocator = undefined;
 
 var initialized = false;
 
-var next_entity_index: usize = 0;
-
 var generations: std.ArrayListUnmanaged(EntityGeneration) = .empty;
 var recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 var old_recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
@@ -26,7 +24,7 @@ var old_recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 var components: std.AutoHashMapUnmanaged(TypeId, ComponentTypeInfo) = .empty;
 
 var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
-var entity_changes: std.AutoArrayHashMapUnmanaged(Entity, void) = .empty;
+var entity_changes: std.AutoArrayHashMapUnmanaged(EntityIndex, void) = .empty;
 
 var staged: bool = false;
 var entity_update_data: std.ArrayListUnmanaged(u8) = .empty;
@@ -100,7 +98,7 @@ pub const Entity = packed struct(u32) {
                 if (storage.get(self)) |_| {
                     storage.set(self, value);
                 } else {
-                    entity_changes.put(allocator, self, {}) catch {
+                    entity_changes.put(allocator, self.idx, {}) catch {
                         log.err("OOM set entity changes {} {s}", .{ self, info.name });
                     };
                     storage.set(self, value);
@@ -195,7 +193,7 @@ pub const Entity = packed struct(u32) {
                 };
             } else {
                 var storage = info.storage.cast(Component);
-                entity_changes.put(allocator, self, {}) catch {
+                entity_changes.put(allocator, self.idx, {}) catch {
                     log.err("OOM remove {} {s}", .{ self, info.name });
                 };
                 storage.remove(self);
@@ -221,7 +219,7 @@ pub const Entity = packed struct(u32) {
                 return;
             };
         } else {
-            entity_changes.put(allocator, self, {}) catch {};
+            entity_changes.put(allocator, self.idx, {}) catch {};
 
             const gen = self.gen;
             const idx = self.idx;
@@ -237,6 +235,12 @@ pub const Entity = packed struct(u32) {
                     log.err("delete entity failed {}", .{err});
                     return;
                 };
+            }
+
+            var component_iter = components.iterator();
+            while (component_iter.next()) |entry| {
+                const component = entry.value_ptr;
+                component.storage.remove(component.storage, self);
             }
         }
     }
@@ -324,7 +328,7 @@ pub fn new() Entity {
     if (recycled.pop()) |idx| {
         const gen = generations.items[idx];
         const self = Entity{ .gen = gen, .idx = idx };
-        entity_changes.put(allocator, self, {}) catch {};
+        entity_changes.put(allocator, self.idx, {}) catch {};
         return self;
     }
 
@@ -335,7 +339,7 @@ pub fn new() Entity {
     };
 
     const self = Entity{ .gen = 0, .idx = index };
-    entity_changes.put(allocator, self, {}) catch {};
+    entity_changes.put(allocator, self.idx, {}) catch {};
 
     return self;
 }
@@ -420,7 +424,7 @@ const ComponentField = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const ComponentEnumInfo = struct {
-    tag_type: ComponentEnumKind,
+    tag_type: ComponentFieldKind,
     num_values: u8,
     values: [max_enum_values]EnumValue,
 };
@@ -452,18 +456,6 @@ const ComponentFieldKind = enum {
     f64,
     Entity,
     Vec2,
-    Component,
-    unknown,
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const ComponentEnumKind = enum {
-    u8,
-    u16,
-    u32,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -908,7 +900,7 @@ pub fn progress(dt: f32) void {
                         info.storage.set_data(info.storage, cmd.entity, data);
                     }
 
-                    entity_changes.put(allocator, cmd.entity, {}) catch {
+                    entity_changes.put(allocator, cmd.entity.idx, {}) catch {
                         log.err("OOM set entity changes {}", .{cmd.entity});
                     };
                 },
@@ -917,14 +909,14 @@ pub fn progress(dt: f32) void {
                         info.storage.remove(info.storage, cmd.entity);
                     }
 
-                    entity_changes.put(allocator, cmd.entity, {}) catch {
+                    entity_changes.put(allocator, cmd.entity.idx, {}) catch {
                         log.err("OOM remove entity changes {}", .{cmd.entity});
                     };
                 },
                 .delete => |cmd| {
                     cmd.entity.delete();
 
-                    entity_changes.put(allocator, cmd.entity, {}) catch {
+                    entity_changes.put(allocator, cmd.entity.idx, {}) catch {
                         log.err("OOM delete entity changes {}", .{cmd.entity});
                     };
                 },
@@ -953,7 +945,8 @@ fn system_sorter(_: void, a: SystemInfo, b: SystemInfo) bool {
 
 fn update_system_entities() void {
     const keys = entity_changes.keys();
-    for (keys) |entity| {
+    for (keys) |idx| {
+        const entity = Entity{ .idx = idx, .gen = generations.items[idx] };
         for (systems.items) |*sys| {
             var matches = false;
             for (sys.arguments[0..sys.num_arguments]) |arg| {
@@ -1004,11 +997,17 @@ pub fn save(filename: []const u8) !void {
 
     const head_offset = try write_header(file, "HEAD");
     try write_u32(file, 0);
+    inline for (std.meta.fields(ComponentFieldKind)) |field| {
+        try write_int(file, field.value);
+        try write_string(file, field.name);
+    }
     try write_header_length(file, head_offset);
 
     try save_component_info(file);
 
     try save_entity_info(file);
+
+    try save_recycled(file);
 
     const strings_offset = try save_strings(file);
     save_string_data.data.deinit(allocator);
@@ -1078,6 +1077,20 @@ fn save_entity_info(file: std.fs.File) !void {
         }
         try write_header_length(file, offset);
     }
+}
+
+fn save_recycled(file: std.fs.File) !void {
+    const recycled_offset = try write_header(file, "RCYC");
+    for (recycled.items) |ent| {
+        try write_int(file, ent);
+    }
+    try write_header_length(file, recycled_offset);
+
+    const old_recycled_offset = try write_header(file, "OLDR");
+    for (old_recycled.items) |ent| {
+        try write_int(file, ent);
+    }
+    try write_header_length(file, old_recycled_offset);
 }
 
 fn write_int(file: std.fs.File, value: usize) !void {
@@ -1203,27 +1216,12 @@ pub fn dump(options: DumpOptions) void {
                 .@"struct" => |info| {
                     for (0..info.num_fields) |i| {
                         const field = info.fields[i];
-                        switch (field.kind) {
-                            .Component => {
-                                const opt_child = components.get(field.component);
-                                if (opt_child) |child| {
-                                    log.msg("{s}: {s} (offset {}, {} bytes)", .{
-                                        field.name,
-                                        child.name,
-                                        field.offset,
-                                        field.size,
-                                    });
-                                }
-                            },
-                            else => {
-                                log.msg("{s}: {s} (offset {}, {} bytes)", .{
-                                    field.name,
-                                    @tagName(field.kind),
-                                    field.offset,
-                                    field.size,
-                                });
-                            },
-                        }
+                        log.msg("{s}: {s} (offset {}, {} bytes)", .{
+                            field.name,
+                            @tagName(field.kind),
+                            field.offset,
+                            field.size,
+                        });
                     }
                 },
                 .@"enum" => |info| {
@@ -1463,20 +1461,6 @@ fn dump_entity_component(
                                 value.*,
                             });
                         },
-                        .Component => {
-                            log.msg("    {s}{s}.{s} = ?", .{
-                                prefix,
-                                component.name,
-                                field.name,
-                            });
-                        },
-                        .unknown => {
-                            log.msg("    {s}{s}.{s} = ??", .{
-                                prefix,
-                                component.name,
-                                field.name,
-                            });
-                        },
                     }
                 }
             }
@@ -1531,6 +1515,7 @@ fn dump_entity_component(
                         }
                     },
                     .u32 => {},
+                    else => {},
                 }
             }
         },
