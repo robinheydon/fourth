@@ -21,7 +21,7 @@ var generations: std.ArrayListUnmanaged(EntityGeneration) = .empty;
 var recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 var old_recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 
-var components: std.AutoHashMapUnmanaged(TypeId, ComponentTypeInfo) = .empty;
+var components: std.ArrayListUnmanaged(ComponentInfo) = .empty;
 
 var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
 var entity_changes: std.AutoArrayHashMapUnmanaged(EntityIndex, void) = .empty;
@@ -38,8 +38,8 @@ var current_system: *const SystemInfo = undefined;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const EntityCommand = union(EntityCommandKind) {
-    set: struct { entity: Entity, typeid: usize, start: usize, len: usize },
-    remove: struct { entity: Entity, typeid: usize },
+    set: struct { entity: Entity, type_id: usize, start: usize, len: usize },
+    remove: struct { entity: Entity, type_id: usize },
     delete: struct { entity: Entity },
 };
 
@@ -72,40 +72,37 @@ pub const Entity = packed struct(u32) {
             return;
         }
 
-        const typeid = get_type_id(Component);
+        const type_id = get_type_id(Component);
 
-        if (components.getPtr(typeid)) |info| {
-            if (staged) {
-                const bytes = ng.as_bytes(&value);
+        const info = components.items[type_id];
+        if (staged) {
+            const bytes = ng.as_bytes(&value);
 
-                const start = entity_update_data.items.len;
-                entity_update_data.appendSlice(allocator, bytes) catch {
-                    log.err("OOM set staged {} {s}", .{ self, info.name });
-                    return;
-                };
+            const start = entity_update_data.items.len;
+            entity_update_data.appendSlice(allocator, bytes) catch {
+                log.err("OOM set staged {} {s}", .{ self, info.name });
+                return;
+            };
 
-                entity_updates.append(allocator, .{ .set = .{
-                    .entity = self,
-                    .typeid = typeid,
-                    .start = start,
-                    .len = bytes.len,
-                } }) catch {
-                    log.err("OOM set staged {} {s}", .{ self, info.name });
-                    return;
-                };
-            } else {
-                var storage = info.storage.cast(Component);
-                if (storage.get(self)) |_| {
-                    storage.set(self, value);
-                } else {
-                    entity_changes.put(allocator, self.idx, {}) catch {
-                        log.err("OOM set entity changes {} {s}", .{ self, info.name });
-                    };
-                    storage.set(self, value);
-                }
-            }
+            entity_updates.append(allocator, .{ .set = .{
+                .entity = self,
+                .type_id = type_id,
+                .start = start,
+                .len = bytes.len,
+            } }) catch {
+                log.err("OOM set staged {} {s}", .{ self, info.name });
+                return;
+            };
         } else {
-            log.err("Component {s} not registered", .{@typeName(Component)});
+            var storage = info.storage.cast(Component);
+            if (storage.get(self)) |_| {
+                storage.set(self, value);
+            } else {
+                entity_changes.put(allocator, self.idx, {}) catch {
+                    log.err("OOM set entity changes {} {s}", .{ self, info.name });
+                };
+                storage.set(self, value);
+            }
         }
     }
 
@@ -117,15 +114,11 @@ pub const Entity = packed struct(u32) {
             return null;
         }
 
-        const typeid = get_type_id(Component);
+        const type_id = get_type_id(Component);
 
-        if (components.getPtr(typeid)) |info| {
-            var storage = info.storage.cast(Component);
-            return storage.get(self);
-        } else {
-            log.err("Component {s} not registered", .{@typeName(Component)});
-        }
-        return null;
+        const info = components.items[type_id];
+        const storage = info.storage.cast(Component);
+        return storage.get(self);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -136,11 +129,11 @@ pub const Entity = packed struct(u32) {
             return null;
         }
 
-        const typeid = get_type_id(Component);
+        const type_id = get_type_id(Component);
 
         if (inside_system) {
             for (0..current_system.num_arguments) |i| {
-                if (typeid == current_system.arguments[i]) {
+                if (type_id == current_system.arguments[i]) {
                     if (!current_system.mutable[i]) {
                         log.err("System {s} called getPtr on a non-mutable component {s}", .{
                             current_system.name,
@@ -152,22 +145,17 @@ pub const Entity = packed struct(u32) {
             }
         }
 
-        if (components.getPtr(typeid)) |info| {
-            var storage = info.storage.cast(Component);
-            return storage.getPtr(self);
-        } else {
-            log.err("Component {s} not registered", .{@typeName(Component)});
-        }
-        return null;
+        const info = components.items[type_id];
+        const storage = info.storage.cast(Component);
+        return storage.getPtr(self);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    pub fn has_component_type(self: Entity, typeid: TypeId) bool {
-        if (components.getPtr(typeid)) |info| {
-            if (info.storage.get_data(info.storage, self)) |_| {
-                return true;
-            }
+    pub fn has_component_type(self: Entity, type_id: TypeId) bool {
+        const info = components.items[type_id];
+        if (info.storage.get_data(info.storage, self)) |_| {
+            return true;
         }
         return false;
     }
@@ -180,26 +168,23 @@ pub const Entity = packed struct(u32) {
             return;
         }
 
-        const typeid = get_type_id(Component);
+        const type_id = get_type_id(Component);
 
-        if (components.getPtr(typeid)) |info| {
-            if (staged) {
-                entity_updates.append(allocator, .{ .remove = .{
-                    .entity = self,
-                    .typeid = typeid,
-                } }) catch {
-                    log.err("OOM remove {} {s}", .{ self, info.name });
-                    return;
-                };
-            } else {
-                var storage = info.storage.cast(Component);
-                entity_changes.put(allocator, self.idx, {}) catch {
-                    log.err("OOM remove {} {s}", .{ self, info.name });
-                };
-                storage.remove(self);
-            }
+        const info = components.items[type_id];
+        if (staged) {
+            entity_updates.append(allocator, .{ .remove = .{
+                .entity = self,
+                .type_id = type_id,
+            } }) catch {
+                log.err("OOM remove {} {s}", .{ self, info.name });
+                return;
+            };
         } else {
-            log.err("Component {s} not registered", .{@typeName(Component)});
+            var storage = info.storage.cast(Component);
+            entity_changes.put(allocator, self.idx, {}) catch {
+                log.err("OOM remove {} {s}", .{ self, info.name });
+            };
+            storage.remove(self);
         }
     }
 
@@ -237,9 +222,7 @@ pub const Entity = packed struct(u32) {
                 };
             }
 
-            var component_iter = components.iterator();
-            while (component_iter.next()) |entry| {
-                const component = entry.value_ptr;
+            for (components.items) |component| {
                 component.storage.remove(component.storage, self);
             }
         }
@@ -296,9 +279,8 @@ pub fn init(external_allocator: ?std.mem.Allocator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn deinit() void {
-    var component_iter = components.iterator();
-    while (component_iter.next()) |entry| {
-        const component = entry.value_ptr;
+    for (components.items) |component| {
+        component.type_id_ptr.* = invalid_type_id;
         component.storage.deinit(component.storage);
     }
 
@@ -369,13 +351,14 @@ const max_enum_values = 32;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const ComponentTypeInfo = struct {
+const ComponentInfo = struct {
     storage: ErasedComponentStorage = undefined,
     name: []const u8 = undefined,
     size: usize = undefined,
     info: ComponentData = undefined,
+    type_id_ptr: *u32 = undefined,
 
-    pub fn get_data(self: ComponentTypeInfo, ent: Entity) ?[]const u8 {
+    pub fn get_data(self: ComponentInfo, ent: Entity) ?[]const u8 {
         return self.storage.get_data(self.storage, ent);
     }
 };
@@ -416,7 +399,6 @@ const ComponentField = struct {
     offset: usize,
     size: usize,
     kind: ComponentFieldKind,
-    component: usize,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -579,11 +561,14 @@ fn init_erased_component_storage(Component: type) ErasedComponentStorage {
 pub fn register_component(comptime name: []const u8, comptime Component: type) void {
     std.debug.assert(initialized);
 
-    const type_id = get_type_id(Component);
-    if (components.get(type_id)) |_| {
+    const type_id_ptr = get_type_id_ptr(Component);
+    if (type_id_ptr.* != invalid_type_id) {
         log.warn("component {s} already registered", .{name});
         return;
     }
+
+    const type_id: TypeId = @intCast(components.items.len);
+    type_id_ptr.* = type_id;
 
     log.info("register component {s} {s} {x}", .{ name, @typeName(Component), type_id });
 
@@ -626,18 +611,18 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
                 info.fields[i].offset = @offsetOf(Component, field.name);
                 info.fields[i].size = @sizeOf(field.type);
                 info.fields[i].kind = kind;
-                info.fields[i].component = 0;
                 info.num_fields = i + 1;
             }
 
-            const type_info: ComponentTypeInfo = .{
+            const type_info: ComponentInfo = .{
                 .name = name,
                 .size = @sizeOf(Component),
                 .info = .{ .@"struct" = info },
                 .storage = init_erased_component_storage(Component),
+                .type_id_ptr = type_id_ptr,
             };
 
-            components.put(allocator, type_id, type_info) catch |err| {
+            components.append(allocator, type_info) catch |err| {
                 log.err("register_component failed {}", .{err});
                 return;
             };
@@ -664,14 +649,15 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
                 info.num_values = i + 1;
             }
 
-            const type_info: ComponentTypeInfo = .{
+            const type_info: ComponentInfo = .{
                 .name = name,
                 .size = @sizeOf(Component),
                 .info = .{ .@"enum" = info },
                 .storage = init_erased_component_storage(Component),
+                .type_id_ptr = type_id_ptr,
             };
 
-            components.put(allocator, type_id, type_info) catch |err| {
+            components.append(allocator, type_info) catch |err| {
                 log.err("register_component failed {}", .{err});
                 return;
             };
@@ -688,16 +674,27 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const TypeId = usize;
+const TypeId = u32;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn get_type_id(comptime Component: type) TypeId {
-    return @intFromPtr(&(struct {
-        var item: u8 = @intCast(@sizeOf(Component));
-    }).item);
+    const ptr = get_type_id_ptr(Component);
+    if (ptr.* == invalid_type_id) {
+        log.fatal("Invalid Component in get_type_id {s}", .{@typeName(Component)});
+    }
+    return ptr.*;
+}
+
+const invalid_type_id: TypeId = std.math.maxInt(TypeId);
+
+fn get_type_id_ptr(comptime Component: type) *TypeId {
+    return &(struct {
+        var index: u32 = invalid_type_id;
+        var size: u32 = @sizeOf(Component);
+    }).index;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -896,18 +893,16 @@ pub fn progress(dt: f32) void {
                 .set => |cmd| {
                     const data = entity_update_data.items[cmd.start .. cmd.start + cmd.len];
 
-                    if (components.getPtr(cmd.typeid)) |info| {
-                        info.storage.set_data(info.storage, cmd.entity, data);
-                    }
+                    const info = components.items[cmd.type_id];
+                    info.storage.set_data(info.storage, cmd.entity, data);
 
                     entity_changes.put(allocator, cmd.entity.idx, {}) catch {
                         log.err("OOM set entity changes {}", .{cmd.entity});
                     };
                 },
                 .remove => |cmd| {
-                    if (components.getPtr(cmd.typeid)) |info| {
-                        info.storage.remove(info.storage, cmd.entity);
-                    }
+                    const info = components.items[cmd.type_id];
+                    info.storage.remove(info.storage, cmd.entity);
 
                     entity_changes.put(allocator, cmd.entity.idx, {}) catch {
                         log.err("OOM remove entity changes {}", .{cmd.entity});
@@ -988,187 +983,177 @@ var save_string_data: InternedStrings = .{};
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn save(filename: []const u8) !void {
-    const cwd = std.fs.cwd();
-    const file = try cwd.createFile(filename, .{});
-    defer file.close();
+const SaveMemory = std.ArrayList(u8);
+
+pub fn save(alloc: std.mem.Allocator) ![]u8 {
+    var memory = SaveMemory.init(alloc);
 
     save_string_data = .{};
 
-    const head_offset = try write_header(file, "HEAD");
-    try write_u32(file, 0);
+    const head_offset = try write_header(&memory, "HEAD");
+    try write_u32(&memory, 0);
     inline for (std.meta.fields(ComponentFieldKind)) |field| {
-        try write_int(file, field.value);
-        try write_string(file, field.name);
+        try write_int(&memory, field.value);
+        try write_string(&memory, field.name);
     }
-    try write_header_length(file, head_offset);
+    try write_header_length(&memory, head_offset);
 
-    try save_component_info(file);
+    try save_component_info(&memory);
 
-    try save_entity_info(file);
+    try save_entity_info(&memory);
 
-    try save_recycled(file);
+    try save_recycled(&memory);
 
-    const strings_offset = try save_strings(file);
-    save_string_data.data.deinit(allocator);
+    const strings_offset = try save_strings(&memory);
 
-    try file.seekTo(head_offset + 8);
-    try write_u32(file, @intCast(strings_offset));
+    try write_u32_at(&memory, head_offset + 8, @intCast(strings_offset));
+
+    save_string_data.data.deinit(alloc);
+
+    return try memory.toOwnedSlice();
 }
 
-fn save_component_info(file: std.fs.File) !void {
-    var component_iter = components.iterator();
-    while (component_iter.next()) |entry| {
-        const offset = try write_header(file, "COMP");
+fn save_component_info(memory: *SaveMemory) !void {
+    for (0.., components.items) |type_id, component| {
+        const offset = try write_header(memory, "COMP");
 
-        const typeid = entry.key_ptr.*;
-        const component = entry.value_ptr;
+        try write_int(memory, type_id);
 
-        try write_int(file, typeid);
+        try write_string(memory, component.name);
 
-        try write_string(file, component.name);
-
-        try write_int(file, @intCast(component.size));
+        try write_int(memory, @intCast(component.size));
 
         switch (component.info) {
             .@"struct" => |info| {
-                try write_int(file, 0);
-                try write_int(file, info.num_fields);
+                try write_int(memory, 0);
+                try write_int(memory, info.num_fields);
                 for (0..info.num_fields) |i| {
                     const field = info.fields[i];
-                    try write_string(file, field.name);
-                    try write_int(file, field.offset);
-                    try write_int(file, field.size);
-                    try write_int(file, @intFromEnum(field.kind));
-                    try write_int(file, field.component);
+                    try write_string(memory, field.name);
+                    try write_int(memory, field.offset);
+                    try write_int(memory, field.size);
+                    try write_int(memory, @intFromEnum(field.kind));
                 }
             },
             .@"enum" => |info| {
-                try write_int(file, 1);
-                try write_int(file, @intFromEnum(info.tag_type));
-                try write_int(file, info.num_values);
+                try write_int(memory, 1);
+                try write_int(memory, @intFromEnum(info.tag_type));
+                try write_int(memory, info.num_values);
 
                 for (0..info.num_values) |i| {
                     const enum_value = info.values[i];
-                    try write_int(file, enum_value.value);
-                    try write_string(file, enum_value.name);
+                    try write_int(memory, enum_value.value);
+                    try write_string(memory, enum_value.name);
                 }
             },
         }
 
-        try write_header_length(file, offset);
+        try write_header_length(memory, offset);
     }
 }
 
-fn save_entity_info(file: std.fs.File) !void {
+fn save_entity_info(memory: *SaveMemory) !void {
     for (0.., generations.items) |idx, gen| {
-        const offset = try write_header(file, "ENTT");
+        const offset = try write_header(memory, "ENTT");
         const ent = Entity{ .gen = gen, .idx = @intCast(idx) };
-        try write_u32(file, @bitCast(ent));
-        var component_iter = components.iterator();
-        while (component_iter.next()) |entry| {
-            const typeid = entry.key_ptr.*;
-            const component = entry.value_ptr;
+        _ = try memory.appendSlice(std.mem.asBytes(&ent));
+        for (0.., components.items) |type_id, component| {
             if (component.get_data(ent)) |data| {
-                try write_int(file, typeid);
-                try write_int(file, data.len);
-                _ = try file.write(data);
+                try write_int(memory, type_id);
+                try write_int(memory, data.len);
+                _ = try memory.appendSlice(data);
             }
         }
-        try write_header_length(file, offset);
+        try write_header_length(memory, offset);
     }
 }
 
-fn save_recycled(file: std.fs.File) !void {
-    const recycled_offset = try write_header(file, "RCYC");
+fn save_recycled(memory: *SaveMemory) !void {
+    const recycled_offset = try write_header(memory, "RCYC");
     for (recycled.items) |ent| {
-        try write_int(file, ent);
+        try write_int(memory, ent);
     }
-    try write_header_length(file, recycled_offset);
+    try write_header_length(memory, recycled_offset);
 
-    const old_recycled_offset = try write_header(file, "OLDR");
+    const old_recycled_offset = try write_header(memory, "OLDR");
     for (old_recycled.items) |ent| {
-        try write_int(file, ent);
+        try write_int(memory, ent);
     }
-    try write_header_length(file, old_recycled_offset);
+    try write_header_length(memory, old_recycled_offset);
 }
 
-fn write_int(file: std.fs.File, value: usize) !void {
+fn write_int(memory: *SaveMemory, value: usize) !void {
     if (value <= 0x7F) {
-        try write_u8(file, @intCast(value));
+        try write_u8(memory, @intCast(value));
     } else if (value <= 0x3FFF) {
         const new_value: u16 = @intCast(value | 0x8000);
-        try write_u16(file, new_value);
+        try write_u16(memory, @byteSwap(new_value));
     } else if (value <= 0x1FFF_FFFF) {
         const new_value: u32 = @intCast(value | 0xC000_0000);
-        try write_u32(file, new_value);
+        try write_u32(memory, @byteSwap(new_value));
+    } else if (value <= 0xFFFF_FFFF) {
+        const new_value: u32 = @intCast(value);
+        try write_u8(memory, 0xF4);
+        try write_u32(memory, @byteSwap(new_value));
     } else {
-        try write_u8(file, 0xF0);
-        try write_u64(file, value);
+        const new_value: u64 = @intCast(value);
+        try write_u8(memory, 0xF8);
+        try write_u64(memory, @byteSwap(new_value));
     }
 }
 
-fn write_u8(file: std.fs.File, value: u8) !void {
-    var data: []u8 = undefined;
-    data.ptr = @constCast(@ptrCast(&value));
-    data.len = 1;
-    _ = try file.write(data);
+fn write_u8(memory: *SaveMemory, value: u8) !void {
+    _ = try memory.appendSlice(std.mem.asBytes(&value));
 }
 
-fn write_u16(file: std.fs.File, value: u16) !void {
-    const bsv = @byteSwap(value);
-    var data: []u8 = undefined;
-    data.ptr = @constCast(@ptrCast(&bsv));
-    data.len = 2;
-    _ = try file.write(data);
+fn write_u16(memory: *SaveMemory, value: u16) !void {
+    _ = try memory.appendSlice(std.mem.asBytes(&value));
 }
 
-fn write_u32(file: std.fs.File, value: u32) !void {
-    const bsv = @byteSwap(value);
-    var data: []u8 = undefined;
-    data.ptr = @constCast(@ptrCast(&bsv));
-    data.len = 4;
-    _ = try file.write(data);
+fn write_u32(memory: *SaveMemory, value: u32) !void {
+    _ = try memory.appendSlice(std.mem.asBytes(&value));
 }
 
-fn write_u64(file: std.fs.File, value: u64) !void {
-    const bsv = @byteSwap(value);
-    var data: []u8 = undefined;
-    data.ptr = @constCast(@ptrCast(&bsv));
-    data.len = 8;
-    _ = try file.write(data);
+fn write_u32_at(memory: *SaveMemory, offset: u32, value: u32) !void {
+    const data = std.mem.asBytes(&value);
+    memory.items[offset] = data[0];
+    memory.items[offset + 1] = data[1];
+    memory.items[offset + 2] = data[2];
+    memory.items[offset + 3] = data[3];
 }
 
-fn write_string(file: std.fs.File, string: []const u8) !void {
+fn write_u64(memory: *SaveMemory, value: u64) !void {
+    _ = try memory.appendSlice(std.mem.asBytes(&value));
+}
+
+fn write_string(memory: *SaveMemory, string: []const u8) !void {
     const interned = save_string_data.intern(string);
     const len: u32 = @intCast(string.len);
 
-    try write_int(file, interned);
-    try write_int(file, len);
+    try write_int(memory, interned);
+    try write_int(memory, len);
 }
 
-fn write_header(file: std.fs.File, label: *const [4:0]u8) !u64 {
-    const offset = file.getPos();
-    try write_u32(file, 0);
-    _ = try file.write(label);
+fn write_header(memory: *SaveMemory, label: *const [4:0]u8) !u32 {
+    const offset = memory.items.len;
+    try write_u32(memory, 0);
+    _ = try memory.appendSlice(label);
 
-    return offset;
+    return @intCast(offset);
 }
 
-fn write_header_length(file: std.fs.File, offset: u64) !void {
-    const new_offset = try file.getPos();
+fn write_header_length(memory: *SaveMemory, offset: usize) !void {
+    const new_offset = memory.items.len;
     const length: u32 = @intCast(new_offset - offset);
-    try file.seekTo(offset);
-    try write_u32(file, length);
-    try file.seekTo(new_offset);
+    try write_u32_at(memory, @intCast(offset), @intCast(length));
 }
 
-fn save_strings(file: std.fs.File) !u64 {
-    const offset = try write_header(file, "STR:");
+fn save_strings(memory: *SaveMemory) !u64 {
+    const offset = try write_header(memory, "STR:");
 
-    _ = try file.write(save_string_data.data.items);
+    _ = try memory.appendSlice(save_string_data.data.items);
 
-    try write_header_length(file, offset);
+    try write_header_length(memory, offset);
 
     return offset;
 }
@@ -1202,9 +1187,7 @@ pub fn dump(options: DumpOptions) void {
         log.msg("Components", .{});
         log.inc_depth();
         defer log.dec_depth();
-        var component_iter = components.iterator();
-        while (component_iter.next()) |entry| {
-            const component = entry.value_ptr;
+        for (components.items) |component| {
             log.msg("{s} {s} ({} bytes)", .{
                 @tagName(component.info),
                 component.name,
@@ -1251,16 +1234,16 @@ pub fn dump(options: DumpOptions) void {
             ) catch {};
             var joint = false;
             for (0..sys.num_arguments) |i| {
-                if (components.get(sys.arguments[i])) |info| {
-                    if (joint) {
-                        writer.print(", ", .{}) catch {};
-                    }
-                    if (sys.mutable[i]) {
-                        writer.print("*", .{}) catch {};
-                    }
-                    writer.print("{s}", .{info.name}) catch {};
-                    joint = true;
+                const type_id = sys.arguments[i];
+                const info = components.items[type_id];
+                if (joint) {
+                    writer.print(", ", .{}) catch {};
                 }
+                if (sys.mutable[i]) {
+                    writer.print("*", .{}) catch {};
+                }
+                writer.print("{s}", .{info.name}) catch {};
+                joint = true;
             }
             writer.print(")", .{}) catch {};
             log.msg("{s}", .{buffer.items});
@@ -1284,9 +1267,7 @@ pub fn dump(options: DumpOptions) void {
             const ent = Entity{ .gen = gen, .idx = @intCast(idx) };
             log.msg("  Entity {}", .{ent});
             if (options.entity_data) {
-                var component_iter = components.iterator();
-                while (component_iter.next()) |entry| {
-                    const component = entry.value_ptr;
+                for (components.items) |component| {
                     dump_entity_component("", ent, component);
                 }
             }
@@ -1297,7 +1278,7 @@ pub fn dump(options: DumpOptions) void {
 fn dump_entity_component(
     prefix: []const u8,
     ent: Entity,
-    component: *const ComponentTypeInfo,
+    component: ComponentInfo,
 ) void {
     switch (component.info) {
         .@"struct" => |info| {

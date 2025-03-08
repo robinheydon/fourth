@@ -442,6 +442,7 @@ pub fn debug_print(comptime fmt: []const u8, args: anytype) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "refAllDecls" {
+    _ = @import("test_ecs.zig");
     std.testing.refAllDecls(@This());
 }
 

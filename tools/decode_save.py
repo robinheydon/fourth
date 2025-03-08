@@ -17,10 +17,7 @@ all_recycled = {}
 all_old_recycled = {}
 
 def read_u32 (data):
-    return struct.unpack (">I", data)[0]
-
-def read_u64 (data):
-    return struct.unpack (">Q", data)[0]
+    return struct.unpack ("<I", data)[0]
 
 def read_int (data, offset):
     if data[offset] & 0x80 == 0x00:
@@ -29,7 +26,7 @@ def read_int (data, offset):
         return struct.unpack (">H", data[offset:offset+2])[0] & 0x3FFF, offset+2
     elif data[offset] & 0xE0 == 0xC0:
         return struct.unpack (">I", data[offset:offset+4])[0] & 0x1FFF_FFFF, offset+4
-    elif data[offset] == 0xF0:
+    elif data[offset] == 0xF8:
         return struct.unpack (">Q", data[offset+1:offset+9])[0], offset+9
     else:
         return (0, 1)
@@ -99,7 +96,6 @@ def main ():
                     field_offset, offset = read_int (content, offset)
                     field_size, offset = read_int (content, offset)
                     field_kind, offset = read_int (content, offset)
-                    field_component, offset = read_int (content, offset)
                     # print (f"  {field_name} {field_offset} {field_size} {field_kind} {field_component}")
                     fields.append (Field (name = field_name, offset = field_offset, size = field_size, kind = field_kind))
                 component = Component (name = name, size = size, struct_info = fields, enum_info = None)
@@ -154,22 +150,22 @@ def main ():
                 info = component.enum_info
                 tag_type = all_kinds[info.tag_type]
                 if tag_type == 'u8':
-                    value = struct.unpack ('>B', data)[0]
+                    value = struct.unpack ('<B', data)[0]
                     name = info.values[value]
                 elif tag_type == 'u16':
-                    value = struct.unpack ('>H', data)[0]
+                    value = struct.unpack ('<H', data)[0]
                     name = info.values[value]
                 elif tag_type == 'u32':
-                    value = struct.unpack ('>I', data)[0]
+                    value = struct.unpack ('<I', data)[0]
                     name = info.values[value]
-                print (f"  {component.name} .{name}")
+                print (f"  {component.name} = .{name}")
             elif component.struct_info:
                 fields = component.struct_info
                 for field in fields:
                     field_data = data[field.offset:field.offset + field.size]
                     kind = all_kinds[field.kind]
                     if kind == 'bool':
-                        value = struct.unpack ("<B", field_data)[0] == 0
+                        value = struct.unpack ("<B", field_data)[0] != 0
                         print (f"  {component.name}.{field.name} = {value}")
                     elif kind == 'u8':
                         value = struct.unpack ("<B", field_data)[0]
@@ -197,16 +193,16 @@ def main ():
                         print (f"  {component.name}.{field.name} = {value}")
                     elif kind == 'f32':
                         value = struct.unpack ("<f", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"  {component.name}.{field.name} = {value:0.3f}")
                     elif kind == 'f64':
                         value = struct.unpack ("<d", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"  {component.name}.{field.name} = {value:0.3f}")
                     elif kind == 'Entity':
                         value = struct.unpack ("<I", field_data)[0]
                         print (f"  {component.name}.{field.name} = E({value:08x})")
                     elif kind == 'Vec2':
                         x,y = struct.unpack ("<ff", field_data)
-                        print (f"  {component.name}.{field.name} = Vec2 ({x},{y})")
+                        print (f"  {component.name}.{field.name} = Vec2 ({x:0.3f},{y:0.3f})")
                     else:
                         print (f"  {component.name}.{field.name} = {kind} {field_data}")
 

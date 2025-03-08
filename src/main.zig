@@ -13,6 +13,8 @@ const ng = @import("ng");
 const state = @import("state.zig");
 const com = @import("com.zig");
 
+var allocator: std.mem.Allocator = undefined;
+
 pub const log = ng.Logger(.main);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -20,6 +22,10 @@ pub const log = ng.Logger(.main);
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    allocator = gpa.allocator();
+    defer std.debug.assert(gpa.deinit() == .ok);
+
     try ng.init(.{
         .video = true,
         .audio = true,
@@ -477,6 +483,8 @@ fn init_world() void {
     ng.register_component("Construction", com.Construction);
     ng.register_component("Position", com.Position);
     ng.register_component("Velocity", com.Velocity);
+    ng.register_component("UInt", com.UInt);
+    ng.register_component("Int", com.Int);
 
     ng.register_system(
         .{
@@ -577,6 +585,54 @@ fn init_world() void {
     }
 
     p4.delete();
+
+    const p6 = ng.new();
+    const p7 = ng.new();
+    const p8 = ng.new();
+    const p9 = ng.new();
+    const p10 = ng.new();
+    const p11 = ng.new();
+    const p12 = ng.new();
+
+    p6.set(com.Int{ .value = 0 });
+    p7.set(com.Int{ .value = 127 });
+    p8.set(com.Int{ .value = 128 });
+    p9.set(com.Int{ .value = 0x3FFF });
+    p10.set(com.Int{ .value = 0x4000 });
+    p11.set(com.Int{ .value = 0x1FFF_FFFF });
+    p12.set(com.Int{ .value = 0x2000_0000 });
+
+    const q6 = ng.new();
+    const q7 = ng.new();
+    const q8 = ng.new();
+    const q9 = ng.new();
+    const q10 = ng.new();
+    const q11 = ng.new();
+    const q12 = ng.new();
+
+    const r6 = ng.new();
+    const r7 = ng.new();
+    const r8 = ng.new();
+    const r9 = ng.new();
+    const r10 = ng.new();
+    const r11 = ng.new();
+    const r12 = ng.new();
+
+    q6.set(com.UInt{ .value = 0 });
+    q7.set(com.UInt{ .value = 127 });
+    q8.set(com.UInt{ .value = 128 });
+    q9.set(com.UInt{ .value = 0x3FFF });
+    q10.set(com.UInt{ .value = 0x4000 });
+    q11.set(com.UInt{ .value = 0x1FFF_FFFF });
+    q12.set(com.UInt{ .value = 0x2000_0000 });
+
+    r6.set(com.Int{ .value = 0 });
+    r7.set(com.Int{ .value = -127 });
+    r8.set(com.Int{ .value = -128 });
+    r9.set(com.Int{ .value = -0x3FFF });
+    r10.set(com.Int{ .value = -0x4000 });
+    r11.set(com.Int{ .value = -0x1FFF_FFFF });
+    r12.set(com.Int{ .value = -0x2000_0000 });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -638,8 +694,23 @@ fn render_system(iter: *const ng.SystemIterator) void {
 
 fn autosave_system(iter: *const ng.SystemIterator) void {
     _ = iter;
-    ng.save("autosave.dat") catch |err| {
+    const memory = ng.save(allocator) catch |err| {
         log.err("Failed to save {}", .{err});
+        return;
+    };
+
+    defer allocator.free(memory);
+
+    const cwd = std.fs.cwd();
+    var file = cwd.createFile("autosave.dat", .{}) catch |err| {
+        log.err("Failed to createFile 'autosave.dat' {}", .{err});
+        return;
+    };
+    defer file.close();
+
+    _ = file.write(memory) catch |err| {
+        log.err("Failed to write 'autosave.dat' {}", .{err});
+        return;
     };
 }
 
