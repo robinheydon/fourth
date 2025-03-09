@@ -444,8 +444,7 @@ fn read_tag(memory: []const u8, offset: usize) struct { [4]u8, usize } {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-test "benchmark entity creation"
-{
+test "benchmark entity creation" {
     ng.ecs.init(std.testing.allocator);
     defer ng.ecs.deinit();
 
@@ -455,59 +454,51 @@ test "benchmark entity creation"
     var entities: [test_size]ng.Entity = undefined;
     var timings: [run_size]f64 = undefined;
 
-    for (0..run_size) |run|
-    {
-        const start_time = std.time.nanoTimestamp ();
-        for (0..test_size) |i|
-        {
-            entities[i] = ng.new ();
+    for (0..run_size) |run| {
+        const start_time = std.time.nanoTimestamp();
+        for (0..test_size) |i| {
+            entities[i] = ng.new();
         }
-        const end_time = std.time.nanoTimestamp ();
-        for (0..test_size) |i|
-        {
-            entities[i].delete ();
+        const end_time = std.time.nanoTimestamp();
+        for (0..test_size) |i| {
+            entities[i].delete();
         }
         const elapsed_time = end_time - start_time;
-        const time : f64 = @floatFromInt (elapsed_time);
+        const time: f64 = @floatFromInt(elapsed_time);
 
         timings[run] = time;
-        ng.ecs.recycle_old_generations ();
+        ng.ecs.recycle_old_generations();
     }
 
     var total_time: f64 = 0;
-    for (1..run_size) |run|
-    {
+    for (1..run_size) |run| {
         total_time += timings[run];
     }
     total_time = total_time / (run_size - 1) / test_size;
-    std.debug.print ("ecs create {d:0.3} ns\n", .{ total_time });
+    std.debug.print("ecs create {d:0.3} ns\n", .{total_time});
 
-    for (0..run_size) |run|
-    {
-        for (0..test_size) |i|
-        {
-            entities[i] = ng.new ();
+    for (0..run_size) |run| {
+        for (0..test_size) |i| {
+            entities[i] = ng.new();
         }
-        const start_time = std.time.nanoTimestamp ();
-        for (0..test_size) |i|
-        {
-            entities[i].delete ();
+        const start_time = std.time.nanoTimestamp();
+        for (0..test_size) |i| {
+            entities[i].delete();
         }
-        const end_time = std.time.nanoTimestamp ();
+        const end_time = std.time.nanoTimestamp();
         const elapsed_time = end_time - start_time;
-        const time : f64 = @floatFromInt (elapsed_time);
+        const time: f64 = @floatFromInt(elapsed_time);
 
         timings[run] = time;
-        ng.ecs.recycle_old_generations ();
+        ng.ecs.recycle_old_generations();
     }
 
     total_time = 0;
-    for (1..run_size) |run|
-    {
+    for (1..run_size) |run| {
         total_time += timings[run];
     }
     total_time = total_time / (run_size - 1) / test_size;
-    std.debug.print ("ecs delete {d:0.3} ns\n", .{ total_time });
+    std.debug.print("ecs delete {d:0.3} ns\n", .{total_time});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
