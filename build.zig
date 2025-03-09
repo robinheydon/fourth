@@ -79,7 +79,7 @@ pub fn build(b: *std.Build) !void {
     const ng_mod_test = b.createModule(.{
         .root_source_file = b.path("src/ng/ng.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = .ReleaseSafe,
         .link_libc = true,
         .stack_protector = true,
         .omit_frame_pointer = false,
