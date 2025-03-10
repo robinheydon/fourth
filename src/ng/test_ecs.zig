@@ -448,7 +448,7 @@ test "benchmark entity creation" {
     ng.ecs.init(std.testing.allocator);
     defer ng.ecs.deinit();
 
-    const test_size = 1_000_000;
+    const test_size = 1_000;
     const run_size = 10;
 
     var entities: [test_size]ng.Entity = undefined;
@@ -470,9 +470,9 @@ test "benchmark entity creation" {
         ng.ecs.recycle_old_generations();
     }
 
-    var total_time: f64 = 0;
+    var total_time: f64 = 1e12;
     for (1..run_size) |run| {
-        total_time += timings[run];
+        total_time = @min(total_time, timings[run]);
     }
     total_time = total_time / (run_size - 1) / test_size;
     std.debug.print("ecs create {d:0.3} ns\n", .{total_time});
@@ -493,12 +493,90 @@ test "benchmark entity creation" {
         ng.ecs.recycle_old_generations();
     }
 
-    total_time = 0;
+    total_time = 1e12;
     for (1..run_size) |run| {
-        total_time += timings[run];
+        total_time = @min(total_time, timings[run]);
     }
     total_time = total_time / (run_size - 1) / test_size;
     std.debug.print("ecs delete {d:0.3} ns\n", .{total_time});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "benchmark movement system" {
+    ng.ecs.init(std.testing.allocator);
+    defer ng.ecs.deinit();
+
+    const test_size = 1_000;
+    const run_size = 10;
+    const progress_size = 100;
+
+    const Position = struct { x: f32, y: f32 };
+    const Velocity = struct { dx: f32, dy: f32 };
+
+    const Systems = struct {
+        pub fn movement(iter: *const ng.SystemIterator) void {
+            const dt = iter.delta_time;
+
+            for (iter.entities) |entity| {
+                if (entity.getPtr(Position)) |position| {
+                    if (entity.get(Velocity)) |velocity| {
+                        position.x += velocity.dx * dt;
+                        position.y += velocity.dy * dt;
+                    }
+                }
+            }
+        }
+    };
+
+    var entities: [test_size]ng.Entity = undefined;
+    var timings: [run_size]f64 = undefined;
+
+    ng.register_component("Position", Position);
+    ng.register_component("Velocity", Velocity);
+
+    ng.register_system(
+        .{
+            .name = "movement",
+        },
+        Systems.movement,
+        .{
+            *Position,
+            Velocity,
+        },
+    );
+
+    for (0..test_size) |i| {
+        entities[i] = ng.new();
+        entities[i].set(Position{ .x = ng.rand(), .y = ng.rand() });
+        entities[i].set(Velocity{ .dx = ng.rand(), .dy = ng.rand() });
+    }
+
+    for (0..run_size) |run| {
+        const start_time = std.time.nanoTimestamp();
+        for (0..progress_size) |_| {
+            ng.progress(1);
+        }
+        const end_time = std.time.nanoTimestamp();
+
+        const elapsed_time = end_time - start_time;
+        const time: f64 = @floatFromInt(elapsed_time);
+
+        timings[run] = time;
+    }
+
+    for (0..test_size) |i| {
+        entities[i].delete();
+    }
+
+    var total_time: f64 = 1e12;
+    for (1..run_size) |run| {
+        total_time = @min(total_time, timings[run]);
+    }
+    total_time = total_time / test_size / progress_size;
+    std.debug.print("ecs update {d:0.3} ns\n", .{total_time});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

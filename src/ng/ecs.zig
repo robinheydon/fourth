@@ -24,7 +24,13 @@ var old_recycled: std.ArrayListUnmanaged(EntityIndex) = .empty;
 var components: std.ArrayListUnmanaged(ComponentInfo) = .empty;
 
 var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
-var entity_changes: std.AutoArrayHashMapUnmanaged(EntityIndex, void) = .empty;
+
+var entity_changes: std.ArrayHashMapUnmanaged(
+    EntityIndex,
+    void,
+    EntityContext,
+    false,
+) = .empty;
 
 var staged: bool = false;
 var entity_update_data: std.ArrayListUnmanaged(u8) = .empty;
@@ -32,6 +38,24 @@ var entity_updates: std.ArrayListUnmanaged(EntityCommand) = .empty;
 
 var inside_system: bool = false;
 var current_system: *const SystemInfo = undefined;
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const EntityContext = struct {
+    pub fn hash(_: EntityContext, key: EntityIndex) u32 {
+        return key;
+    }
+    pub fn eql(
+        _: EntityContext,
+        a: EntityIndex,
+        b: EntityIndex,
+        _: usize,
+    ) bool {
+        return a == b;
+    }
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -125,7 +149,7 @@ pub const Entity = packed struct(u32) {
 
     pub fn getPtr(self: Entity, comptime Component: type) ?*Component {
         if (!self.is_valid()) {
-            log.err("get invalid entity {}", .{self});
+            log.err("get invalid entity ptr {}", .{self});
             return null;
         }
 
@@ -446,7 +470,12 @@ const ComponentFieldKind = enum {
 
 pub fn ComponentStorage(Component: type) type {
     return struct {
-        store: std.AutoArrayHashMapUnmanaged(EntityIndex, Component) = .empty,
+        store: std.ArrayHashMapUnmanaged(
+            EntityIndex,
+            Component,
+            EntityContext,
+            false,
+        ) = .empty,
 
         const Self = @This();
 
