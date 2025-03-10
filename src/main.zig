@@ -114,7 +114,7 @@ fn draw_debug_window() void {
         .title = "Debug Window",
         .x = 400,
         .y = 300,
-        .width = 240,
+        .width = 320,
         .height = 200,
         .background_color = .black,
     });
@@ -135,8 +135,8 @@ fn draw_debug_window() void {
         log.debug("Button pressed", .{});
     }
 
-    ng.ui_add_text(.{}, "abcdefghjiklmnopqrstuvwxyz", .{});
-    ng.ui_add_text(.{}, "ABCDEFGHJIKLMNOPQRSTUVWXYZ", .{});
+    ng.ui_add_text(.{}, "abcdefghijklmnopqrstuvwxyz", .{});
+    ng.ui_add_text(.{}, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", .{});
     ng.ui_add_text(.{}, "0123456789", .{});
 
     ng.ui_end_vbox();

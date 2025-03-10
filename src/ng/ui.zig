@@ -43,6 +43,7 @@ var first_window: ?Handle = null;
 var last_window: ?Handle = null;
 
 var hover: ?Handle = null;
+var hover_window: ?Handle = null;
 var captured_mouse: ?Handle = null;
 var window_resizing: ResizingMode = .none;
 var captured_offset: Vec2 = .{ 0, 0 };
@@ -225,7 +226,7 @@ pub fn render(render_pass: ng.RenderPass) void {
         object = obj.succ;
     }
 
-    if (false) {
+    if (true) {
         dump_state("Render");
     }
 
@@ -1127,9 +1128,10 @@ const Window = struct {
                 } else {
                     ng.use_cursor(.default);
                 }
-                hover = handle;
+                hover_window = handle;
                 return true;
             }
+            hover_window = null;
             hover = null;
         }
         return false;
@@ -1488,55 +1490,111 @@ fn move_to_top(handle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const max_ui_iterator_depth = 32;
+
+const Walker = struct {
+    index: usize,
+    depth: usize = 0,
+    stack: [max_ui_iterator_depth]?Handle = undefined,
+
+    pub fn next(self: *Walker) ?Handle {
+        while (self.index > 0) {
+            if (self.stack[self.index - 1]) |handle| {
+                self.depth = self.index;
+                const obj = get(handle) catch {
+                    self.index = 0;
+                    return null;
+                };
+                if (obj.succ) |succ| {
+                    self.stack[self.index - 1] = succ;
+                } else {
+                    self.stack[self.index - 1] = null;
+                }
+                if (obj.shown) {
+                    if (obj.first_child) |first| {
+                        if (self.index < max_ui_iterator_depth) {
+                            self.stack[self.index] = first;
+                            self.index += 1;
+                        } else {
+                            log.err("UI_Iterator overflow", .{});
+                            self.index = 0;
+                            return null;
+                        }
+                    }
+                    return handle;
+                } else {
+                    if (obj.succ) |succ| {
+                        self.stack[self.index - 1] = succ;
+                    } else {
+                        self.index -= 1;
+                    }
+                }
+            } else {
+                self.index -= 1;
+            }
+        }
+        return null;
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn ui_walk(handle: Handle) Walker {
+    return .{
+        .stack = .{handle} ** max_ui_iterator_depth,
+        .index = 1,
+    };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 fn dump_state(label: []const u8) void {
-    ng.debug_print("{s} : {?} : {?} : {?} : {} : {?}\n", .{
+    ng.debug_print("{s} : {?} : {?} : {?} : {} : {?} : {?}\n", .{
         label,
         first_window,
         last_window,
         captured_mouse,
         app_captured_mouse,
+        hover_window,
         hover,
     });
+
+    const lots_of_spaces = " " ** 256;
+
     if (first_window) |window| {
-        dump_state_internal(window, 1);
-    }
-}
-
-const lots_of_spaces = " " ** 256;
-
-fn dump_state_internal(first_child: Handle, depth: usize) void {
-    var child: ?Handle = first_child;
-    while (child) |handle| {
-        const obj = get(handle) catch return;
-        if (obj.shown) {
-            ng.debug_print("{s}", .{lots_of_spaces[0 .. depth * 2]});
-            ng.debug_print("{s}:{}", .{
-                @tagName(obj.data),
-                @intFromEnum(handle),
-            });
-            ng.debug_print(" {d} {d}", .{
-                obj.pos,
-                obj.size,
-            });
-            switch (obj.data) {
-                .window => {},
-                .vbox => {},
-                .hbox => {},
-                .text => |text| {
-                    ng.debug_print(" \"{}\" {}/{}", .{
-                        std.zig.fmtEscapes(text.text),
-                        text.text.len,
-                        text.memory.len,
-                    });
-                },
-                .button => {},
-            }
-            ng.debug_print("\n", .{});
-            if (obj.first_child) |first| {
-                dump_state_internal(first, depth + 1);
+        var iter = ui_walk(window);
+        while (iter.next()) |handle| {
+            const obj = get(handle) catch return;
+            if (obj.shown) {
+                ng.debug_print("{s}", .{lots_of_spaces[0 .. iter.depth * 2]});
+                ng.debug_print("{} {s}", .{
+                    handle,
+                    @tagName(obj.data),
+                });
+                ng.debug_print(" {d} {d}", .{
+                    obj.pos,
+                    obj.size,
+                });
+                switch (obj.data) {
+                    .window => {},
+                    .vbox => {},
+                    .hbox => {},
+                    .text => |text| {
+                        ng.debug_print(" \"{}\" {}/{}", .{
+                            std.zig.fmtEscapes(text.text),
+                            text.text.len,
+                            text.memory.len,
+                        });
+                    },
+                    .button => {},
+                }
+                ng.debug_print("\n", .{});
             }
         }
-        child = obj.succ;
     }
 }
 
@@ -1571,9 +1629,10 @@ fn get(handle: Handle) !*Object {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn is_hover() bool {
-    if (hover) |handle| {
+pub fn is_hover_window() bool {
+    if (hover_window) |handle| {
         _ = get(handle) catch {
+            hover_window = null;
             hover = null;
             return false;
         };
@@ -1590,6 +1649,7 @@ pub fn filter_event(event: ng.Event) ?ng.Event {
     if (captured_mouse) |handle| {
         var obj = get(handle) catch {
             captured_mouse = null;
+            // FIXME: Not convinced that this should not just be a break
             return event;
         };
         if (obj.process_event(handle, event)) {

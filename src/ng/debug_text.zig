@@ -27,14 +27,14 @@ var sampler: ng.video.Sampler = undefined;
 var binding: ng.video.Binding = undefined;
 var pipeline: ng.video.Pipeline = undefined;
 
-var vertices: [16384]DebugTextVertex = undefined;
+var vertices: [128 * 1024]DebugTextVertex = undefined;
 var next_vertex: usize = 0;
 
 var font_data: [256 * 12 * 20]u8 = undefined;
 
 var cursor_x: usize = 0;
 var cursor_y: usize = 0;
-var frame: [4096]u8 = undefined;
+var frame: [16 * 1024]u8 = undefined;
 var frame_width: usize = 0;
 var frame_height: usize = 0;
 var frame_dx: f32 = 0;
@@ -219,6 +219,7 @@ pub fn draw(render_pass: ng.RenderPass) void {
         for (0..frame_width) |x| {
             const index = frame_width * y + x;
             if (index >= frame.len) {
+                std.debug.print("index >= frame.len {}\n", .{frame.len});
                 break;
             }
             const ch = frame[index];
@@ -295,6 +296,8 @@ fn add_vertex(vertex: DebugTextVertex) void {
     if (next_vertex < vertices.len) {
         vertices[next_vertex] = vertex;
         next_vertex += 1;
+    } else {
+        std.debug.print("next_vertex >= vertices.len {}\n", .{vertices.len});
     }
 }
 
