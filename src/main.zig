@@ -144,7 +144,6 @@ fn draw_debug_window() void {
         state.button_clicks += 1;
     }
 
-
     if (state.button_clicks > 0 and state.button_clicks < 30) {
         ng.ui_add_text(.{}, "abcdefghijklmnopqrstuvwxyz", .{});
     }

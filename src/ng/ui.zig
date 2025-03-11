@@ -650,30 +650,24 @@ pub fn add_child_last(phandle: Handle, chandle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn move_child_last (phandle: Handle, chandle: Handle) void {
+pub fn move_child_last(phandle: Handle, chandle: Handle) void {
     const parent = get(phandle) catch return;
     const child = get(chandle) catch return;
 
-    if (child.pred) |pred|
-    {
+    if (child.pred) |pred| {
         const pred_obj = get(pred) catch return;
         pred_obj.succ = child.succ;
-    }
-    else
-    {
+    } else {
         parent.first_child = child.succ;
     }
-    if (child.succ) |succ|
-    {
+    if (child.succ) |succ| {
         const succ_obj = get(succ) catch return;
         succ_obj.pred = child.pred;
-    }
-    else
-    {
+    } else {
         parent.last_child = child.pred;
     }
 
-    add_child_last (phandle, chandle);
+    add_child_last(phandle, chandle);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

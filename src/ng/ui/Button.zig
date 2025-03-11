@@ -105,7 +105,7 @@ fn begin_button_internal(options: ButtonOptions, ident: Ident) bool {
         var object = ui.get(handle) catch return false;
         object.active = true;
 
-        ui.move_child_last (parent, handle);
+        ui.move_child_last(parent, handle);
         ui.push_build_stack(handle);
 
         if (object.data.button.clicked > 0) {
