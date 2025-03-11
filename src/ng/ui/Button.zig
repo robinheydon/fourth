@@ -98,29 +98,30 @@ pub noinline fn begin_button(
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn begin_button_internal(options: ButtonOptions, ident: Ident) bool {
+fn begin_button_internal(options: ButtonOptions, ident: Ident) usize {
     const parent = ui.top_build_stack();
 
     if (ui.find_object(parent, ident)) |handle| {
-        var object = ui.get(handle) catch return false;
+        var object = ui.get(handle) catch return 0;
         object.active = true;
 
         ui.move_child_last(parent, handle);
         ui.push_build_stack(handle);
 
         if (object.data.button.clicked > 0) {
-            object.data.button.clicked -= 1;
-            return true;
+            const clicked = object.data.button.clicked;
+            object.data.button.clicked = 0;
+            return clicked;
         } else {
-            return false;
+            return 0;
         }
     } else {
         const handle = ui.new() catch |err| {
             log.err("button {}", .{err});
-            return false;
+            return 0;
         };
 
-        const object = ui.get(handle) catch return false;
+        const object = ui.get(handle) catch return 0;
 
         object.* = .{
             .ident = ident,
@@ -136,7 +137,7 @@ fn begin_button_internal(options: ButtonOptions, ident: Ident) bool {
         ui.push_build_stack(handle);
     }
 
-    return false;
+    return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
