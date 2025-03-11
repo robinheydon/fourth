@@ -1,6 +1,5 @@
 - Immediate Mode UI
-  - remove objects that are not 'refreshed'
-    - fade out objects that are not 'refreshed'
+  - fade out objects that are not 'refreshed'
   - Text (wrapping / formatting)
   - child gaps
   - horizontal alignment - left, center, right

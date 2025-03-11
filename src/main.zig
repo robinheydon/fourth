@@ -140,8 +140,8 @@ fn draw_debug_window() void {
         .width = 100,
         .height = 40,
         .padding = .{ .top = 8, .left = 8, .right = 8, .bottom = 8 },
-    })) {
-        state.button_clicks += 1;
+    })) |count| {
+        state.button_clicks += count;
     }
 
     if (state.button_clicks > 0 and state.button_clicks < 30) {

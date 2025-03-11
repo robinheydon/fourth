@@ -53,7 +53,7 @@ const AddButtonOptions = struct {
 
 pub noinline fn add_button(
     options: AddButtonOptions,
-) bool {
+) ?usize {
     const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
 
     const clicked = begin_button_internal(.{
@@ -88,7 +88,7 @@ const ButtonOptions = struct {
 
 pub noinline fn begin_button(
     options: ButtonOptions,
-) bool {
+) ?usize {
     const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
 
     return begin_button_internal(options, ident);
@@ -98,11 +98,11 @@ pub noinline fn begin_button(
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn begin_button_internal(options: ButtonOptions, ident: Ident) usize {
+fn begin_button_internal(options: ButtonOptions, ident: Ident) ?usize {
     const parent = ui.top_build_stack();
 
     if (ui.find_object(parent, ident)) |handle| {
-        var object = ui.get(handle) catch return 0;
+        var object = ui.get(handle) catch return null;
         object.active = true;
 
         ui.move_child_last(parent, handle);
@@ -113,15 +113,15 @@ fn begin_button_internal(options: ButtonOptions, ident: Ident) usize {
             object.data.button.clicked = 0;
             return clicked;
         } else {
-            return 0;
+            return null;
         }
     } else {
         const handle = ui.new() catch |err| {
             log.err("button {}", .{err});
-            return 0;
+            return null;
         };
 
-        const object = ui.get(handle) catch return 0;
+        const object = ui.get(handle) catch return null;
 
         object.* = .{
             .ident = ident,
@@ -137,7 +137,7 @@ fn begin_button_internal(options: ButtonOptions, ident: Ident) usize {
         ui.push_build_stack(handle);
     }
 
-    return 0;
+    return null;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
