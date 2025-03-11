@@ -1,9 +1,27 @@
+- Map
+  - draw nodes
+    - node fragment shader 
+  - draw links
+    - link fragment shader 
+  - move nodes
+  - adjust links
+  - curved links
+  - draw junctions
+  - adjust junctions
+  - draw people walking
+  - draw people with carts
+  - buildings
+  - zoom to node / building / link
+  - Road Sections
+    - create road cross section window 
+      - select from list of pre-existing road cross sections
+      - create new road cross section
+      - change a cross section segment type
+      - change a cross section segment width
+      - add cross section segment
+      - delete cross section segment
+
 - Immediate Mode UI
-  - events processing in sub-objects
-  - Button
-    - click
-    - multiple clicks per frame
-  - Scissor rect for each object
   - Text (wrapping / formatting)
   - child gaps
   - horizontal alignment - left, center, right
@@ -24,21 +42,7 @@
   - (low) create webserver to expose state of ECS
   - (low) parallel execution
 
-- Map
-  - nodes
-  - zoom to object
-  - links
-  - curved links
-  - junctions
-  - people walking
-  - people drawn carts
-  - buildings
-
 - Gameplay
-  - draw roads
-  - draw junctions
-  - edit roads
-  - edit junctions
   - zone roads
   - create buildings
   - create people
