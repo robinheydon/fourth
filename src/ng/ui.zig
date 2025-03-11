@@ -35,7 +35,7 @@ const debug_font = @import("debug_font.zig").debug_font;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
-var allocator: std.mem.Allocator = undefined;
+pub var allocator: std.mem.Allocator = undefined;
 
 var all_objects: std.ArrayListUnmanaged(Object) = .empty;
 var used_objects: std.ArrayListUnmanaged(bool) = .empty;
@@ -359,210 +359,6 @@ pub fn add_scissor(pos: ng.Vec2, size: ng.Vec2) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const BeginWindowOptions = struct {
-    unique: usize = 0,
-    title_bar: bool = true,
-    close_button: bool = true,
-    title: []const u8,
-    x: ?f32 = null,
-    y: ?f32 = null,
-    width: ?f32 = null,
-    height: ?f32 = null,
-    min_width: ?f32 = null,
-    min_height: ?f32 = null,
-    max_width: ?f32 = null,
-    max_height: ?f32 = null,
-    padding: Padding = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
-    background_color: ng.Color = .@"dark grey",
-    title_bar_height: f32 = 20 + 8,
-    title_bar_color: ng.Color = .@"very dark blue",
-    title_text_color: ng.Color = .yellow,
-    resize_handle_color: ng.Color = .white,
-    resize_handle_size: f32 = 20,
-    resize_border_size: f32 = 10,
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub const Padding = struct {
-    left: f32 = 0,
-    top: f32 = 0,
-    right: f32 = 0,
-    bottom: f32 = 0,
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub noinline fn begin_window(options: BeginWindowOptions) void {
-    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
-
-    while (!build_stack_empty()) {
-        log.err("Build stack not empty", .{});
-        pop_build_stack();
-    }
-
-    if (find_window(ident)) |handle| {
-        var window = get(handle) catch return;
-        if (window.shown == false) {
-            move_to_top(handle);
-        }
-        window.active = true;
-        window.shown = true;
-
-        push_build_stack(handle);
-    } else {
-        const handle = new() catch |err| {
-            log.err("begin_window {}", .{err});
-            return;
-        };
-
-        const object = get(handle) catch return;
-
-        object.* = .{
-            .ident = ident,
-            .pos = .{
-                options.x orelse 100,
-                options.y orelse 100,
-            },
-            .size = .{
-                options.width orelse 320,
-                options.height orelse 200,
-            },
-            .data = .{
-                .window = .{
-                    .title = options.title,
-                    .min_size = .{
-                        options.min_width orelse 120,
-                        options.min_height orelse 80,
-                    },
-                    .max_size = .{
-                        options.max_width orelse 800,
-                        options.max_height orelse 800,
-                    },
-                    .background_color = options.background_color,
-                    .title_bar_color = options.title_bar_color,
-                    .title_bar_height = options.title_bar_height,
-                    .title_text_color = options.title_text_color,
-                    .resize_handle_color = options.resize_handle_color,
-                    .resize_handle_size = options.resize_handle_size,
-                    .resize_border_size = options.resize_border_size,
-                },
-            },
-        };
-
-        move_to_top(handle);
-
-        push_build_stack(handle);
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub noinline fn end_window() void {
-    pop_build_stack();
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub const FormatOptions = struct {
-    unique: usize = 0,
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub noinline fn add_text(
-    options: FormatOptions,
-    comptime fmt: []const u8,
-    args: anytype,
-) void {
-    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
-    add_text_internal(options, fmt, args, ident);
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn add_text_internal(
-    options: FormatOptions,
-    comptime fmt: []const u8,
-    args: anytype,
-    ident: Ident,
-) void {
-    _ = options;
-    const parent = top_build_stack();
-
-    if (find_object(parent, ident)) |handle| {
-        var object = get(handle) catch return;
-        object.active = true;
-        object.shown = true;
-
-        switch (object.data) {
-            .text => |*text| {
-                if (text.allocated) {
-                    const count = std.fmt.count(fmt, args);
-
-                    if (count <= text.memory.len) {
-                        const slice = std.fmt.bufPrint(text.memory, fmt, args) catch return;
-
-                        text.text = slice;
-                    } else {
-                        const block_count = (count + 7) & 0xFFFF_FFFF_FFFF_FFF8;
-                        const buffer = allocator.alloc(u8, block_count) catch return;
-                        const slice = std.fmt.bufPrint(buffer, fmt, args) catch return;
-
-                        allocator.free(text.memory);
-                        text.memory = buffer;
-                        text.text = slice;
-                    }
-                }
-            },
-            else => {},
-        }
-    } else {
-        const count = std.fmt.count(fmt, args);
-        const block_count = (count + 7) & 0xFFFF_FFFF_FFFF_FFF8;
-        const buffer = allocator.alloc(u8, block_count) catch return;
-        const slice = std.fmt.bufPrint(buffer, fmt, args) catch return;
-
-        const handle = new() catch |err| {
-            log.err("text {}", .{err});
-            return;
-        };
-
-        const object = get(handle) catch return;
-
-        object.* = .{
-            .ident = ident,
-            .active = true,
-            .shown = true,
-            .data = .{
-                .text = .{
-                    .memory = buffer,
-                    .text = slice,
-                    .allocated = true,
-                },
-            },
-        };
-
-        add_child_last(parent, handle);
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
 pub fn push_build_stack(handle: Handle) void {
     if (build_stack_index < build_stack.len) {
         build_stack[build_stack_index] = handle;
@@ -645,6 +441,17 @@ const UI_Type = enum {
     hbox,
     text,
     button,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const Padding = struct {
+    left: f32 = 0,
+    top: f32 = 0,
+    right: f32 = 0,
+    bottom: f32 = 0,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -838,7 +645,7 @@ pub fn add_child_last(phandle: Handle, chandle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn find_window(ident: Ident) ?Handle {
+pub fn find_window(ident: Ident) ?Handle {
     var object = first_window;
     while (object) |handle| {
         const obj = get(handle) catch return null;
@@ -922,7 +729,8 @@ const Walker = struct {
                 } else {
                     self.stack[self.index - 1] = null;
                 }
-                if (obj.shown) {
+                // if (obj.shown) {
+                {
                     if (obj.first_child) |first| {
                         if (self.index < max_ui_iterator_depth) {
                             self.stack[self.index] = first;
@@ -934,12 +742,12 @@ const Walker = struct {
                         }
                     }
                     return handle;
-                } else {
-                    if (obj.succ) |succ| {
-                        self.stack[self.index - 1] = succ;
-                    } else {
-                        self.index -= 1;
-                    }
+                // } else {
+                    // if (obj.succ) |succ| {
+                        // self.stack[self.index - 1] = succ;
+                    // } else {
+                        // self.index -= 1;
+                    // }
                 }
             } else {
                 self.index -= 1;
@@ -981,7 +789,8 @@ fn dump_state(label: []const u8) void {
         var iter = ui_walk(window);
         while (iter.next()) |handle| {
             const obj = get(handle) catch return;
-            if (obj.shown) {
+            //if (obj.shown) {
+            {
                 ng.debug_print("{s}", .{lots_of_spaces[0 .. iter.depth * 2]});
                 ng.debug_print("{} {s}", .{
                     handle,
