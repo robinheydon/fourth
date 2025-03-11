@@ -740,7 +740,21 @@ const SystemInfo = struct {
     num_arguments: usize,
     arguments: [max_system_arguments]TypeId,
     mutable: [max_system_arguments]bool,
-    entities: std.AutoArrayHashMapUnmanaged(Entity, void),
+    entities: std.ArrayHashMapUnmanaged(Entity, void, SystemEntityContext, false),
+};
+
+const SystemEntityContext = struct {
+    pub fn hash(_: SystemEntityContext, key: Entity) u32 {
+        return @bitCast(key);
+    }
+    pub fn eql(
+        _: SystemEntityContext,
+        a: Entity,
+        b: Entity,
+        _: usize,
+    ) bool {
+        return a == b;
+    }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

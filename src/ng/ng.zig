@@ -67,9 +67,9 @@ pub const ui_end_vbox = ui.end_vbox;
 pub const ui_begin_hbox = ui.begin_hbox;
 pub const ui_end_hbox = ui.end_hbox;
 pub const ui_add_text = ui.add_text;
-pub const ui_add_button = ui.add_button;
-pub const ui_begin_button = ui.begin_button;
-pub const ui_end_button = ui.end_button;
+pub const ui_add_button = ui.Button.add_button;
+pub const ui_begin_button = ui.Button.begin_button;
+pub const ui_end_button = ui.Button.end_button;
 
 pub const Color = color.Color;
 
@@ -200,7 +200,7 @@ pub fn send_event(ev: Event) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn is_key_down(key: Key) bool {
-    if (ui.is_hover_window()) return false;
+    if (ui.is_over_window()) return false;
     return key_down[@intFromEnum(key)];
 }
 

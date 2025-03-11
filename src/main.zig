@@ -124,6 +124,7 @@ fn draw_debug_window() void {
     // ng.ui_begin_hbox(.{ .padding = .{ .top = 4, .left = 4, .right = 4, .bottom = 4 }});
     ng.ui_add_text(.{}, "{} fps", .{state.average_frame_rate});
     ng.ui_add_text(.{}, "{} frames", .{state.frame_counter});
+    ng.ui_add_text(.{}, "{} clicks", .{state.button_clicks});
     // ng.ui.end_hbox ();
 
     if (ng.ui_add_button(.{ .text = "Button", .width = 100, .height = 40, .padding = .{
@@ -132,12 +133,14 @@ fn draw_debug_window() void {
         .right = 8,
         .bottom = 8,
     } })) {
-        log.debug("Button pressed", .{});
+        state.button_clicks += 1;
     }
 
-    ng.ui_add_text(.{}, "abcdefghijklmnopqrstuvwxyz", .{});
-    ng.ui_add_text(.{}, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", .{});
-    ng.ui_add_text(.{}, "0123456789", .{});
+    if (state.button_clicks > 0 and state.button_clicks < 15) {
+        ng.ui_add_text(.{}, "abcdefghijklmnopqrstuvwxyz", .{});
+    }
+    if (state.button_clicks > 10) ng.ui_add_text(.{}, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", .{});
+    if (state.button_clicks > 20) ng.ui_add_text(.{}, "0123456789", .{});
 
     ng.ui_end_vbox();
 }

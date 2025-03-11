@@ -5,6 +5,12 @@
 const std = @import("std");
 const ng = @import("ng");
 
+pub const Window = @import("ui/Window.zig");
+pub const VBox = @import("ui/VBox.zig");
+pub const HBox = @import("ui/HBox.zig");
+pub const Text = @import("ui/Text.zig");
+pub const Button = @import("ui/Button.zig");
+
 const Vec2 = ng.Vec2;
 const Color = ng.Color;
 
@@ -12,7 +18,7 @@ const Color = ng.Color;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const log = ng.Logger(.ng_ui);
+pub const log = ng.Logger(.ng_ui);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -39,15 +45,17 @@ var init_required: bool = false;
 var build_stack: [16]Handle = undefined;
 var build_stack_index: usize = 0;
 
-var first_window: ?Handle = null;
-var last_window: ?Handle = null;
+pub var first_window: ?Handle = null;
+pub var last_window: ?Handle = null;
 
-var hover: ?Handle = null;
-var hover_window: ?Handle = null;
-var captured_mouse: ?Handle = null;
-var window_resizing: ResizingMode = .none;
-var captured_offset: Vec2 = .{ 0, 0 };
-var app_captured_mouse: bool = false;
+var last_mouse: ng.Vec2 = .{ 0, 0 };
+
+pub var over: ?Handle = null;
+pub var over_window: ?Handle = null;
+pub var captured_mouse: ?Handle = null;
+pub var window_resizing: ResizingMode = .none;
+pub var captured_offset: Vec2 = .{ 0, 0 };
+pub var app_captured_mouse: bool = false;
 
 var ui_shader: ng.video.Shader = undefined;
 var ui_buffer: ng.video.Buffer = undefined;
@@ -302,6 +310,10 @@ fn draw_internal(first_child: ?Handle) void {
             }
             draw_internal(obj.first_child);
         }
+
+        obj.shown = obj.active;
+        obj.active = false;
+
         child = obj.succ;
     }
 }
@@ -310,7 +322,7 @@ fn draw_internal(first_child: ?Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn add_vertex(vertex: DebugTextVertex) void {
+pub fn add_vertex(vertex: DebugTextVertex) void {
     if (next_command == 0) {
         commands[next_command] = .{ .draw_triangles = .{
             .start = next_vertex,
@@ -336,7 +348,7 @@ fn add_vertex(vertex: DebugTextVertex) void {
     }
 }
 
-fn add_scissor(pos: ng.Vec2, size: ng.Vec2) void {
+pub fn add_scissor(pos: ng.Vec2, size: ng.Vec2) void {
     if (next_command < commands.len) {
         commands[next_command] = .{ .scissor = .{ .pos = pos, .size = size } };
         next_command += 1;
@@ -652,116 +664,7 @@ fn add_text_internal(
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const AddButtonOptions = struct {
-    unique: usize = 0,
-    text: []const u8,
-    width: f32 = 100,
-    height: f32 = 40,
-    padding: Padding = .{},
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub noinline fn add_button(
-    options: AddButtonOptions,
-) bool {
-    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
-
-    const clicked = begin_button_internal(.{
-        .unique = options.unique,
-        .width = options.width,
-        .height = options.height,
-    }, ident);
-
-    begin_hbox(.{ .padding = .{
-        .left = options.padding.left,
-        .top = options.padding.top,
-        .right = options.padding.right,
-        .bottom = options.padding.bottom,
-    } });
-    add_text_internal(.{}, "{s}", .{options.text}, ident);
-    end_hbox();
-
-    end_button();
-
-    return clicked;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const ButtonOptions = struct {
-    unique: usize = 0,
-    width: f32 = 100,
-    height: f32 = 40,
-};
-
-pub noinline fn begin_button(
-    options: ButtonOptions,
-) bool {
-    const ident = Ident{ .addr = @returnAddress(), .unique = options.unique };
-
-    return begin_button_internal(options, ident);
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn begin_button_internal(options: ButtonOptions, ident: Ident) bool {
-    const parent = top_build_stack();
-
-    if (find_object(parent, ident)) |handle| {
-        var object = get(handle) catch return false;
-        object.active = true;
-        object.shown = true;
-
-        push_build_stack(handle);
-
-        return false;
-    } else {
-        const handle = new() catch |err| {
-            log.err("button {}", .{err});
-            return false;
-        };
-
-        const object = get(handle) catch return false;
-
-        object.* = .{
-            .ident = ident,
-            .active = true,
-            .shown = true,
-            .data = .{
-                .button = .{
-                    .min_size = .{ options.width, options.height },
-                },
-            },
-        };
-
-        add_child_last(parent, handle);
-
-        push_build_stack(handle);
-    }
-
-    return false;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub noinline fn end_button() void {
-    pop_build_stack();
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn push_build_stack(handle: Handle) void {
+pub fn push_build_stack(handle: Handle) void {
     if (build_stack_index < build_stack.len) {
         build_stack[build_stack_index] = handle;
         build_stack_index += 1;
@@ -774,7 +677,7 @@ fn push_build_stack(handle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn pop_build_stack() void {
+pub fn pop_build_stack() void {
     if (build_stack_index > 0) {
         build_stack_index -= 1;
     } else {
@@ -786,7 +689,7 @@ fn pop_build_stack() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn build_stack_empty() bool {
+pub fn build_stack_empty() bool {
     return build_stack_index == 0;
 }
 
@@ -794,7 +697,7 @@ fn build_stack_empty() bool {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn top_build_stack() Handle {
+pub fn top_build_stack() Handle {
     if (build_stack_index > 0) {
         return build_stack[build_stack_index - 1];
     } else {
@@ -807,7 +710,7 @@ fn top_build_stack() Handle {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const Ident = struct {
+pub const Ident = struct {
     addr: usize,
     unique: usize,
 };
@@ -816,7 +719,7 @@ const Ident = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const Handle = enum(u32) {
+pub const Handle = enum(u32) {
     _,
     pub fn children(self: Handle) !Object.ObjectChildrenIterator {
         const obj = try get(self);
@@ -849,7 +752,7 @@ const UI_Type = enum {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const Object = struct {
+pub const Object = struct {
     pred: ?Handle = null,
     succ: ?Handle = null,
     first_child: ?Handle = null,
@@ -937,10 +840,24 @@ const Object = struct {
     ///////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn process_event(self: *Object, handle: Handle, event: ng.Event) bool {
+        var iter = self.children();
+        while (iter.next()) |child| {
+            const obj = get(child) catch continue;
+            if (@reduce(.And, last_mouse > obj.pos) and
+                @reduce(.And, last_mouse < obj.pos + obj.size))
+            {
+                if (obj.process_event(child, event)) {
+                    return true;
+                }
+            }
+        }
+
         switch (self.data) {
             .window => |*win| return win.process_event(handle, event),
             .button => |*button| return button.process_event(handle, event),
-            else => {},
+            .vbox => |*vbox| return vbox.process_event(handle, event),
+            .hbox => |*hbox| return hbox.process_event(handle, event),
+            .text => |*text| return text.process_event(handle, event),
         }
         return false;
     }
@@ -965,7 +882,7 @@ const Object = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const LayoutConstraint = struct {
+pub const LayoutConstraint = struct {
     min_size: ng.Vec2 = .{ 0, 0 },
     max_size: ng.Vec2 = .{ 0, 0 },
 
@@ -983,411 +900,7 @@ const LayoutConstraint = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const Window = struct {
-    title: []const u8,
-    min_size: Vec2,
-    max_size: Vec2,
-    background_color: ng.Color,
-    title_bar_color: ng.Color,
-    title_bar_height: f32,
-    title_text_color: ng.Color,
-    resize_handle_color: ng.Color,
-    resize_handle_size: f32,
-    resize_border_size: f32,
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn draw(self: Window, obj: *const Object) void {
-        add_scissor(obj.pos, obj.size);
-        draw_rectangle(obj.pos, obj.size, self.background_color);
-
-        if (false) // let's not draw this anymore
-        {
-            add_vertex(.{
-                .pos = obj.pos + obj.size - Vec2{ 0, self.resize_handle_size },
-                .uv = .{ 0, 0 },
-                .col = self.resize_handle_color,
-            });
-
-            add_vertex(.{
-                .pos = obj.pos + obj.size,
-                .uv = .{ 0, 0 },
-                .col = self.resize_handle_color,
-            });
-
-            add_vertex(.{
-                .pos = obj.pos + obj.size - Vec2{ self.resize_handle_size, 0 },
-                .uv = .{ 0, 0 },
-                .col = self.resize_handle_color,
-            });
-        }
-
-        draw_rectangle(
-            obj.pos,
-            Vec2{ obj.size[0], self.title_bar_height },
-            self.title_bar_color,
-        );
-
-        draw_text(
-            obj.pos + Vec2{ 4, 4 },
-            self.title,
-            self.title_bar_height - 8,
-            self.title_text_color,
-        );
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn process_event(self: *Window, handle: Handle, event: ng.Event) bool {
-        switch (event) {
-            .mouse_move => |ev| return self.process_mouse_move(handle, ev),
-            .mouse_down => |ev| return self.process_mouse_down(handle, ev),
-            .mouse_up => |ev| return self.process_mouse_up(handle, ev),
-            .key_down, .key_up => return false,
-            else => {},
-        }
-        return false;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn process_mouse_move(self: *Window, handle: Handle, event: ng.MoveEvent) bool {
-        if (captured_mouse == handle) {
-            var obj = get(handle) catch return false;
-            switch (window_resizing) {
-                .none => {
-                    obj.pos = event.pos - captured_offset;
-                    ng.use_cursor(.move);
-                },
-                .resize => {
-                    obj.size = std.math.clamp(
-                        event.pos - obj.pos,
-                        self.min_size,
-                        self.max_size,
-                    );
-                    ng.use_cursor(.resize);
-                },
-                .top => {
-                    const new_pos = event.pos[1] - captured_offset[1];
-                    const new_size = std.math.clamp(
-                        obj.pos[1] + obj.size[1] - new_pos,
-                        self.min_size[1],
-                        self.max_size[1],
-                    );
-                    obj.pos[1] = obj.pos[1] + obj.size[1] - new_size;
-                    obj.size[1] = new_size;
-                    ng.use_cursor(.resize_ns);
-                },
-                .left => {
-                    const new_pos = event.pos[0] - captured_offset[0];
-                    const new_size = std.math.clamp(
-                        obj.pos[0] + obj.size[0] - new_pos,
-                        self.min_size[0],
-                        self.max_size[0],
-                    );
-                    obj.pos[0] = obj.pos[0] + obj.size[0] - new_size;
-                    obj.size[0] = new_size;
-                    ng.use_cursor(.resize_ew);
-                },
-                .bottom => {
-                    obj.size[1] = std.math.clamp(
-                        event.pos[1] - obj.pos[1],
-                        self.min_size[1],
-                        self.max_size[1],
-                    );
-                    ng.use_cursor(.resize_ns);
-                },
-                .right => {
-                    obj.size[0] = std.math.clamp(
-                        event.pos[0] - obj.pos[0],
-                        self.min_size[0],
-                        self.max_size[0],
-                    );
-                    ng.use_cursor(.resize_ew);
-                },
-            }
-        } else {
-            const obj = get(handle) catch return false;
-            if (event.pos[0] >= obj.pos[0] and
-                event.pos[0] < obj.pos[0] + obj.size[0] and
-                event.pos[1] >= obj.pos[1] and
-                event.pos[1] < obj.pos[1] + obj.size[1])
-            {
-                const bottom_right = obj.pos + obj.size - event.pos;
-                const top_left = event.pos - obj.pos;
-                if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
-                    ng.use_cursor(.resize);
-                } else if (bottom_right[0] < self.resize_border_size) {
-                    ng.use_cursor(.resize_ew);
-                } else if (bottom_right[1] < self.resize_border_size) {
-                    ng.use_cursor(.resize_ns);
-                } else if (top_left[0] < self.resize_border_size) {
-                    ng.use_cursor(.resize_ew);
-                } else if (top_left[1] < self.resize_border_size) {
-                    ng.use_cursor(.resize_ns);
-                } else {
-                    ng.use_cursor(.default);
-                }
-                hover_window = handle;
-                return true;
-            }
-            hover_window = null;
-            hover = null;
-        }
-        return false;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn process_mouse_down(self: Window, handle: Handle, event: ng.MouseEvent) bool {
-        const obj = get(handle) catch return false;
-        if (event.button == .left) {
-            if (event.pos[0] >= obj.pos[0] and
-                event.pos[0] < obj.pos[0] + obj.size[0] and
-                event.pos[1] >= obj.pos[1] and
-                event.pos[1] < obj.pos[1] + obj.size[1])
-            {
-                const bottom_right = obj.pos + obj.size - event.pos;
-                const top_left = event.pos - obj.pos;
-                if (bottom_right[0] + bottom_right[1] < self.resize_handle_size) {
-                    window_resizing = .resize;
-                } else if (bottom_right[0] < self.resize_border_size) {
-                    window_resizing = .right;
-                } else if (top_left[0] < self.resize_border_size) {
-                    window_resizing = .left;
-                } else if (bottom_right[1] < self.resize_border_size) {
-                    window_resizing = .bottom;
-                } else if (top_left[1] < self.resize_border_size) {
-                    window_resizing = .top;
-                } else {
-                    window_resizing = .none;
-                }
-                captured_mouse = handle;
-                captured_offset = event.pos - obj.pos;
-                move_to_top(handle);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn process_mouse_up(self: Window, handle: Handle, event: ng.MouseEvent) bool {
-        _ = self;
-        if (event.button == .left) {
-            if (captured_mouse == handle) {
-                captured_mouse = null;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn layout(self: *const Window, handle: Handle, _: LayoutConstraint) ng.Vec2 {
-        _ = self;
-
-        const constraint = LayoutConstraint{
-            .min_size = .{ 0, 0 },
-            .max_size = .{ std.math.inf(f32), std.math.inf(f32) },
-        };
-
-        const obj = get(handle) catch return .{ 0, 0 };
-        var pos = obj.pos + ng.Vec2{ 0, 26 };
-
-        var iter = handle.children() catch return .{ 0, 0 };
-        while (iter.next()) |child_handle| {
-            var child_obj = get(child_handle) catch return obj.size;
-
-            child_obj.pos = pos;
-
-            const size = child_handle.layout(constraint);
-
-            child_obj.size = size;
-
-            pos[1] += size[1];
-        }
-
-        return .{ 0, 0 };
-    }
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const VBox = struct {
-    pub fn layout(self: *const VBox, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
-        _ = self;
-        const obj = get(handle) catch return .{ 0, 0 };
-
-        var pos = obj.pos + Vec2{ obj.padding.left, obj.padding.top };
-        var max_size = ng.Vec2{ 0, 0 };
-
-        var iter = obj.children();
-        while (iter.next()) |child| {
-            var child_obj = get(child) catch return max_size;
-
-            child_obj.pos = pos;
-
-            const size = child.layout(constraint);
-            if (size[0] > max_size[0]) {
-                max_size[0] = size[0];
-            }
-
-            child_obj.size = size;
-
-            pos[1] += size[1];
-            max_size[1] += size[1];
-        }
-
-        return max_size;
-    }
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const HBox = struct {
-    pub fn layout(self: *const HBox, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
-        _ = self;
-        const obj = get(handle) catch return .{ 0, 0 };
-
-        var pos = obj.pos + Vec2{ obj.padding.left, obj.padding.top };
-        var max_size = ng.Vec2{ 0, 0 };
-
-        var iter = obj.children();
-        while (iter.next()) |child| {
-            var child_obj = get(child) catch return max_size;
-
-            child_obj.pos = pos;
-
-            const size = child.layout(constraint);
-            if (size[1] > max_size[1]) {
-                max_size[1] = size[1];
-            }
-
-            child_obj.size = size;
-
-            pos[0] += size[0];
-            max_size[0] += size[0];
-        }
-
-        max_size += Vec2{ obj.padding.left, obj.padding.top };
-        max_size += Vec2{ obj.padding.right, obj.padding.bottom };
-
-        return max_size;
-    }
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const Text = struct {
-    memory: []u8,
-    text: []const u8,
-    allocated: bool,
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn draw(self: Text, obj: *const Object) void {
-        draw_text(
-            obj.pos,
-            self.text,
-            20,
-            .yellow,
-        );
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn layout(self: *const Text, _: Handle, _: LayoutConstraint) ng.Vec2 {
-        return ng.Vec2{ @as(f32, @floatFromInt(self.text.len)) * 12, 20 };
-    }
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const Button = struct {
-    min_size: Vec2,
-    background_color: Color = .@"dark grey",
-    clicked: bool = false,
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn process_event(self: *Button, handle: Handle, event: ng.Event) bool {
-        switch (event) {
-            .mouse_down => |ev| return self.process_mouse_down(handle, ev),
-            .mouse_up => |ev| return self.process_mouse_up(handle, ev),
-            else => {},
-        }
-        return false;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    fn process_mouse_down(self: *Button, handle: Handle, event: ng.MouseEvent) bool {
-        _ = self;
-        _ = handle;
-        _ = event;
-        return true;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    fn process_mouse_up(self: *Button, handle: Handle, event: ng.MouseEvent) bool {
-        _ = self;
-        _ = handle;
-        _ = event;
-        return true;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn draw(self: Button, obj: *const Object) void {
-        draw_rectangle(obj.pos, obj.size, self.background_color);
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    pub fn layout(self: *const Button, handle: Handle, constraint: LayoutConstraint) ng.Vec2 {
-        const obj = get(handle) catch return .{ 0, 0 };
-
-        const internal_constraint = LayoutConstraint{
-            .min_size = @min(self.min_size, constraint.min_size),
-            .max_size = @max(self.min_size, constraint.max_size),
-        };
-
-        var size: ng.Vec2 = .{ 0, 0 };
-
-        var iter = handle.children() catch return .{ 0, 0 };
-        while (iter.next()) |child_handle| {
-            var child_obj = get(child_handle) catch return obj.size;
-
-            child_obj.pos = obj.pos;
-
-            const child_size = child_handle.layout(internal_constraint);
-
-            child_obj.size = child_size;
-
-            size = @max(child_size, size);
-        }
-
-        return size;
-    }
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn find_object(phandle: Handle, ident: Ident) ?Handle {
+pub fn find_object(phandle: Handle, ident: Ident) ?Handle {
     const parent = get(phandle) catch return null;
     var object = parent.first_child;
     while (object) |handle| {
@@ -1404,7 +917,7 @@ fn find_object(phandle: Handle, ident: Ident) ?Handle {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn add_child_last(phandle: Handle, chandle: Handle) void {
+pub fn add_child_last(phandle: Handle, chandle: Handle) void {
     const parent = get(phandle) catch return;
     const child = get(chandle) catch return;
 
@@ -1442,7 +955,7 @@ fn find_window(ident: Ident) ?Handle {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn move_to_top(handle: Handle) void {
+pub fn move_to_top(handle: Handle) void {
     if (first_window == handle) {
         return;
     }
@@ -1559,8 +1072,8 @@ fn dump_state(label: []const u8) void {
         last_window,
         captured_mouse,
         app_captured_mouse,
-        hover_window,
-        hover,
+        over_window,
+        over,
     });
 
     const lots_of_spaces = " " ** 256;
@@ -1575,9 +1088,11 @@ fn dump_state(label: []const u8) void {
                     handle,
                     @tagName(obj.data),
                 });
-                ng.debug_print(" {d} {d}", .{
+                ng.debug_print(" {d} {d} {} {}", .{
                     obj.pos,
                     obj.size,
+                    obj.shown,
+                    obj.active,
                 });
                 switch (obj.data) {
                     .window => {},
@@ -1590,7 +1105,9 @@ fn dump_state(label: []const u8) void {
                             text.memory.len,
                         });
                     },
-                    .button => {},
+                    .button => |button| {
+                        ng.debug_print(" {} {}", .{ button.clicked, button.pressed });
+                    },
                 }
                 ng.debug_print("\n", .{});
             }
@@ -1602,7 +1119,7 @@ fn dump_state(label: []const u8) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn new() !Handle {
+pub fn new() !Handle {
     const index = all_objects.items.len;
 
     try all_objects.append(allocator, undefined);
@@ -1615,7 +1132,7 @@ fn new() !Handle {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn get(handle: Handle) !*Object {
+pub fn get(handle: Handle) !*Object {
     const index = @intFromEnum(handle);
     if (index < used_objects.items.len and used_objects.items[index]) {
         return &all_objects.items[index];
@@ -1629,11 +1146,11 @@ fn get(handle: Handle) !*Object {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn is_hover_window() bool {
-    if (hover_window) |handle| {
+pub fn is_over_window() bool {
+    if (over_window) |handle| {
         _ = get(handle) catch {
-            hover_window = null;
-            hover = null;
+            over_window = null;
+            over = null;
             return false;
         };
         return true;
@@ -1670,6 +1187,13 @@ pub fn filter_event(event: ng.Event) ?ng.Event {
         return event;
     }
 
+    switch (event) {
+        .mouse_move => |ev| {
+            last_mouse = ev.pos;
+        },
+        else => {},
+    }
+
     var window = first_window;
     while (window) |handle| {
         var win = get(handle) catch return event;
@@ -1704,7 +1228,7 @@ pub fn filter_event(event: ng.Event) ?ng.Event {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw_rectangle(pos: Vec2, size: Vec2, col: Color) void {
+pub fn draw_rectangle(pos: Vec2, size: Vec2, col: Color) void {
     add_vertex(.{
         .pos = pos,
         .uv = .{ 0, 0 },
@@ -1741,7 +1265,7 @@ fn draw_rectangle(pos: Vec2, size: Vec2, col: Color) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw_text(pos: Vec2, text: []const u8, height: f32, col: Color) void {
+pub fn draw_text(pos: Vec2, text: []const u8, height: f32, col: Color) void {
     var p = pos;
 
     const scale = height / 20;
