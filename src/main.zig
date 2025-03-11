@@ -17,6 +17,9 @@ var allocator: std.mem.Allocator = undefined;
 
 pub const log = ng.Logger(.main);
 
+var debug_state : bool = false;
+var debug_timer : f32 = 0;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -141,6 +144,18 @@ fn draw_debug_window() void {
     }
     if (state.button_clicks > 10) ng.ui_add_text(.{}, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", .{});
     if (state.button_clicks > 20) ng.ui_add_text(.{}, "0123456789", .{});
+
+    debug_timer -= state.dt;
+    if (debug_timer < 0)
+    {
+        debug_timer += 1 + ng.rand ();
+        debug_state = !debug_state;
+    }
+
+    if (debug_state)
+    {
+        ng.ui_add_text (.{}, "State {d}", .{debug_timer});
+    }
 
     ng.ui_end_vbox();
 }
