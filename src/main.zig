@@ -144,9 +144,6 @@ fn draw_debug_window() void {
         state.button_clicks += 1;
     }
 
-    if (!debug_state) {
-        ng.ui_add_text(.{}, "State Off {d:0.3}", .{debug_timer});
-    }
 
     if (state.button_clicks > 0 and state.button_clicks < 30) {
         ng.ui_add_text(.{}, "abcdefghijklmnopqrstuvwxyz", .{});
@@ -156,6 +153,8 @@ fn draw_debug_window() void {
 
     if (debug_state) {
         ng.ui_add_text(.{}, "State On {d:0.3}", .{debug_timer});
+    } else {
+        ng.ui_add_text(.{}, "State Off {d:0.3}", .{debug_timer});
     }
 
     debug_timer -= state.dt;
