@@ -1,3 +1,20 @@
+- Immediate Mode UI
+  - remove objects that are not 'refreshed'
+    - fade out objects that are not 'refreshed'
+  - Text (wrapping / formatting)
+  - child gaps
+  - horizontal alignment - left, center, right
+  - vertical alignment - top, center, bottom
+  - Expand to fit
+  - Shrink to fit
+  - CheckButton
+  - RadioButton
+  - Icons
+  - InputText
+  - VerticalScrollBar
+  - HorizontalScrollBar
+  - themes
+
 - Map
   - draw nodes
     - node fragment shader 
@@ -20,23 +37,6 @@
       - change a cross section segment width
       - add cross section segment
       - delete cross section segment
-
-- Immediate Mode UI
-  - remove objects that are not 'refreshed'
-    - fade out objects that are not 'refreshed'
-  - Text (wrapping / formatting)
-  - child gaps
-  - horizontal alignment - left, center, right
-  - vertical alignment - top, center, bottom
-  - Expand to fit
-  - Shrink to fit
-  - CheckButton
-  - RadioButton
-  - Icons
-  - InputText
-  - VerticalScrollBar
-  - HorizontalScrollBar
-  - themes
 
 - ECS
   - save to binary file

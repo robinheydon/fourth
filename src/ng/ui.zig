@@ -39,6 +39,8 @@ pub var allocator: std.mem.Allocator = undefined;
 
 var all_objects: std.ArrayListUnmanaged(Object) = .empty;
 var used_objects: std.ArrayListUnmanaged(bool) = .empty;
+var generations: std.ArrayListUnmanaged(HandleGeneration) = .empty;
+var recycled: std.ArrayListUnmanaged(HandleIndex) = .empty;
 
 var init_required: bool = false;
 
@@ -116,19 +118,14 @@ pub fn deinit() void {
         ui_image.delete();
         ui_sampler.delete();
 
-        for (all_objects.items) |obj| {
-            switch (obj.data) {
-                .text => |text| {
-                    if (text.allocated) {
-                        allocator.free(text.memory);
-                    }
-                },
-                else => {},
-            }
+        for (all_objects.items) |*obj| {
+            obj.deinit();
         }
 
         all_objects.deinit(allocator);
         used_objects.deinit(allocator);
+        generations.deinit(allocator);
+        recycled.deinit(allocator);
     }
 
     std.debug.assert(gpa.deinit() == .ok);
@@ -228,24 +225,29 @@ pub fn render(render_pass: ng.RenderPass) void {
         var iter = ui_walk(window);
         while (iter.next()) |handle| {
             const obj = get(handle) catch return;
-            obj.shown = obj.active;
-            obj.active = false;
+            if (obj.active) {
+                obj.shown = obj.active;
+                obj.active = false;
+            } else {
+                obj.shown = false;
+            }
         }
     }
 
     var object = first_window;
     while (object) |handle| {
         var obj = get(handle) catch return;
+        object = obj.succ;
+
         obj.fit_to_display(display_size);
 
         _ = obj.layout(handle, .{});
-
-        object = obj.succ;
     }
 
     object = last_window;
     while (object) |handle| {
         const obj = get(handle) catch return;
+        object = obj.pred;
 
         if (obj.shown) {
             switch (obj.data) {
@@ -258,12 +260,18 @@ pub fn render(render_pass: ng.RenderPass) void {
                 },
             }
         }
-
-        object = obj.pred;
     }
 
     if (true) {
         dump_state("Render");
+    }
+
+    object = first_window;
+    while (object) |handle| {
+        const obj = get(handle) catch return;
+        object = obj.succ;
+
+        delete_not_shown_in(handle);
     }
 
     if (next_vertex > 0) {
@@ -293,6 +301,28 @@ pub fn render(render_pass: ng.RenderPass) void {
 
     next_vertex = 0;
     next_command = 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn delete_not_shown_in(phandle: Handle) void {
+    const parent = get(phandle) catch return;
+    var child: ?Handle = parent.first_child;
+    while (child) |chandle| {
+        const obj = get(chandle) catch return;
+        child = obj.succ;
+
+        if (obj.first_child) |_| {
+            delete_not_shown_in(chandle);
+        }
+
+        if (obj.shown == false) {
+            remove_child(phandle, chandle);
+            delete(chandle);
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -419,8 +449,13 @@ pub const Ident = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const Handle = enum(u32) {
-    _,
+const HandleIndex = u16;
+const HandleGeneration = u16;
+
+pub const Handle = packed struct(u32) {
+    idx: HandleIndex,
+    gen: HandleGeneration,
+
     pub fn children(self: Handle) !Object.ObjectChildrenIterator {
         const obj = try get(self);
         return obj.children();
@@ -432,7 +467,7 @@ pub const Handle = enum(u32) {
     }
 
     pub fn format(self: Handle, _: anytype, _: anytype, writer: anytype) !void {
-        try writer.print("#{d}", .{@intFromEnum(self)});
+        try writer.print("#{d}:{d}", .{ self.gen, self.idx });
     }
 };
 
@@ -495,6 +530,18 @@ pub const Object = struct {
             return null;
         }
     };
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    pub fn deinit(self: *Object) void {
+        switch (self.data) {
+            .window => |*obj| obj.deinit(),
+            .vbox => |*obj| obj.deinit(),
+            .hbox => |*obj| obj.deinit(),
+            .text => |*obj| obj.deinit(),
+            .button => |*obj| obj.deinit(),
+        }
+    }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -628,6 +675,28 @@ pub fn find_object(phandle: Handle, ident: Ident) ?Handle {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+pub fn remove_child(phandle: Handle, chandle: Handle) void {
+    const parent = get(phandle) catch return;
+    const child = get(chandle) catch return;
+
+    if (child.pred) |pred| {
+        const pred_obj = get(pred) catch return;
+        pred_obj.succ = child.succ;
+    } else {
+        parent.first_child = child.succ;
+    }
+    if (child.succ) |succ| {
+        const succ_obj = get(succ) catch return;
+        succ_obj.pred = child.pred;
+    } else {
+        parent.last_child = child.pred;
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pub fn add_child_last(phandle: Handle, chandle: Handle) void {
     const parent = get(phandle) catch return;
     const child = get(chandle) catch return;
@@ -651,22 +720,7 @@ pub fn add_child_last(phandle: Handle, chandle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn move_child_last(phandle: Handle, chandle: Handle) void {
-    const parent = get(phandle) catch return;
-    const child = get(chandle) catch return;
-
-    if (child.pred) |pred| {
-        const pred_obj = get(pred) catch return;
-        pred_obj.succ = child.succ;
-    } else {
-        parent.first_child = child.succ;
-    }
-    if (child.succ) |succ| {
-        const succ_obj = get(succ) catch return;
-        succ_obj.pred = child.pred;
-    } else {
-        parent.last_child = child.pred;
-    }
-
+    remove_child(phandle, chandle);
     add_child_last(phandle, chandle);
 }
 
@@ -844,12 +898,32 @@ fn dump_state(label: []const u8) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn new() !Handle {
-    const index = all_objects.items.len;
+    if (recycled.pop()) |index| {
+        const gen = generations.items[index];
+        used_objects.items[index] = true;
+        return .{ .idx = index, .gen = gen };
+    } else {
+        const index = all_objects.items.len;
 
-    try all_objects.append(allocator, undefined);
-    try used_objects.append(allocator, true);
+        try all_objects.append(allocator, undefined);
+        try used_objects.append(allocator, true);
+        try generations.append(allocator, 0);
 
-    return @enumFromInt(index);
+        return .{ .idx = @intCast(index), .gen = 0 };
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn delete(handle: Handle) void {
+    const obj = get(handle) catch return;
+    obj.deinit();
+
+    used_objects.items[handle.idx] = false;
+    generations.items[handle.idx] +%= 1;
+    recycled.append(allocator, handle.idx) catch return;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -857,12 +931,23 @@ pub fn new() !Handle {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn get(handle: Handle) !*Object {
-    const index = @intFromEnum(handle);
-    if (index < used_objects.items.len and used_objects.items[index]) {
-        return &all_objects.items[index];
+    if (handle.idx < used_objects.items.len and
+        used_objects.items[handle.idx] and
+        generations.items[handle.idx] == handle.gen)
+    {
+        return &all_objects.items[handle.idx];
     }
 
-    log.err("Get {} invalid", .{handle});
+    if (handle.idx >= used_objects.items.len) {
+        log.fatal("Get {} invalid index", .{handle});
+    } else if (!used_objects.items[handle.idx]) {
+        log.fatal("Get {} invalid not used", .{handle});
+    } else if (generations.items[handle.idx] != handle.gen) {
+        log.fatal("Get {} invalid generation", .{handle});
+    } else {
+        log.fatal("Get {} invalid", .{handle});
+    }
+    log.callstack();
     return error.InvalidHandle;
 }
 

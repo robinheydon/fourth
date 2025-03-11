@@ -72,6 +72,9 @@ pub fn Logger(comptime scope: @Type(.enum_literal)) type {
         pub fn dec_depth() void {
             depth -= 1;
         }
+        pub fn callstack() void {
+            std.debug.dumpCurrentStackTrace(null);
+        }
     };
 }
 
