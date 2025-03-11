@@ -45,7 +45,7 @@ pub noinline fn begin_hbox(options: BeginBoxOptions) void {
     if (ui.find_object(parent, ident)) |handle| {
         var object = ui.get(handle) catch return;
         object.active = true;
-        object.shown = true;
+        ui.move_child_last (parent, handle);
         ui.push_build_stack(handle);
     } else {
         const handle = ui.new() catch |err| {
@@ -58,7 +58,6 @@ pub noinline fn begin_hbox(options: BeginBoxOptions) void {
         object.* = .{
             .ident = ident,
             .active = true,
-            .shown = true,
             .padding = options.padding,
             .data = .{
                 .hbox = .{},

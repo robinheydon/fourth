@@ -68,7 +68,8 @@ fn add_text_internal(
     if (ui.find_object(parent, ident)) |handle| {
         var object = ui.get(handle) catch return;
         object.active = true;
-        object.shown = true;
+
+        ui.move_child_last(parent, handle);
 
         switch (object.data) {
             .text => |*text| {
@@ -108,7 +109,6 @@ fn add_text_internal(
         object.* = .{
             .ident = ident,
             .active = true,
-            .shown = true,
             .data = .{
                 .text = .{
                     .memory = buffer,

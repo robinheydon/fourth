@@ -224,6 +224,15 @@ pub fn render(render_pass: ng.RenderPass) void {
 
     const display_size = render_pass.get_size();
 
+    if (first_window) |window| {
+        var iter = ui_walk(window);
+        while (iter.next()) |handle| {
+            const obj = get(handle) catch return;
+            obj.shown = obj.active;
+            obj.active = false;
+        }
+    }
+
     var object = first_window;
     while (object) |handle| {
         var obj = get(handle) catch return;
@@ -234,13 +243,10 @@ pub fn render(render_pass: ng.RenderPass) void {
         object = obj.succ;
     }
 
-    if (true) {
-        dump_state("Render");
-    }
-
     object = last_window;
     while (object) |handle| {
-        var obj = get(handle) catch return;
+        const obj = get(handle) catch return;
+
         if (obj.shown) {
             switch (obj.data) {
                 .window => |window| {
@@ -253,10 +259,11 @@ pub fn render(render_pass: ng.RenderPass) void {
             }
         }
 
-        obj.shown = obj.active;
-        obj.active = false;
-
         object = obj.pred;
+    }
+
+    if (true) {
+        dump_state("Render");
     }
 
     if (next_vertex > 0) {
@@ -296,6 +303,7 @@ fn draw_internal(first_child: ?Handle) void {
     var child: ?Handle = first_child;
     while (child) |handle| {
         const obj = get(handle) catch return;
+
         if (obj.shown) {
             switch (obj.data) {
                 .window => {},
@@ -310,9 +318,6 @@ fn draw_internal(first_child: ?Handle) void {
             }
             draw_internal(obj.first_child);
         }
-
-        obj.shown = obj.active;
-        obj.active = false;
 
         child = obj.succ;
     }
@@ -645,6 +650,36 @@ pub fn add_child_last(phandle: Handle, chandle: Handle) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+pub fn move_child_last (phandle: Handle, chandle: Handle) void {
+    const parent = get(phandle) catch return;
+    const child = get(chandle) catch return;
+
+    if (child.pred) |pred|
+    {
+        const pred_obj = get(pred) catch return;
+        pred_obj.succ = child.succ;
+    }
+    else
+    {
+        parent.first_child = child.succ;
+    }
+    if (child.succ) |succ|
+    {
+        const succ_obj = get(succ) catch return;
+        succ_obj.pred = child.pred;
+    }
+    else
+    {
+        parent.last_child = child.pred;
+    }
+
+    add_child_last (phandle, chandle);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pub fn find_window(ident: Ident) ?Handle {
     var object = first_window;
     while (object) |handle| {
@@ -729,26 +764,17 @@ const Walker = struct {
                 } else {
                     self.stack[self.index - 1] = null;
                 }
-                // if (obj.shown) {
-                {
-                    if (obj.first_child) |first| {
-                        if (self.index < max_ui_iterator_depth) {
-                            self.stack[self.index] = first;
-                            self.index += 1;
-                        } else {
-                            log.err("UI_Iterator overflow", .{});
-                            self.index = 0;
-                            return null;
-                        }
+                if (obj.first_child) |first| {
+                    if (self.index < max_ui_iterator_depth) {
+                        self.stack[self.index] = first;
+                        self.index += 1;
+                    } else {
+                        log.err("UI_Iterator overflow", .{});
+                        self.index = 0;
+                        return null;
                     }
-                    return handle;
-                // } else {
-                    // if (obj.succ) |succ| {
-                        // self.stack[self.index - 1] = succ;
-                    // } else {
-                        // self.index -= 1;
-                    // }
                 }
+                return handle;
             } else {
                 self.index -= 1;
             }
@@ -789,36 +815,32 @@ fn dump_state(label: []const u8) void {
         var iter = ui_walk(window);
         while (iter.next()) |handle| {
             const obj = get(handle) catch return;
-            //if (obj.shown) {
-            {
-                ng.debug_print("{s}", .{lots_of_spaces[0 .. iter.depth * 2]});
-                ng.debug_print("{} {s}", .{
-                    handle,
-                    @tagName(obj.data),
-                });
-                ng.debug_print(" {d} {d} {} {}", .{
-                    obj.pos,
-                    obj.size,
-                    obj.shown,
-                    obj.active,
-                });
-                switch (obj.data) {
-                    .window => {},
-                    .vbox => {},
-                    .hbox => {},
-                    .text => |text| {
-                        ng.debug_print(" \"{}\" {}/{}", .{
-                            std.zig.fmtEscapes(text.text),
-                            text.text.len,
-                            text.memory.len,
-                        });
-                    },
-                    .button => |button| {
-                        ng.debug_print(" {} {}", .{ button.clicked, button.pressed });
-                    },
-                }
-                ng.debug_print("\n", .{});
+            ng.debug_print("{s}", .{lots_of_spaces[0 .. iter.depth * 2]});
+            ng.debug_print("{} {s}", .{
+                handle,
+                @tagName(obj.data),
+            });
+            ng.debug_print(" {d} {d} {s}", .{
+                obj.pos,
+                obj.size,
+                if (obj.shown) "shown" else "hidden",
+            });
+            switch (obj.data) {
+                .window => {},
+                .vbox => {},
+                .hbox => {},
+                .text => |text| {
+                    ng.debug_print(" \"{}\" {}/{}", .{
+                        std.zig.fmtEscapes(text.text),
+                        text.text.len,
+                        text.memory.len,
+                    });
+                },
+                .button => |button| {
+                    ng.debug_print(" {} {}", .{ button.clicked, button.pressed });
+                },
             }
+            ng.debug_print("\n", .{});
         }
     }
 }

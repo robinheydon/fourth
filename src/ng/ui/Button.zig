@@ -104,8 +104,8 @@ fn begin_button_internal(options: ButtonOptions, ident: Ident) bool {
     if (ui.find_object(parent, ident)) |handle| {
         var object = ui.get(handle) catch return false;
         object.active = true;
-        object.shown = true;
 
+        ui.move_child_last (parent, handle);
         ui.push_build_stack(handle);
 
         if (object.data.button.clicked > 0) {
@@ -125,7 +125,6 @@ fn begin_button_internal(options: ButtonOptions, ident: Ident) bool {
         object.* = .{
             .ident = ident,
             .active = true,
-            .shown = true,
             .data = .{
                 .button = .{
                     .min_size = .{ options.width, options.height },
@@ -134,7 +133,6 @@ fn begin_button_internal(options: ButtonOptions, ident: Ident) bool {
         };
 
         ui.add_child_last(parent, handle);
-
         ui.push_build_stack(handle);
     }
 

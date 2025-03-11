@@ -17,8 +17,9 @@ var allocator: std.mem.Allocator = undefined;
 
 pub const log = ng.Logger(.main);
 
-var debug_state : bool = false;
-var debug_timer : f32 = 0;
+var debug_state: bool = false;
+var debug_timer: f32 = 0;
+var slow_frame_rate: bool = false;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -86,6 +87,10 @@ pub fn main() !void {
 
         render_pass.end();
         try command_buffer.submit();
+
+        if (slow_frame_rate) {
+            ng.sleep(0.5);
+        }
     }
 }
 
@@ -130,31 +135,33 @@ fn draw_debug_window() void {
     ng.ui_add_text(.{}, "{} clicks", .{state.button_clicks});
     // ng.ui.end_hbox ();
 
-    if (ng.ui_add_button(.{ .text = "Button", .width = 100, .height = 40, .padding = .{
-        .top = 8,
-        .left = 8,
-        .right = 8,
-        .bottom = 8,
-    } })) {
+    if (ng.ui_add_button(.{
+        .text = "Button",
+        .width = 100,
+        .height = 40,
+        .padding = .{ .top = 8, .left = 8, .right = 8, .bottom = 8 },
+    })) {
         state.button_clicks += 1;
     }
 
-    if (state.button_clicks > 0 and state.button_clicks < 15) {
+    if (!debug_state) {
+        ng.ui_add_text(.{}, "State Off {d:0.3}", .{debug_timer});
+    }
+
+    if (state.button_clicks > 0 and state.button_clicks < 30) {
         ng.ui_add_text(.{}, "abcdefghijklmnopqrstuvwxyz", .{});
     }
     if (state.button_clicks > 10) ng.ui_add_text(.{}, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", .{});
     if (state.button_clicks > 20) ng.ui_add_text(.{}, "0123456789", .{});
 
-    debug_timer -= state.dt;
-    if (debug_timer < 0)
-    {
-        debug_timer += 1 + ng.rand ();
-        debug_state = !debug_state;
+    if (debug_state) {
+        ng.ui_add_text(.{}, "State On {d:0.3}", .{debug_timer});
     }
 
-    if (debug_state)
-    {
-        ng.ui_add_text (.{}, "State {d}", .{debug_timer});
+    debug_timer -= state.dt;
+    if (debug_timer < 0) {
+        debug_timer += 3;
+        debug_state = !debug_state;
     }
 
     ng.ui_end_vbox();
@@ -389,6 +396,8 @@ fn process_key_down(event: ng.KeyEvent) void {
         state.show_window3 = !state.show_window3;
     } else if (event.key == state.key_toggle_window4) {
         state.show_window4 = !state.show_window4;
+    } else if (event.key == .tab) {
+        slow_frame_rate = !slow_frame_rate;
     } else {
         // log.debug("{} ({})", .{ event.key, event.scan_code });
     }

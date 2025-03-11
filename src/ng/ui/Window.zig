@@ -83,7 +83,6 @@ pub noinline fn begin_window(options: BeginWindowOptions) void {
             ui.move_to_top(handle);
         }
         window.active = true;
-        window.shown = true;
 
         ui.push_build_stack(handle);
     } else {
