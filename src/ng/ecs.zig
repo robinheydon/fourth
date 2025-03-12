@@ -599,7 +599,11 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
     const type_id: TypeId = @intCast(components.items.len);
     type_id_ptr.* = type_id;
 
-    log.info("register component {s} {s} {x}", .{ name, @typeName(Component), type_id });
+    log.info("register component \"{}\" {s} {x}", .{
+        std.zig.fmtEscapes(name),
+        @typeName(Component),
+        type_id,
+    });
 
     const component_typeinfo = @typeInfo(Component);
 
@@ -1007,39 +1011,109 @@ fn update_system_entities() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const InternedStrings = struct {
-    data: std.ArrayListUnmanaged(u8) = .empty,
+const SaveMemory = struct {
+    memory: std.ArrayList(u8),
+    strings: std.ArrayList(u8),
 
-    pub fn intern(self: *InternedStrings, string: []const u8) u32 {
-        if (std.mem.indexOf(u8, self.data.items, string)) |index| {
+    pub fn init(alloc: std.mem.Allocator) SaveMemory {
+        return .{
+            .memory = std.ArrayList(u8).init(alloc),
+            .strings = std.ArrayList(u8).init(alloc),
+        };
+    }
+
+    pub fn intern(self: *SaveMemory, string: []const u8) !u32 {
+        if (std.mem.indexOf(u8, self.strings.items, string)) |index| {
             return @intCast(index);
         }
-        const offset = self.data.items.len;
-        self.data.appendSlice(allocator, string) catch return 0;
+        const offset = self.strings.items.len;
+        try self.strings.appendSlice(string);
         return @intCast(offset);
     }
+
+    pub fn write_header(self: *SaveMemory, tag: *const [4]u8) !u32 {
+        const offset = self.memory.items.len;
+        try self.write(u32, 0);
+        _ = try self.memory.appendSlice(tag);
+
+        return @intCast(offset);
+    }
+
+    pub fn write_header_length(self: *SaveMemory, offset: u32) !void {
+        const new_offset: u32 = @intCast(self.memory.items.len);
+        const length: u32 = new_offset - offset;
+        try self.write_u32_at(@intCast(offset), @intCast(length));
+    }
+
+    pub fn write(self: *SaveMemory, T: type, value: T) !void {
+        _ = try self.memory.appendSlice(std.mem.asBytes(&value));
+    }
+
+    pub fn write_string(self: *SaveMemory, string: []const u8) !void {
+        const interned = try self.intern(string);
+        const len: u32 = @intCast(string.len);
+
+        try self.write(u32, interned);
+        try self.write(u32, len);
+    }
+
+    pub fn write_int(self: *SaveMemory, value: usize) !void {
+        if (value <= 0x7F) {
+            try self.write(u8, @intCast(value));
+        } else if (value <= 0x3FFF) {
+            const new_value: u16 = @intCast(value | 0x8000);
+            try self.write(u16, @byteSwap(new_value));
+        } else if (value <= 0x1FFF_FFFF) {
+            const new_value: u32 = @intCast(value | 0xC000_0000);
+            try self.write(u32, @byteSwap(new_value));
+        } else if (value <= 0xFFFF_FFFF) {
+            const new_value: u32 = @intCast(value);
+            try self.write(u8, 0xF4);
+            try self.write(u32, @byteSwap(new_value));
+        } else {
+            const new_value: u64 = @intCast(value);
+            try self.write(u8, 0xF8);
+            try self.write(u64, @byteSwap(new_value));
+        }
+    }
+
+    pub fn write_u32_at(self: *SaveMemory, offset: u32, value: u32) !void {
+        const data = std.mem.asBytes(&value);
+        self.memory.items[offset + 0] = data[0];
+        self.memory.items[offset + 1] = data[1];
+        self.memory.items[offset + 2] = data[2];
+        self.memory.items[offset + 3] = data[3];
+    }
+
+    pub fn save_strings(self: *SaveMemory) !u32 {
+        const offset = try self.write_header("STR:");
+
+        _ = try self.memory.appendSlice(self.strings.items);
+
+        try self.write_header_length(offset);
+
+        return offset;
+    }
+
+    pub fn toOwnedSlice(self: *SaveMemory) ![]u8 {
+        const memory = try self.memory.toOwnedSlice();
+        self.strings.deinit();
+
+        return memory;
+    }
 };
-
-var save_string_data: InternedStrings = .{};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-const SaveMemory = std.ArrayList(u8);
 
 pub fn save(alloc: std.mem.Allocator) ![]u8 {
     var memory = SaveMemory.init(alloc);
 
-    save_string_data = .{};
+    const head_offset = try memory.write_header("HEAD");
+    try memory.write(u32, 0);
 
-    const head_offset = try write_header(&memory, "HEAD");
-    try write_u32(&memory, 0);
     inline for (std.meta.fields(ComponentFieldKind)) |field| {
-        try write_int(&memory, field.value);
-        try write_string(&memory, field.name);
+        try memory.write_int(field.value);
+        try memory.write_string(field.name);
     }
-    try write_header_length(&memory, head_offset);
+    try memory.write_header_length(head_offset);
 
     try save_component_info(&memory);
 
@@ -1047,158 +1121,79 @@ pub fn save(alloc: std.mem.Allocator) ![]u8 {
 
     try save_recycled(&memory);
 
-    const strings_offset = try save_strings(&memory);
+    const strings_offset = try memory.save_strings();
+    try memory.write_u32_at(head_offset + 8, strings_offset);
 
-    try write_u32_at(&memory, head_offset + 8, @intCast(strings_offset));
-
-    save_string_data.data.deinit(alloc);
-
-    return try memory.toOwnedSlice();
+    return memory.toOwnedSlice();
 }
 
 fn save_component_info(memory: *SaveMemory) !void {
     for (0.., components.items) |type_id, component| {
-        const offset = try write_header(memory, "COMP");
+        const offset = try memory.write_header("COMP");
 
-        try write_int(memory, type_id);
+        try memory.write_int(type_id);
 
-        try write_string(memory, component.name);
+        try memory.write_string(component.name);
 
-        try write_int(memory, @intCast(component.size));
+        try memory.write_int(@intCast(component.size));
 
         switch (component.info) {
             .@"struct" => |info| {
-                try write_int(memory, 0);
-                try write_int(memory, info.num_fields);
+                try memory.write_int(0);
+                try memory.write_int(info.num_fields);
                 for (0..info.num_fields) |i| {
                     const field = info.fields[i];
-                    try write_string(memory, field.name);
-                    try write_int(memory, field.offset);
-                    try write_int(memory, field.size);
-                    try write_int(memory, @intFromEnum(field.kind));
+                    try memory.write_string(field.name);
+                    try memory.write_int(field.offset);
+                    try memory.write_int(field.size);
+                    try memory.write_int(@intFromEnum(field.kind));
                 }
             },
             .@"enum" => |info| {
-                try write_int(memory, 1);
-                try write_int(memory, @intFromEnum(info.tag_type));
-                try write_int(memory, info.num_values);
+                try memory.write_int(1);
+                try memory.write_int(@intFromEnum(info.tag_type));
+                try memory.write_int(info.num_values);
 
                 for (0..info.num_values) |i| {
                     const enum_value = info.values[i];
-                    try write_int(memory, enum_value.value);
-                    try write_string(memory, enum_value.name);
+                    try memory.write_int(enum_value.value);
+                    try memory.write_string(enum_value.name);
                 }
             },
         }
 
-        try write_header_length(memory, offset);
+        try memory.write_header_length(offset);
     }
 }
 
 fn save_entity_info(memory: *SaveMemory) !void {
     for (0.., generations.items) |idx, gen| {
-        const offset = try write_header(memory, "ENTT");
+        const offset = try memory.write_header("ENTT");
         const ent = Entity{ .gen = gen, .idx = @intCast(idx) };
-        _ = try memory.appendSlice(std.mem.asBytes(&ent));
+        _ = try memory.write(Entity, ent);
         for (0.., components.items) |type_id, component| {
             if (component.get_data(ent)) |data| {
-                try write_int(memory, type_id);
-                try write_int(memory, data.len);
-                _ = try memory.appendSlice(data);
+                try memory.write_int(type_id);
+                try memory.write_int(data.len);
+                _ = try memory.memory.appendSlice(data);
             }
         }
-        try write_header_length(memory, offset);
+        try memory.write_header_length(offset);
     }
 }
 
 fn save_recycled(memory: *SaveMemory) !void {
-    const recycled_offset = try write_header(memory, "RCYC");
+    const recycled_offset = try memory.write_header("RCYC");
     for (recycled.items) |ent| {
-        try write_int(memory, ent);
+        try memory.write_int(ent);
     }
-    try write_header_length(memory, recycled_offset);
+    try memory.write_header_length(recycled_offset);
 
-    const old_recycled_offset = try write_header(memory, "OLDR");
+    const old_recycled_offset = try memory.write_header("OLDR");
     for (old_recycled.items) |ent| {
-        try write_int(memory, ent);
+        try memory.write_int(ent);
     }
-    try write_header_length(memory, old_recycled_offset);
-}
-
-fn write_int(memory: *SaveMemory, value: usize) !void {
-    if (value <= 0x7F) {
-        try write_u8(memory, @intCast(value));
-    } else if (value <= 0x3FFF) {
-        const new_value: u16 = @intCast(value | 0x8000);
-        try write_u16(memory, @byteSwap(new_value));
-    } else if (value <= 0x1FFF_FFFF) {
-        const new_value: u32 = @intCast(value | 0xC000_0000);
-        try write_u32(memory, @byteSwap(new_value));
-    } else if (value <= 0xFFFF_FFFF) {
-        const new_value: u32 = @intCast(value);
-        try write_u8(memory, 0xF4);
-        try write_u32(memory, @byteSwap(new_value));
-    } else {
-        const new_value: u64 = @intCast(value);
-        try write_u8(memory, 0xF8);
-        try write_u64(memory, @byteSwap(new_value));
-    }
-}
-
-fn write_u8(memory: *SaveMemory, value: u8) !void {
-    _ = try memory.appendSlice(std.mem.asBytes(&value));
-}
-
-fn write_u16(memory: *SaveMemory, value: u16) !void {
-    _ = try memory.appendSlice(std.mem.asBytes(&value));
-}
-
-fn write_u32(memory: *SaveMemory, value: u32) !void {
-    _ = try memory.appendSlice(std.mem.asBytes(&value));
-}
-
-fn write_u32_at(memory: *SaveMemory, offset: u32, value: u32) !void {
-    const data = std.mem.asBytes(&value);
-    memory.items[offset] = data[0];
-    memory.items[offset + 1] = data[1];
-    memory.items[offset + 2] = data[2];
-    memory.items[offset + 3] = data[3];
-}
-
-fn write_u64(memory: *SaveMemory, value: u64) !void {
-    _ = try memory.appendSlice(std.mem.asBytes(&value));
-}
-
-fn write_string(memory: *SaveMemory, string: []const u8) !void {
-    const interned = save_string_data.intern(string);
-    const len: u32 = @intCast(string.len);
-
-    try write_int(memory, interned);
-    try write_int(memory, len);
-}
-
-fn write_header(memory: *SaveMemory, label: *const [4:0]u8) !u32 {
-    const offset = memory.items.len;
-    try write_u32(memory, 0);
-    _ = try memory.appendSlice(label);
-
-    return @intCast(offset);
-}
-
-fn write_header_length(memory: *SaveMemory, offset: usize) !void {
-    const new_offset = memory.items.len;
-    const length: u32 = @intCast(new_offset - offset);
-    try write_u32_at(memory, @intCast(offset), @intCast(length));
-}
-
-fn save_strings(memory: *SaveMemory) !u64 {
-    const offset = try write_header(memory, "STR:");
-
-    _ = try memory.appendSlice(save_string_data.data.items);
-
-    try write_header_length(memory, offset);
-
-    return offset;
+    try memory.write_header_length(old_recycled_offset);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

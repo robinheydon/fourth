@@ -30,68 +30,81 @@ pub fn main() !void {
     allocator = gpa.allocator();
     defer std.debug.assert(gpa.deinit() == .ok);
 
+    const use_video = true;
+
     try ng.init(.{
-        .video = true,
-        .audio = true,
+        .video = use_video,
+        .audio = false,
     });
-    defer ng.deinit();
 
     log.set_min_level(.note);
     log.info("starting", .{});
     defer log.info("ending", .{});
 
-    state.window = try ng.create_window(.{
-        .name = "Fourth",
-        .width = 1920,
-        .height = 1080,
-        .resizable = true,
-    });
-    defer state.window.close();
+    if (use_video) {
+        state.window = try ng.create_window(.{
+            .name = "Fourth",
+            .width = 1920,
+            .height = 1080,
+            .resizable = true,
+        });
 
-    state.window.set_swap_interval(.lowpower);
+        state.window.set_swap_interval(.lowpower);
+    }
 
     init_world();
 
-    try init_draw_world();
+    if (use_video) {
+        try init_draw_world();
+    }
 
     while (state.running) {
         state.frame_counter +%= 1;
 
         state.dt = ng.start_frame();
-        defer ng.end_frame();
+        if (use_video) {
+            ng.debug_clear(state.window);
 
-        ng.debug_clear(state.window);
-
-        update_fps(state.dt);
+            update_fps(state.dt);
+        }
 
         ng.progress(state.dt);
 
-        process_events();
+        if (use_video) {
+            process_events();
 
-        draw_ui();
+            draw_ui();
 
-        const command_buffer = try state.window.acquire_command_buffer();
-        const swapchain_texture = try command_buffer.acquire_swapchain_texture();
-        const render_pass = try command_buffer.begin_render_pass(.{
-            .texture = swapchain_texture,
-            .clear_color = .@"dark grey",
-            .load = .clear,
-            .store = .store,
-        });
+            const command_buffer = try state.window.acquire_command_buffer();
+            const swapchain_texture = try command_buffer.acquire_swapchain_texture();
+            const render_pass = try command_buffer.begin_render_pass(.{
+                .texture = swapchain_texture,
+                .clear_color = .@"dark grey",
+                .load = .clear,
+                .store = .store,
+            });
 
-        draw_world(render_pass);
+            draw_world(render_pass);
 
-        ng.ui_render(render_pass);
+            ng.ui_render(render_pass);
 
-        ng.debug_text_draw(render_pass);
+            ng.debug_text_draw(render_pass);
 
-        render_pass.end();
-        try command_buffer.submit();
+            render_pass.end();
+            try command_buffer.submit();
 
-        if (slow_frame_rate) {
-            ng.sleep(0.5);
+            if (slow_frame_rate) {
+                ng.sleep(0.5);
+            }
         }
+
+        ng.end_frame();
     }
+
+    if (use_video) {
+        state.window.close();
+    }
+    ng.deinit();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -158,7 +171,7 @@ fn draw_debug_window() void {
 
     debug_timer -= state.dt;
     if (debug_timer < 0) {
-        debug_timer += 3;
+        debug_timer += 1;
         debug_state = !debug_state;
     }
 
@@ -508,8 +521,6 @@ fn init_world() void {
     ng.register_component("Construction", com.Construction);
     ng.register_component("Position", com.Position);
     ng.register_component("Velocity", com.Velocity);
-    ng.register_component("UInt", com.UInt);
-    ng.register_component("Int", com.Int);
 
     ng.register_system(
         .{
@@ -554,15 +565,17 @@ fn init_world() void {
         },
     );
 
-    ng.register_system(
-        .{
-            .name = "autosave",
-            .phase = .last_phase,
-            .interval = 1,
-        },
-        autosave_system,
-        .{},
-    );
+    if (true) {
+        ng.register_system(
+            .{
+                .name = "autosave",
+                .phase = .last_phase,
+                .interval = 1,
+            },
+            autosave_system,
+            .{},
+        );
+    }
 
     const n1 = ng.new();
     const n2 = ng.new();
@@ -610,54 +623,6 @@ fn init_world() void {
     }
 
     p4.delete();
-
-    const p6 = ng.new();
-    const p7 = ng.new();
-    const p8 = ng.new();
-    const p9 = ng.new();
-    const p10 = ng.new();
-    const p11 = ng.new();
-    const p12 = ng.new();
-
-    p6.set(com.Int{ .value = 0 });
-    p7.set(com.Int{ .value = 127 });
-    p8.set(com.Int{ .value = 128 });
-    p9.set(com.Int{ .value = 0x3FFF });
-    p10.set(com.Int{ .value = 0x4000 });
-    p11.set(com.Int{ .value = 0x1FFF_FFFF });
-    p12.set(com.Int{ .value = 0x2000_0000 });
-
-    const q6 = ng.new();
-    const q7 = ng.new();
-    const q8 = ng.new();
-    const q9 = ng.new();
-    const q10 = ng.new();
-    const q11 = ng.new();
-    const q12 = ng.new();
-
-    const r6 = ng.new();
-    const r7 = ng.new();
-    const r8 = ng.new();
-    const r9 = ng.new();
-    const r10 = ng.new();
-    const r11 = ng.new();
-    const r12 = ng.new();
-
-    q6.set(com.UInt{ .value = 0 });
-    q7.set(com.UInt{ .value = 127 });
-    q8.set(com.UInt{ .value = 128 });
-    q9.set(com.UInt{ .value = 0x3FFF });
-    q10.set(com.UInt{ .value = 0x4000 });
-    q11.set(com.UInt{ .value = 0x1FFF_FFFF });
-    q12.set(com.UInt{ .value = 0x2000_0000 });
-
-    r6.set(com.Int{ .value = 0 });
-    r7.set(com.Int{ .value = -127 });
-    r8.set(com.Int{ .value = -128 });
-    r9.set(com.Int{ .value = -0x3FFF });
-    r10.set(com.Int{ .value = -0x4000 });
-    r11.set(com.Int{ .value = -0x1FFF_FFFF });
-    r12.set(com.Int{ .value = -0x2000_0000 });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -718,13 +683,20 @@ fn render_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn autosave_system(iter: *const ng.SystemIterator) void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const save_allocator = gpa.allocator();
+    defer std.debug.assert(gpa.deinit() == .ok);
+
     _ = iter;
-    const memory = ng.save(allocator) catch |err| {
+
+    const memory = ng.save(save_allocator) catch |err| {
         log.err("Failed to save {}", .{err});
         return;
     };
 
-    defer allocator.free(memory);
+    log.debug("Autosave {} octets", .{memory.len});
+
+    defer save_allocator.free(memory);
 
     const cwd = std.fs.cwd();
     var file = cwd.createFile("autosave.dat", .{}) catch |err| {
