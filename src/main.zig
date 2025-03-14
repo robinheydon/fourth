@@ -58,6 +58,8 @@ pub fn main() !void {
         try init_draw_world();
     }
 
+    try init_hot ();
+
     while (state.running) {
         state.frame_counter +%= 1;
 
@@ -694,8 +696,6 @@ fn autosave_system(iter: *const ng.SystemIterator) void {
         return;
     };
 
-    log.debug("Autosave {} octets", .{memory.len});
-
     defer save_allocator.free(memory);
 
     const cwd = std.fs.cwd();
@@ -709,6 +709,23 @@ fn autosave_system(iter: *const ng.SystemIterator) void {
         log.err("Failed to write 'autosave.dat' {}", .{err});
         return;
     };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+var hot_lib : ?std.DynLib = null;
+
+fn init_hot () !void
+{
+    hot_lib = try std.DynLib.open ("zig-out/lib/libgame.so");
+    if (hot_lib) |*lib|
+    {
+        if (lib.lookup (*const fn () void, "init")) |fun| {
+            fun ();
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
