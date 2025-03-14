@@ -24,14 +24,6 @@ pub fn build(b: *std.Build) !void {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
-    const game_mod = b.createModule (.{
-        .root_source_file = b.path("src/game.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -48,15 +40,6 @@ pub fn build(b: *std.Build) !void {
     });
 
     b.installArtifact(exe);
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
-
-    const game = b.addSharedLibrary(.{
-        .name = "game",
-        .root_module = game_mod,
-    });
-
-    b.installArtifact (game);
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
