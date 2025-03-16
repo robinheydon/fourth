@@ -171,7 +171,7 @@ fn draw_debug_window() void {
 
     debug_timer -= state.dt;
     if (debug_timer < 0) {
-        debug_timer += 1;
+        debug_timer += 0.1;
         debug_state = !debug_state;
     }
 

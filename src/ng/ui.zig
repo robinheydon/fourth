@@ -262,7 +262,7 @@ pub fn render(render_pass: ng.RenderPass) void {
         }
     }
 
-    if (true) {
+    if (false) {
         dump_state("Render");
     }
 
@@ -272,6 +272,10 @@ pub fn render(render_pass: ng.RenderPass) void {
         object = obj.succ;
 
         delete_not_shown_in(handle);
+    }
+
+    if (true) {
+        dump_state("Render");
     }
 
     if (next_vertex > 0) {
@@ -449,8 +453,8 @@ pub const Ident = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const HandleIndex = u16;
-const HandleGeneration = u16;
+const HandleIndex = u24;
+const HandleGeneration = u8;
 
 pub const Handle = packed struct(u32) {
     idx: HandleIndex,
