@@ -140,7 +140,7 @@ const API = struct {
     glGetUniformLocation: *const fn (u32, [*:0]const u8) callconv(.c) u32,
     glLinkProgram: *const fn (u32) callconv(.c) void,
     glObjectLabel: *const fn (GL_Enum, u32, u32, [*c]const u8) callconv(.c) void,
-    glScissor: *const fn (u32, u32, u32, u32) callconv(.c) void,
+    glScissor: *const fn (i32, i32, u32, u32) callconv(.c) void,
     glShaderSource: *const fn (u32, u32, *const [*:0]const u8, ?*u32) callconv(.c) void,
     glTexImage2D: *const fn (
         GL_Enum,
@@ -1758,8 +1758,8 @@ fn apply_uniform(self: video.RenderPass, info: video.UniformInfo) void {
 fn apply_scissor(self: video.RenderPass, pos: ng.Vec2, size: ng.Vec2) void {
     _ = self;
 
-    const x: u32 = @intFromFloat(pos[0] * high_dpi_scale);
-    const y: u32 = @intFromFloat(window_height - (pos[1] + size[1]) * high_dpi_scale);
+    const x: i32 = @intFromFloat(pos[0] * high_dpi_scale);
+    const y: i32 = @intFromFloat(window_height - (pos[1] + size[1]) * high_dpi_scale);
     const w: u32 = @intFromFloat(size[0] * high_dpi_scale);
     const h: u32 = @intFromFloat(size[1] * high_dpi_scale);
 

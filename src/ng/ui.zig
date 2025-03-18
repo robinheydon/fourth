@@ -262,20 +262,12 @@ pub fn render(render_pass: ng.RenderPass) void {
         }
     }
 
-    if (false) {
-        dump_state("Render");
-    }
-
     object = first_window;
     while (object) |handle| {
         const obj = get(handle) catch return;
         object = obj.succ;
 
         delete_not_shown_in(handle);
-    }
-
-    if (true) {
-        dump_state("Render");
     }
 
     if (next_vertex > 0) {

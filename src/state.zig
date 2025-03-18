@@ -38,7 +38,7 @@ pub var window: ng.Window = undefined;
 pub var dt: f32 = 0;
 
 pub var map_move_velocity: ng.Vec2 = .{ 0, 0 };
-pub var map_center: ng.Vec2 = .{ 10, 10 };
+pub var map_center: ng.Vec2 = .{ 0, 0 };
 pub var map_zoom: f32 = 10;
 pub var map_rotate: f32 = 0;
 
@@ -64,35 +64,6 @@ pub var key_toggle_debug_info: ng.Key = .f1;
 pub var key_toggle_window2: ng.Key = .f2;
 pub var key_toggle_window3: ng.Key = .f3;
 pub var key_toggle_window4: ng.Key = .f4;
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub const axis_shader_source = @import("triangle_shader.zig");
-pub const AxisVertex = axis_shader_source.Vertex;
-pub const AxisUniforms = ng.make_uniform_slots(axis_shader_source.Uniforms);
-
-pub var axis_shader: ng.Shader = undefined;
-pub var axis_buffer: ng.Buffer = undefined;
-pub var axis_pipeline: ng.Pipeline = undefined;
-pub var axis_binding: ng.Binding = undefined;
-
-pub const axis_data = [_]AxisVertex{
-    .{ .pos = .{ 1, 0 }, .col = .green },
-    .{ .pos = .{ 1, 1 }, .col = .green },
-    .{ .pos = .{ 20, 0 }, .col = .green },
-    .{ .pos = .{ 20, 0 }, .col = .green },
-    .{ .pos = .{ 1, 1 }, .col = .green },
-    .{ .pos = .{ 20, 1 }, .col = .green },
-
-    .{ .pos = .{ 0, 1 }, .col = .red },
-    .{ .pos = .{ 1, 1 }, .col = .red },
-    .{ .pos = .{ 0, 20 }, .col = .red },
-    .{ .pos = .{ 0, 20 }, .col = .red },
-    .{ .pos = .{ 1, 1 }, .col = .red },
-    .{ .pos = .{ 1, 20 }, .col = .red },
-};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////

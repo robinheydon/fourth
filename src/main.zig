@@ -6,6 +6,8 @@ const std = @import("std");
 
 const ng = @import("ng");
 
+const gl = ng.gl;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -30,10 +32,8 @@ pub fn main() !void {
     allocator = gpa.allocator();
     defer std.debug.assert(gpa.deinit() == .ok);
 
-    const use_video = true;
-
     try ng.init(.{
-        .video = use_video,
+        .video = true,
         .audio = false,
     });
 
@@ -41,69 +41,62 @@ pub fn main() !void {
     log.info("starting", .{});
     defer log.info("ending", .{});
 
-    if (use_video) {
-        state.window = try ng.create_window(.{
-            .name = "Fourth",
-            .width = 1920,
-            .height = 1080,
-            .resizable = true,
-        });
+    state.window = try ng.create_window(.{
+        .name = "Fourth",
+        .width = 1920,
+        .height = 1080,
+        .resizable = true,
+    });
+    defer state.window.close();
 
-        state.window.set_swap_interval(.lowpower);
-    }
+    state.window.set_swap_interval(.fast);
 
     init_world();
 
-    if (use_video) {
-        try init_draw_world();
-    }
+    try init_draw_world();
+
+    try gl.init(allocator);
+    defer gl.deinit();
 
     while (state.running) {
         state.frame_counter +%= 1;
 
         state.dt = ng.start_frame();
-        if (use_video) {
-            ng.debug_clear(state.window);
+        ng.debug_clear(state.window);
 
-            update_fps(state.dt);
-        }
+        update_fps(state.dt);
 
         ng.progress(state.dt);
 
-        if (use_video) {
-            process_events();
+        process_events();
 
-            draw_ui();
+        draw_ui();
 
-            const command_buffer = try state.window.acquire_command_buffer();
-            const swapchain_texture = try command_buffer.acquire_swapchain_texture();
-            const render_pass = try command_buffer.begin_render_pass(.{
-                .texture = swapchain_texture,
-                .clear_color = .@"dark grey",
-                .load = .clear,
-                .store = .store,
-            });
+        const command_buffer = try state.window.acquire_command_buffer();
+        const swapchain_texture = try command_buffer.acquire_swapchain_texture();
+        const render_pass = try command_buffer.begin_render_pass(.{
+            .texture = swapchain_texture,
+            .clear_color = .@"dark grey",
+            .load = .clear,
+            .store = .store,
+        });
 
-            draw_world(render_pass);
+        draw_world(render_pass) catch {};
 
-            ng.ui_render(render_pass);
+        ng.ui_render(render_pass);
 
-            ng.debug_text_draw(render_pass);
+        ng.debug_text_draw(render_pass);
 
-            render_pass.end();
-            try command_buffer.submit();
+        render_pass.end();
+        try command_buffer.submit();
 
-            if (slow_frame_rate) {
-                ng.sleep(0.5);
-            }
+        if (slow_frame_rate) {
+            ng.sleep(0.5);
         }
 
         ng.end_frame();
     }
 
-    if (use_video) {
-        state.window.close();
-    }
     ng.deinit();
 }
 
@@ -171,7 +164,7 @@ fn draw_debug_window() void {
 
     debug_timer -= state.dt;
     if (debug_timer < 0) {
-        debug_timer += 0.1;
+        debug_timer += 1.0;
         debug_state = !debug_state;
     }
 
@@ -231,8 +224,6 @@ fn draw_window4() void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn init_draw_world() !void {
-    state.axis_shader = try ng.create_shader(state.axis_shader_source);
-
     state.grid_shader = try ng.create_shader(state.grid_shader_source);
 
     state.grid_pipeline = try ng.create_pipeline(.{
@@ -247,29 +238,13 @@ fn init_draw_world() !void {
             .dst_factor_alpha = .zero,
         },
     });
-
-    state.axis_buffer = try ng.create_buffer(.{
-        .label = "Axis Vertex Data",
-        .data = ng.as_bytes(&state.axis_data),
-    });
-
-    state.axis_pipeline = try ng.create_pipeline(.{
-        .label = "Axis Pipeline",
-        .shader = state.axis_shader,
-        .primitive = .triangle_list,
-    });
-
-    state.axis_binding = try ng.create_binding(.{
-        .label = "Axis Bindings",
-        .vertex_buffers = &.{state.axis_buffer},
-    });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw_world(render_pass: ng.RenderPass) void {
+fn draw_world(render_pass: ng.RenderPass) !void {
     const window_size = state.window.get_size();
     const projection = ng.ortho(window_size);
 
@@ -281,16 +256,17 @@ fn draw_world(render_pass: ng.RenderPass) void {
     const view = state.camera.get_matrix();
     const mvp = ng.mat4_mul(view, projection);
 
-    debug_map_state();
+    debug_map_state(window_size);
 
     render_pass.apply_pipeline(state.grid_pipeline);
     render_pass.apply_uniform_mat4(state.GridUniforms.mvp, mvp);
     render_pass.draw(6);
 
-    render_pass.apply_pipeline(state.axis_pipeline);
-    render_pass.apply_bindings(state.axis_binding);
-    render_pass.apply_uniform_mat4(state.AxisUniforms.mvp, mvp);
-    render_pass.draw(state.axis_data.len);
+    gl.start_render(mvp);
+
+    try gl.fill_circle(ng.Vec2{ 10, 10 }, 5, .red);
+
+    gl.render(render_pass);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -473,9 +449,9 @@ fn process_mouse_up(event: ng.MouseEvent) void {
 
 fn process_wheel_event(event: ng.WheelEvent) void {
     const min_zoom = 0.1; // a few 10km squares
-    const max_zoom = 100; // a few 1m squares
+    const max_zoom = 1000; // a few 1m squares
 
-    const multiplier = std.math.pow(f32, 1.2, event.dy);
+    const multiplier = std.math.pow(f32, 1.1, event.dy);
     state.map_zoom = std.math.clamp(state.map_zoom * multiplier, min_zoom, max_zoom);
 }
 
@@ -503,11 +479,10 @@ fn update_fps(dt: f32) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn debug_map_state() void {
-    // const position = state.camera.to_world(state.map_last_mouse);
-    // ng.debug_print("{d:8.5} -> {d:8.5}\n", .{ state.map_last_mouse, position });
-
-    // ng.debug_print("{d:8.5} {d:8.5}\n", .{ state.map_move_velocity, state.map_center });
+fn debug_map_state(window_size: ng.Vec2) void {
+    const top_left = state.camera.to_world(ng.Vec2{ 0, 0 });
+    const bottom_right = state.camera.to_world(window_size);
+    ng.debug_print("{d:8.2} .. {d:8.2}\n", .{ top_left, bottom_right });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -521,17 +496,6 @@ fn init_world() void {
     ng.register_component("Construction", com.Construction);
     ng.register_component("Position", com.Position);
     ng.register_component("Velocity", com.Velocity);
-
-    ng.register_system(
-        .{
-            .name = "render_system",
-            .phase = .post_update,
-        },
-        render_system,
-        .{
-            com.Position,
-        },
-    );
 
     ng.register_system(
         .{
@@ -551,31 +515,20 @@ fn init_world() void {
             .phase = .update,
         },
         construction_system,
-        .{com.Construction},
+        .{
+            com.Construction,
+        },
     );
 
     ng.register_system(
         .{
-            .name = "vehicle_system",
-            .phase = .pre_update,
+            .name = "autosave",
+            .phase = .last_phase,
+            .interval = 60,
         },
-        vehicle_system,
-        .{
-            com.VehicleKind,
-        },
+        autosave_system,
+        .{},
     );
-
-    if (true) {
-        ng.register_system(
-            .{
-                .name = "autosave",
-                .phase = .last_phase,
-                .interval = 1,
-            },
-            autosave_system,
-            .{},
-        );
-    }
 
     const n1 = ng.new();
     const n2 = ng.new();
@@ -594,7 +547,7 @@ fn init_world() void {
     n4.set(com.Node{ .pos = .{ 40, 10 } });
     n5.set(com.Node{ .pos = .{ 50, 15 } });
     l2.set(com.Link{ .start = n2, .mid = n4, .end = n5, .width = 72 });
-    l2.set(com.Construction{ .step = 10, .steps = 30 });
+    l2.set(com.Construction{ .step = 0, .steps = 360 });
 
     const p1 = ng.new();
     const p2 = ng.new();
@@ -646,14 +599,6 @@ fn construction_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn vehicle_system(iter: *const ng.SystemIterator) void {
-    _ = iter;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
 fn movement_system(iter: *const ng.SystemIterator) void {
     const dt: ng.Vec2 = @splat(iter.delta_time);
 
@@ -662,18 +607,6 @@ fn movement_system(iter: *const ng.SystemIterator) void {
             if (entity.get(com.Velocity)) |velocity| {
                 position.pos += velocity.vel * dt;
             }
-        }
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-fn render_system(iter: *const ng.SystemIterator) void {
-    for (iter.entities) |entity| {
-        if (entity.get(com.Position)) |position| {
-            _ = position;
         }
     }
 }
