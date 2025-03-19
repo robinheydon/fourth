@@ -806,7 +806,10 @@ pub const SystemPhase = enum {
     store,
     post_store,
     pre_render,
-    render,
+    render0,
+    render1,
+    render2,
+    render3,
     post_render,
     last_phase,
 };

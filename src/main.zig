@@ -49,7 +49,7 @@ pub fn main() !void {
     });
     defer state.window.close();
 
-    state.window.set_swap_interval(.fast);
+    state.window.set_swap_interval(.lowpower);
 
     init_world();
 
@@ -66,12 +66,6 @@ pub fn main() !void {
 
         update_fps(state.dt);
 
-        ng.progress(state.dt);
-
-        process_events();
-
-        draw_ui();
-
         const command_buffer = try state.window.acquire_command_buffer();
         const swapchain_texture = try command_buffer.acquire_swapchain_texture();
         const render_pass = try command_buffer.begin_render_pass(.{
@@ -81,7 +75,15 @@ pub fn main() !void {
             .store = .store,
         });
 
-        draw_world(render_pass) catch {};
+        start_draw_world(render_pass) catch {};
+
+        ng.progress(state.dt);
+
+        process_events();
+
+        draw_ui();
+
+        end_draw_world(render_pass) catch {};
 
         ng.ui_render(render_pass);
 
@@ -244,7 +246,7 @@ fn init_draw_world() !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw_world(render_pass: ng.RenderPass) !void {
+fn start_draw_world(render_pass: ng.RenderPass) !void {
     const window_size = state.window.get_size();
     const projection = ng.ortho(window_size);
 
@@ -263,11 +265,13 @@ fn draw_world(render_pass: ng.RenderPass) !void {
     render_pass.draw(6);
 
     gl.start_render(mvp);
+}
 
-    try gl.fill_circle(ng.Vec2{ 10, 10 }, 4.01, .red);
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-    try gl.draw_circle(ng.Vec2{ 10, 10 }, 5, 1, .black);
-
+fn end_draw_world(render_pass: ng.RenderPass) !void {
     gl.render(render_pass);
 }
 
@@ -524,6 +528,28 @@ fn init_world() void {
 
     ng.register_system(
         .{
+            .name = "draw_links",
+            .phase = .render0,
+        },
+        draw_links_system,
+        .{
+            com.Link,
+        },
+    );
+
+    ng.register_system(
+        .{
+            .name = "draw_nodes",
+            .phase = .render1,
+        },
+        draw_nodes_system,
+        .{
+            com.Node,
+        },
+    );
+
+    ng.register_system(
+        .{
             .name = "autosave",
             .phase = .last_phase,
             .interval = 60,
@@ -538,17 +564,17 @@ fn init_world() void {
     const l1 = ng.new();
     const n4 = ng.new();
     const n5 = ng.new();
-    const l2a = ng.new();
-    l2a.delete();
+    const n6 = ng.new();
     const l2 = ng.new();
 
     n1.set(com.Node{ .pos = .{ 10, 10 } });
-    n2.set(com.Node{ .pos = .{ 20, 25 } });
+    n2.set(com.Node{ .pos = .{ 20, 18 } });
     n3.set(com.Node{ .pos = .{ 30, 20 } });
     l1.set(com.Link{ .start = n1, .mid = n2, .end = n3, .width = 72 });
-    n4.set(com.Node{ .pos = .{ 40, 10 } });
-    n5.set(com.Node{ .pos = .{ 50, 15 } });
-    l2.set(com.Link{ .start = n2, .mid = n4, .end = n5, .width = 72 });
+    n4.set(com.Node{ .pos = .{ 40, 20 } });
+    n5.set(com.Node{ .pos = .{ 50, 5 } });
+    n6.set(com.Node{ .pos = .{ 60, 15 } });
+    l2.set(com.Link{ .start = n4, .mid = n5, .end = n6, .width = 72 });
     l2.set(com.Construction{ .step = 0, .steps = 360 });
 
     const p1 = ng.new();
@@ -608,6 +634,48 @@ fn movement_system(iter: *const ng.SystemIterator) void {
         if (entity.getPtr(com.Position)) |position| {
             if (entity.get(com.Velocity)) |velocity| {
                 position.pos += velocity.vel * dt;
+            }
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_nodes_system(iter: *const ng.SystemIterator) void {
+    for (iter.entities) |entity| {
+        if (entity.get(com.Node)) |node| {
+            gl.draw_circle(node.pos, 3, 0.5, .purple) catch {};
+            gl.fill_circle(node.pos, 0.5, .white) catch {};
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_links_system(iter: *const ng.SystemIterator) void {
+    for (iter.entities) |entity| {
+        if (entity.get(com.Link)) |link| {
+            const start = link.start;
+            const mid = link.mid;
+            const end = link.end;
+            const width = @as(f32, @floatFromInt(link.width)) * 0.1;
+
+            const start_node = start.get(com.Node);
+            const mid_node = mid.get(com.Node);
+            const end_node = end.get(com.Node);
+
+            if (start_node) |n0| {
+                if (mid_node) |n1| {
+                    if (end_node) |n2| {
+                        gl.draw_bezier(n0.pos, n1.pos, n2.pos, width, .black) catch {};
+                        // gl.draw_line(n0.pos, n1.pos, 0.1, .purple) catch {};
+                        // gl.draw_line(n1.pos, n2.pos, 0.1, .purple) catch {};
+                    }
+                }
             }
         }
     }

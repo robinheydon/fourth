@@ -81,7 +81,6 @@ pub fn start_render(mvp: ng.Mat4) void {
     current_mvp = mvp;
 
     detail = @sqrt(@abs(mvp[0] * mvp[5] - mvp[1] * mvp[4]));
-    ng.debug_print("{d} => {d}\n", .{ mvp, detail });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -92,7 +91,8 @@ pub fn draw_line(start: ng.Vec2, end: ng.Vec2, width: f32, color: ng.Color) !voi
     const delta = end - start;
     const dist = @sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
     if (dist > 0) {
-        const tangent = ng.Vec2{ delta[1], delta[0] } * @as(ng.Vec2, @splat(width / 2 / dist));
+        const tangent = ng.Vec2{ delta[1], -delta[0] } *
+            @as(ng.Vec2, @splat(width / 2 / dist));
 
         set_color(color);
         const p0 = try add_vertex(start - tangent);
@@ -109,18 +109,95 @@ pub fn draw_line(start: ng.Vec2, end: ng.Vec2, width: f32, color: ng.Color) !voi
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+fn draw_bezier1(
+    start: ng.Vec2,
+    mid: ng.Vec2,
+    end: ng.Vec2,
+    width: f32,
+    color: ng.Color,
+) !void {
+    _ = color;
+    _ = width;
+    const delta = end - start;
+    const dist = @sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
+
+    const num: f32 = @floor(@min(256, @max(9, @sqrt(detail * dist) * quality / 4)));
+    ng.debug_print("draw_bezier {d}\n", .{num});
+
+    const segments: usize = @intFromFloat(num);
+
+    const dt: ng.Vec2 = @splat(1 / num);
+    var t: ng.Vec2 = @splat(0);
+    var nt: ng.Vec2 = @splat(1);
+
+    var p0 = start;
+
+    for (0..segments) |_| {
+        t += dt;
+        nt -= dt;
+        const a = (nt) * start + (t) * mid;
+        const b = (nt) * mid + (t) * end;
+        const c = (nt) * a + (t) * b;
+        const p1 = c;
+        try draw_line(p0, p1, 1, .pink);
+        p0 = p1;
+    }
+}
+
+fn draw_bezier2(
+    start: ng.Vec2,
+    mid: ng.Vec2,
+    end: ng.Vec2,
+    width: f32,
+    color: ng.Color,
+) !void {
+    _ = color;
+    _ = width;
+    const delta = end - start;
+    const dist = @sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
+
+    const num: f32 = @floor(@min(256, @max(9, @sqrt(detail * dist) * quality / 4)));
+    ng.debug_print("draw_bezier {d}\n", .{num});
+
+    const segments: usize = @intFromFloat(num);
+
+    const dt: ng.Vec2 = @splat(1 / num);
+    var t: ng.Vec2 = @splat(0);
+    var nt: ng.Vec2 = @splat(1);
+
+    var p0 = start;
+
+    for (0..segments) |_| {
+        t += dt;
+        nt -= dt;
+        const a = (nt) * start + (t) * mid;
+        const b = (nt) * mid + (t) * end;
+        const c = (nt) * a + (t) * b;
+        const p1 = c;
+        try draw_line(p0, p1, 0.5, .red);
+        p0 = p1;
+    }
+}
+
+pub fn draw_bezier(
+    start: ng.Vec2,
+    mid: ng.Vec2,
+    end: ng.Vec2,
+    width: f32,
+    color: ng.Color,
+) !void {
+    try draw_bezier1(start, mid, end, width, color);
+    try draw_bezier2(start, mid, end, width, color);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pub fn fill_circle(pos: ng.Vec2, radius: f32, color: ng.Color) !void {
     const num: f32 = @min(256, @max(9, @sqrt(detail * radius) * quality));
     const a: f32 = std.math.tau / @floor(num);
     const r: ng.Vec2 = @splat(radius);
-
-    ng.debug_print("fill_circle {d} {d} {x} ({d} {d})\n", .{
-        pos,
-        radius,
-        color,
-        detail,
-        num,
-    });
 
     set_color(color);
 
@@ -155,14 +232,6 @@ pub fn draw_circle(pos: ng.Vec2, radius: f32, width: f32, color: ng.Color) !void
     const a: f32 = std.math.tau / @floor(num);
     const r: ng.Vec2 = @splat(radius);
     const w: ng.Vec2 = @splat(width);
-
-    ng.debug_print("fill_circle {d} {d} {x} ({d} {d})\n", .{
-        pos,
-        radius,
-        color,
-        detail,
-        num,
-    });
 
     set_color(color);
 
