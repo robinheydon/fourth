@@ -1,0 +1,219 @@
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const std = @import("std");
+const ng = @import("ng");
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const gl_shader_source = @import("gl_shader.zig");
+const GL_Uniforms = ng.make_uniform_slots(gl_shader_source.Uniforms);
+
+var gl_shader: ng.Shader = undefined;
+var gl_buffer: ng.Buffer = undefined;
+var gl_binding: ng.Binding = undefined;
+var gl_pipeline: ng.Pipeline = undefined;
+
+var gl_vertexes: std.ArrayList(gl_shader_source.Vertex) = undefined;
+var current_color: ng.Color = undefined;
+var current_mvp: ng.Mat4 = undefined;
+var detail: f32 = undefined;
+var quality: f32 = 80;
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn init(allocator: std.mem.Allocator) !void {
+    gl_shader = try ng.create_shader(gl_shader_source);
+
+    gl_vertexes = std.ArrayList(gl_shader_source.Vertex).init(allocator);
+
+    gl_buffer = try ng.create_buffer(.{
+        .label = "gl vertex buffer",
+        .kind = .vertex,
+        .size = 1024 * 1024 * @sizeOf(gl_shader_source.Vertex),
+        .update = .stream,
+    });
+
+    gl_binding = try ng.create_binding(.{
+        .label = "gl binding",
+        .vertex_buffers = &.{gl_buffer},
+    });
+
+    gl_pipeline = try ng.create_pipeline(.{
+        .label = "gl pipeline",
+        .shader = gl_shader,
+        .primitive = .triangle_list,
+    });
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn deinit() void {
+    gl_vertexes.deinit();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn start_render(mvp: ng.Mat4) void {
+    current_mvp = mvp;
+
+    detail = @sqrt(@abs(mvp[0] * mvp[5] - mvp[1] * mvp[4]));
+    ng.debug_print("{d} => {d}\n", .{ mvp, detail });
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn draw_line(start: ng.Vec2, end: ng.Vec2, width: f32, color: ng.Color) !void {
+    const delta = end - start;
+    const dist = @sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
+    if (dist > 0) {
+        const tangent = ng.Vec2{ delta[1], delta[0] } * @as(ng.Vec2, @splat(width / 2 / dist));
+
+        set_color(color);
+        try add_vertex(start - tangent);
+        try add_vertex(start + tangent);
+        try add_vertex(end - tangent);
+
+        try add_vertex(end - tangent);
+        try add_vertex(start + tangent);
+        try add_vertex(end + tangent);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn fill_circle(pos: ng.Vec2, radius: f32, color: ng.Color) !void {
+    const num: f32 = @min(256, @max(9, @sqrt(detail * radius) * quality));
+    const a: f32 = std.math.tau / @floor(num);
+    const r: ng.Vec2 = @splat(radius);
+
+    ng.debug_print("fill_circle {d} {d} {x} ({d} {d})\n", .{
+        pos,
+        radius,
+        color,
+        detail,
+        num,
+    });
+
+    set_color(color);
+
+    var angle: f32 = 0;
+
+    var last = ng.Vec2{ @cos(angle), @sin(angle) } * r;
+    const first = last;
+    angle += a;
+
+    const segments: usize = @as(usize, @intFromFloat(num)) - 1;
+
+    for (0..segments) |_| {
+        try add_vertex(pos);
+        try add_vertex(pos + last);
+        const cur = ng.Vec2{ @cos(angle), @sin(angle) } * r;
+        try add_vertex(pos + cur);
+        last = cur;
+        angle += a;
+    }
+    try add_vertex(pos);
+    try add_vertex(pos + last);
+    try add_vertex(pos + first);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn draw_circle(pos: ng.Vec2, radius: f32, width: f32, color: ng.Color) !void {
+    const num: f32 = @min(256, @max(9, @sqrt(detail * radius) * quality));
+    const a: f32 = std.math.tau / @floor(num);
+    const r: ng.Vec2 = @splat(radius);
+    const w: ng.Vec2 = @splat(width);
+
+    ng.debug_print("fill_circle {d} {d} {x} ({d} {d})\n", .{
+        pos,
+        radius,
+        color,
+        detail,
+        num,
+    });
+
+    set_color(color);
+
+    var angle: f32 = 0;
+
+    var last_outer = ng.Vec2{ @cos(angle), @sin(angle) } * r;
+    var last_inner = ng.Vec2{ @cos(angle), @sin(angle) } * (r - w);
+    const first_outer = last_outer;
+    const first_inner = last_inner;
+    angle += a;
+
+    const segments: usize = @as(usize, @intFromFloat(num)) - 1;
+
+    for (0..segments) |_| {
+        const cur_outer = ng.Vec2{ @cos(angle), @sin(angle) } * r;
+        const cur_inner = ng.Vec2{ @cos(angle), @sin(angle) } * (r - w);
+        try add_vertex(pos + cur_inner);
+        try add_vertex(pos + cur_outer);
+        try add_vertex(pos + last_inner);
+        try add_vertex(pos + last_inner);
+        try add_vertex(pos + cur_outer);
+        try add_vertex(pos + last_outer);
+        last_outer = cur_outer;
+        last_inner = cur_inner;
+        angle += a;
+    }
+
+    try add_vertex(pos + last_inner);
+    try add_vertex(pos + last_outer);
+    try add_vertex(pos + first_inner);
+    try add_vertex(pos + first_inner);
+    try add_vertex(pos + last_outer);
+    try add_vertex(pos + first_outer);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn set_color(col: ng.Color) void {
+    current_color = col;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn add_vertex(pos: ng.Vec2) !void {
+    try gl_vertexes.append(.{ .pos = pos, .col = current_color });
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn render(render_pass: ng.RenderPass) void {
+    gl_buffer.update(ng.as_bytes(gl_vertexes.items));
+
+    render_pass.apply_pipeline(gl_pipeline);
+    render_pass.apply_bindings(gl_binding);
+    render_pass.apply_uniform_mat4(GL_Uniforms.mvp, current_mvp);
+    render_pass.draw(gl_vertexes.items.len);
+
+    gl_vertexes.clearRetainingCapacity();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
