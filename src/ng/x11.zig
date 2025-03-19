@@ -1811,19 +1811,18 @@ fn draw(self: video.RenderPass, start: usize, count: usize) void {
     if (debug_api) {
         log.debug("glDrawArrays {} {} {}", .{ draw_primitive, start, count });
     }
-    switch (current_index_type)
-    {
+    switch (current_index_type) {
         .none => {
             api.glDrawArrays(draw_primitive, @intCast(start), @intCast(count));
         },
-        .@"u16" => {
+        .u16 => {
             const base = start * 2;
-            api.glDrawElements(draw_primitive, @intCast (count), .GL_UNSIGNED_SHORT, base);
+            api.glDrawElements(draw_primitive, @intCast(count), .GL_UNSIGNED_SHORT, base);
         },
-        .@"u32" => {
+        .u32 => {
             const base = start * 4;
-            api.glDrawElements(draw_primitive, @intCast (count), .GL_UNSIGNED_INT, base);
-        }
+            api.glDrawElements(draw_primitive, @intCast(count), .GL_UNSIGNED_INT, base);
+        },
     }
     if (debug_api) {
         log.debug("     -----", .{});

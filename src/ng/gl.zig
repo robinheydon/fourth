@@ -60,7 +60,7 @@ pub fn init(allocator: std.mem.Allocator) !void {
         .label = "gl pipeline",
         .shader = gl_shader,
         .primitive = .triangle_list,
-        .index_type = .@"u32",
+        .index_type = .u32,
     });
 }
 

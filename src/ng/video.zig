@@ -522,8 +522,8 @@ pub const Primitive = enum {
 
 pub const IndexType = enum {
     none,
-    @"u16",
-    @"u32",
+    u16,
+    u32,
 };
 
 pub const BlendInfo = struct {
