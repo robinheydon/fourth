@@ -125,7 +125,7 @@ const API = struct {
     glDisable: *const fn (GL_Enum) callconv(.c) void,
     glDisableVertexAttribArray: *const fn (u32) callconv(.c) void,
     glDrawArrays: *const fn (GL_Primitive, u32, u32) callconv(.c) void,
-    glDrawElements: *const fn (GL_Primitive, u32, u32) callconv(.c) void,
+    glDrawElements: *const fn (GL_Primitive, u32, GL_Enum, usize) callconv(.c) void,
     glEnable: *const fn (GL_Enum) callconv(.c) void,
     glEnableVertexAttribArray: *const fn (u32) callconv(.c) void,
     glFlush: *const fn () callconv(.c) void,
@@ -234,6 +234,7 @@ var vao: u32 = 0;
 var enabled_attributes: [video.max_vertex_attributes]bool =
     .{false} ** video.max_vertex_attributes;
 var draw_primitive: GL_Primitive = .GL_TRIANGLES;
+var current_index_type: video.IndexType = .none;
 var current_shader: video.Shader = undefined;
 var use_glflush: bool = false;
 
@@ -1645,6 +1646,8 @@ fn apply_pipeline(self: video.RenderPass, opaque_pipeline: video.Pipeline) void 
         .point_list => .GL_POINTS,
     };
 
+    current_index_type = pipeline.index_type;
+
     if (pipeline.blend.enabled) {
         api.glEnable(.GL_BLEND);
     } else {
@@ -1664,6 +1667,10 @@ fn apply_pipeline(self: video.RenderPass, opaque_pipeline: video.Pipeline) void 
         api.glDisable(.GL_SCISSOR_TEXT);
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn gl_blend_factor(factor: video.BlendFactor) GL_Enum {
     return switch (factor) {
@@ -1695,6 +1702,21 @@ fn apply_bindings(self: video.RenderPass, opaque_binding: video.Binding) void {
                     });
                 }
                 api.glBindBuffer(.GL_ARRAY_BUFFER, buffer.object);
+            }
+        }
+    }
+
+    for (0.., binding.index_buffers) |i, optional_buffer| {
+        _ = i;
+        if (optional_buffer) |buf| {
+            if (buffer_pool.get(buf.handle)) |buffer| {
+                if (debug_api) {
+                    log.debug("glBindBuffer {} {}", .{
+                        GL_Enum.GL_ELEMENT_ARRAY_BUFFER,
+                        buffer.object,
+                    });
+                }
+                api.glBindBuffer(.GL_ELEMENT_ARRAY_BUFFER, buffer.object);
             }
         }
     }
@@ -1789,7 +1811,20 @@ fn draw(self: video.RenderPass, start: usize, count: usize) void {
     if (debug_api) {
         log.debug("glDrawArrays {} {} {}", .{ draw_primitive, start, count });
     }
-    api.glDrawArrays(draw_primitive, @intCast(start), @intCast(count));
+    switch (current_index_type)
+    {
+        .none => {
+            api.glDrawArrays(draw_primitive, @intCast(start), @intCast(count));
+        },
+        .@"u16" => {
+            const base = start * 2;
+            api.glDrawElements(draw_primitive, @intCast (count), .GL_UNSIGNED_SHORT, base);
+        },
+        .@"u32" => {
+            const base = start * 4;
+            api.glDrawElements(draw_primitive, @intCast (count), .GL_UNSIGNED_INT, base);
+        }
+    }
     if (debug_api) {
         log.debug("     -----", .{});
     }
@@ -2130,6 +2165,7 @@ const GL_Pipeline = struct {
     label: ?[]const u8 = null,
     shader: video.Shader,
     primitive: video.Primitive,
+    index_type: video.IndexType,
     blend: video.BlendInfo,
     scissor_test: bool,
 };
@@ -2146,6 +2182,7 @@ fn create_pipeline(info: video.CreatePipelineInfo) video.VideoError!video.Pipeli
         .label = info.label,
         .shader = info.shader,
         .primitive = info.primitive,
+        .index_type = info.index_type,
         .blend = info.blend,
         .scissor_test = info.scissor_test,
     };

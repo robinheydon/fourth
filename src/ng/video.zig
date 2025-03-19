@@ -507,6 +507,7 @@ pub const CreatePipelineInfo = struct {
     label: ?[]const u8 = null,
     shader: Shader,
     primitive: Primitive,
+    index_type: IndexType = .none,
     blend: BlendInfo = .{},
     scissor_test: bool = false,
 };
@@ -517,6 +518,12 @@ pub const Primitive = enum {
     line_list,
     line_strip,
     point_list,
+};
+
+pub const IndexType = enum {
+    none,
+    @"u16",
+    @"u32",
 };
 
 pub const BlendInfo = struct {
