@@ -264,7 +264,9 @@ fn draw_world(render_pass: ng.RenderPass) !void {
 
     gl.start_render(mvp);
 
-    try gl.fill_circle(ng.Vec2{ 10, 10 }, 5, .red);
+    try gl.fill_circle(ng.Vec2{ 10, 10 }, 4.01, .red);
+
+    try gl.draw_circle(ng.Vec2{ 10, 10 }, 5, 1, .black);
 
     gl.render(render_pass);
 }
