@@ -531,7 +531,7 @@ fn init_world() void {
     ng.register_system(
         .{
             .name = "draw_links",
-            .phase = .render1,
+            .phase = .render0,
         },
         draw_links_system,
         .{
@@ -542,7 +542,7 @@ fn init_world() void {
     ng.register_system(
         .{
             .name = "draw_nodes",
-            .phase = .render0,
+            .phase = .render1,
         },
         draw_nodes_system,
         .{
@@ -648,8 +648,7 @@ fn movement_system(iter: *const ng.SystemIterator) void {
 fn draw_nodes_system(iter: *const ng.SystemIterator) void {
     for (iter.entities) |entity| {
         if (entity.get(com.Node)) |node| {
-            gl.draw_circle(node.pos, 3, 0.5, .purple) catch {};
-            gl.fill_circle(node.pos, 0.5, .black) catch {};
+            gl.draw_circle(node.pos, 5, 0.5, .purple) catch {};
         }
     }
 }
