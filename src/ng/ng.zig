@@ -59,6 +59,7 @@ pub const mat4_invert = math.mat4_invert;
 pub const mat4_transform = math.mat4_transform;
 pub const mat4_transform2 = math.mat4_transform2;
 pub const Camera2D = math.Camera2D;
+pub const normalize = math.normalize;
 
 pub const ui_render = ui.render;
 pub const ui_begin_window = ui.Window.begin_window;

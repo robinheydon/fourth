@@ -51,6 +51,8 @@ pub fn main() !void {
     });
     defer state.window.close();
 
+    state.window.toggle_fullscreen();
+
     state.window.set_swap_interval(.lowpower);
 
     init_world();
@@ -529,7 +531,7 @@ fn init_world() void {
     ng.register_system(
         .{
             .name = "draw_links",
-            .phase = .render0,
+            .phase = .render1,
         },
         draw_links_system,
         .{
@@ -540,7 +542,7 @@ fn init_world() void {
     ng.register_system(
         .{
             .name = "draw_nodes",
-            .phase = .render1,
+            .phase = .render0,
         },
         draw_nodes_system,
         .{
@@ -568,12 +570,12 @@ fn init_world() void {
     const l2 = ng.new();
 
     n1.set(com.Node{ .pos = .{ 10, 10 } });
-    n2.set(com.Node{ .pos = .{ 20, 18 } });
+    n2.set(com.Node{ .pos = .{ 25, 10 } });
     n3.set(com.Node{ .pos = .{ 30, 20 } });
     l1.set(com.Link{ .start = n1, .mid = n2, .end = n3, .width = 72 });
     n4.set(com.Node{ .pos = .{ 40, 20 } });
     n5.set(com.Node{ .pos = .{ 50, 5 } });
-    n6.set(com.Node{ .pos = .{ 60, 15 } });
+    n6.set(com.Node{ .pos = .{ 70, 15 } });
     l2.set(com.Link{ .start = n4, .mid = n5, .end = n6, .width = 72 });
     l2.set(com.Construction{ .step = 0, .steps = 360 });
 
@@ -647,7 +649,7 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
     for (iter.entities) |entity| {
         if (entity.get(com.Node)) |node| {
             gl.draw_circle(node.pos, 3, 0.5, .purple) catch {};
-            gl.fill_circle(node.pos, 0.5, .white) catch {};
+            gl.fill_circle(node.pos, 0.5, .black) catch {};
         }
     }
 }
@@ -672,8 +674,6 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
                 if (mid_node) |n1| {
                     if (end_node) |n2| {
                         gl.draw_bezier(n0.pos, n1.pos, n2.pos, width, .black) catch {};
-                        // gl.draw_line(n0.pos, n1.pos, 0.1, .purple) catch {};
-                        // gl.draw_line(n1.pos, n2.pos, 0.1, .purple) catch {};
                     }
                 }
             }

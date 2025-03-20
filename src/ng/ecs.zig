@@ -84,7 +84,7 @@ pub const Entity = packed struct(u32) {
     idx: EntityIndex,
     gen: EntityGeneration,
 
-    pub const null_entity: Entity = .{ .idx = 0xFFFFFF, .gen = 0xFF };
+    pub const nil: Entity = .{ .idx = 0xFFFFFF, .gen = 0xFF };
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -341,7 +341,7 @@ pub fn new() Entity {
     const index: EntityIndex = @intCast(generations.items.len);
     generations.append(allocator, 0) catch |err| {
         log.err("new {}", .{err});
-        return .null_entity;
+        return .nil;
     };
 
     const self = Entity{ .gen = 0, .idx = index };

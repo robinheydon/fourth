@@ -38,7 +38,7 @@ pub var window: ng.Window = undefined;
 pub var dt: f32 = 0;
 
 pub var map_move_velocity: ng.Vec2 = .{ 0, 0 };
-pub var map_center: ng.Vec2 = .{ 0, 0 };
+pub var map_center: ng.Vec2 = .{ 35, 20 };
 pub var map_zoom: f32 = 10;
 pub var map_rotate: f32 = 0;
 
@@ -89,7 +89,7 @@ pub const MapState = enum {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub var show_debug_info = true;
+pub var show_debug_info = false;
 pub var show_window2 = false;
 pub var show_window3 = false;
 pub var show_window4 = false;

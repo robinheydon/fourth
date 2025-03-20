@@ -9,6 +9,8 @@ const ng = @import("ng");
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const log = ng.Logger(.ng_gl);
+
 const gl_shader_source = @import("gl_shader.zig");
 const GL_Uniforms = ng.make_uniform_slots(gl_shader_source.Uniforms);
 const Index = u32;
@@ -109,75 +111,25 @@ pub fn draw_line(start: ng.Vec2, end: ng.Vec2, width: f32, color: ng.Color) !voi
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw_bezier1(
-    start: ng.Vec2,
-    mid: ng.Vec2,
-    end: ng.Vec2,
-    width: f32,
-    color: ng.Color,
-) !void {
-    _ = color;
-    _ = width;
+pub fn draw_line_line(start: ng.Vec2, end: ng.Vec2, width: f32, color: ng.Color) !void {
     const delta = end - start;
     const dist = @sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
+    if (dist > 0) {
+        const tangent = ng.Vec2{ delta[1], -delta[0] } *
+            @as(ng.Vec2, @splat(width / 2 / dist));
 
-    const num: f32 = @floor(@min(256, @max(9, @sqrt(detail * dist) * quality / 4)));
-    ng.debug_print("draw_bezier {d}\n", .{num});
+        const w = 0.001 / detail;
 
-    const segments: usize = @intFromFloat(num);
-
-    const dt: ng.Vec2 = @splat(1 / num);
-    var t: ng.Vec2 = @splat(0);
-    var nt: ng.Vec2 = @splat(1);
-
-    var p0 = start;
-
-    for (0..segments) |_| {
-        t += dt;
-        nt -= dt;
-        const a = (nt) * start + (t) * mid;
-        const b = (nt) * mid + (t) * end;
-        const c = (nt) * a + (t) * b;
-        const p1 = c;
-        try draw_line(p0, p1, 1, .pink);
-        p0 = p1;
+        try draw_line(start - tangent, start + tangent, w, color);
+        try draw_line(end - tangent, end + tangent, w, color);
+        try draw_line(start - tangent, end - tangent, w, color);
+        try draw_line(start + tangent, end + tangent, w, color);
     }
 }
 
-fn draw_bezier2(
-    start: ng.Vec2,
-    mid: ng.Vec2,
-    end: ng.Vec2,
-    width: f32,
-    color: ng.Color,
-) !void {
-    _ = color;
-    _ = width;
-    const delta = end - start;
-    const dist = @sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
-
-    const num: f32 = @floor(@min(256, @max(9, @sqrt(detail * dist) * quality / 4)));
-    ng.debug_print("draw_bezier {d}\n", .{num});
-
-    const segments: usize = @intFromFloat(num);
-
-    const dt: ng.Vec2 = @splat(1 / num);
-    var t: ng.Vec2 = @splat(0);
-    var nt: ng.Vec2 = @splat(1);
-
-    var p0 = start;
-
-    for (0..segments) |_| {
-        t += dt;
-        nt -= dt;
-        const a = (nt) * start + (t) * mid;
-        const b = (nt) * mid + (t) * end;
-        const c = (nt) * a + (t) * b;
-        const p1 = c;
-        try draw_line(p0, p1, 0.5, .red);
-        p0 = p1;
-    }
-}
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn draw_bezier(
     start: ng.Vec2,
@@ -186,8 +138,50 @@ pub fn draw_bezier(
     width: f32,
     color: ng.Color,
 ) !void {
-    try draw_bezier1(start, mid, end, width, color);
-    try draw_bezier2(start, mid, end, width, color);
+    set_color(color);
+
+    const delta = end - start;
+    const dist = @sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
+
+    const w2: ng.Vec2 = @splat(width / 2);
+
+    const num_segments: f32 =
+        @floor(@min(256, @max(9, @sqrt(detail * dist) * quality)));
+
+    const dt: ng.Vec2 = @splat(1 / num_segments);
+    const two = ng.Vec2{ 2, 2 };
+    const ddt = two * dt * dt;
+
+    const dd = (end - two * mid + start) * ddt;
+    var d = (two * (mid - start)) * dt + dd / two;
+    var tan = ng.normalize(ng.Vec2{ -d[1], d[0] }) * w2;
+
+    const segments: usize = @intFromFloat(num_segments);
+
+    var pos = start;
+    var last_inner = try add_vertex(pos - tan);
+    var last_outer = try add_vertex(pos + tan);
+
+    for (0..segments - 1) |_| {
+        pos += d;
+        d += dd;
+        // try fill_circle(pos, 0.25, .white);
+        tan = ng.normalize(ng.Vec2{ -d[1] + dd[1] / 2, d[0] - dd[0] / 2 }) * w2;
+        const inner = try add_vertex(pos - tan);
+        const outer = try add_vertex(pos + tan);
+        try add_triangle(last_inner, inner, last_outer);
+        try add_triangle(last_outer, inner, outer);
+        last_inner = inner;
+        last_outer = outer;
+    }
+
+    d = end - mid;
+    tan = ng.normalize(ng.Vec2{ -d[1], d[0] }) * w2;
+    const inner = try add_vertex(end - tan);
+    const outer = try add_vertex(end + tan);
+
+    try add_triangle(last_inner, inner, last_outer);
+    try add_triangle(last_outer, inner, outer);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
