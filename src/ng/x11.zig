@@ -620,7 +620,6 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
     try init_keyboard();
 
-    log.debug("open handle = {}", .{window});
     return .{
         .handle = window,
     };
@@ -632,7 +631,6 @@ fn create_window(options: video.CreateWindowOptions) video.VideoError!video.Wind
 
 fn close_window(a_window: video.Window) void {
     debug_text.deinit();
-    log.debug("close handle = {}", .{a_window.handle});
     api.XDestroyWindow(display, a_window.handle);
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////
