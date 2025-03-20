@@ -37,6 +37,8 @@ pub fn main() !void {
         .audio = false,
     });
 
+    defer ng.deinit();
+
     log.set_min_level(.note);
     log.info("starting", .{});
     defer log.info("ending", .{});
@@ -98,8 +100,6 @@ pub fn main() !void {
 
         ng.end_frame();
     }
-
-    ng.deinit();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
