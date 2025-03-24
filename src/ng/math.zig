@@ -216,7 +216,7 @@ pub const Camera2D = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn normalize(vec: Vec2) Vec2 {
-    const dist = distance (vec);
+    const dist = distance(vec);
     if (dist > 0) {
         const d: Vec2 = @splat(dist);
         return vec / d;

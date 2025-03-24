@@ -1050,9 +1050,8 @@ const QueryIterator = struct {
     index: usize,
     entities: []Entity,
 
-    pub fn next (self: *QueryIterator) ?Entity {
-        if (self.index < self.entities.len)
-        {
+    pub fn next(self: *QueryIterator) ?Entity {
+        if (self.index < self.entities.len) {
             const entity = self.entities[self.index];
             self.index += 1;
             return entity;
@@ -1065,10 +1064,10 @@ const QueryIterator = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const Query = enum (u32) { _,
-    pub fn iterator (self: Query) QueryIterator
-    {
-        const index = @intFromEnum (self);
+pub const Query = enum(u32) {
+    _,
+    pub fn iterator(self: Query) QueryIterator {
+        const index = @intFromEnum(self);
         const query = queries.items[index];
         return .{
             .index = 0,
@@ -1089,8 +1088,7 @@ pub const QueryOptions = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn register_query (options: QueryOptions, expression: anytype) Query
-{
+pub fn register_query(options: QueryOptions, expression: anytype) Query {
     var num_arguments: usize = 0;
     var arguments: [max_system_arguments]TypeId = undefined;
     var mutable: [max_system_arguments]bool = undefined;
@@ -1127,7 +1125,7 @@ pub fn register_query (options: QueryOptions, expression: anytype) Query
     queries.append(allocator, info) catch |err| {
         log.err("register_system failed {}", .{err});
     };
-    return @enumFromInt (index);
+    return @enumFromInt(index);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
