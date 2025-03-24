@@ -61,6 +61,8 @@ pub const mat4_transform2 = math.mat4_transform2;
 pub const Camera2D = math.Camera2D;
 pub const normalize = math.normalize;
 pub const distance = math.distance;
+pub const distance_to_line = math.distance_to_line;
+pub const distance_to_curve = math.distance_to_curve;
 
 pub const ui_render = ui.render;
 pub const ui_begin_window = ui.Window.begin_window;

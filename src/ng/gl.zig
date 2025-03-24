@@ -131,13 +131,13 @@ pub fn draw_line_line(start: ng.Vec2, end: ng.Vec2, width: f32, color: ng.Color)
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn draw_rectangle (tl: ng.Vec2, br: ng.Vec2, width: f32, color: ng.Color) !void {
-    const tr : ng.Vec2 = .{ br[0], tl[1] };
-    const bl : ng.Vec2 = .{ tl[0], br[1] };
-    try draw_line (tl, tr, width, color);
-    try draw_line (bl, br, width, color);
-    try draw_line (tl, bl, width, color);
-    try draw_line (tr, br, width, color);
+pub fn draw_rectangle(tl: ng.Vec2, br: ng.Vec2, width: f32, color: ng.Color) !void {
+    const tr: ng.Vec2 = .{ br[0], tl[1] };
+    const bl: ng.Vec2 = .{ tl[0], br[1] };
+    try draw_line(tl, tr, width, color);
+    try draw_line(bl, br, width, color);
+    try draw_line(tl, bl, width, color);
+    try draw_line(tr, br, width, color);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

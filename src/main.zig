@@ -85,6 +85,13 @@ pub fn main() !void {
 
         process_events();
 
+        {
+            const world_position = state.camera.to_world(state.map_last_mouse);
+            if (find_nearest_link(world_position)) |entity| {
+                _ = entity;
+            }
+        }
+
         draw_ui();
 
         end_draw_world(render_pass) catch {};
@@ -455,9 +462,9 @@ fn process_mouse_down(event: ng.MouseEvent) void {
     switch (event.button) {
         .left => {
             const map_pos = state.camera.to_world(event.pos);
-            if (find_nearest_link(map_pos)) |entity| {
+            if (find_nearest_node(map_pos)) |entity| {
                 state.map_selected = entity;
-            } else if (find_nearest_node(map_pos)) |entity| {
+            } else if (find_nearest_link(map_pos)) |entity| {
                 state.map_selected = entity;
             } else {
                 state.map_selected = null;
@@ -634,7 +641,7 @@ fn init_world() void {
     l1.set(com.Link{ .start = n1, .mid = n2, .end = n3, .width = 72 });
     n4.set(com.Node{ .pos = .{ 40, 40 } });
     n5.set(com.Node{ .pos = .{ 40, 70 } });
-    n6.set(com.Node{ .pos = .{ 50, 105 } });
+    n6.set(com.Node{ .pos = .{ 50, 100 } });
     l2.set(com.Link{ .start = n4, .mid = n5, .end = n6, .width = 72 });
     l2.set(com.Construction{ .step = 0, .steps = 360 });
     n7.set(com.Node{ .pos = .{ 70, 40 } });
@@ -712,8 +719,6 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
         if (entity.get(com.Node)) |node| {
             if (entity == state.map_selected) {
                 gl.draw_circle(node.pos, 5, 0.75, .white) catch {};
-            } else {
-                gl.draw_circle(node.pos, 5, 0.5, .purple) catch {};
             }
         }
     }
@@ -724,12 +729,23 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn draw_links_system(iter: *const ng.SystemIterator) void {
+    var color: ng.Color = undefined;
+    var selected: bool = undefined;
+
     for (iter.entities) |entity| {
+        if (entity == state.map_selected) {
+            selected = true;
+            color = .white;
+        } else {
+            selected = false;
+            color = .purple;
+        }
         if (entity.get(com.Link)) |link| {
             const start = link.start;
             const mid = link.mid;
             const end = link.end;
             const width = @as(f32, @floatFromInt(link.width)) * 0.1;
+            const w2: ng.Vec2 = @splat(width / 2);
 
             const start_node = start.get(com.Node);
             const end_node = end.get(com.Node);
@@ -739,21 +755,30 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
                     if (mid == ng.Entity.nil) {
                         gl.draw_line(n0.pos, n2.pos, width, .black) catch {};
                         gl.draw_rectangle(
-                            @min(n0.pos, n2.pos),
-                            @max(n0.pos, n2.pos),
+                            @min(n0.pos - w2, n2.pos - w2),
+                            @max(n0.pos + w2, n2.pos + w2),
                             0.1,
-                            .white,
+                            color,
                         ) catch {};
+                        if (selected) {
+                            gl.draw_circle(n0.pos, 5, 0.5, .purple) catch {};
+                            gl.draw_circle(n2.pos, 5, 0.5, .purple) catch {};
+                        }
                     } else {
                         const mid_node = mid.get(com.Node);
                         if (mid_node) |n1| {
                             gl.draw_bezier(n0.pos, n1.pos, n2.pos, width, .black) catch {};
                             gl.draw_rectangle(
-                                @min(n0.pos, n1.pos, n2.pos),
-                                @max(n0.pos, n1.pos, n2.pos),
+                                @min(n0.pos - w2, n1.pos - w2, n2.pos - w2),
+                                @max(n0.pos + w2, n1.pos + w2, n2.pos + w2),
                                 0.1,
-                                .white,
+                                color,
                             ) catch {};
+                            if (selected) {
+                                gl.draw_circle(n0.pos, 5, 0.5, .purple) catch {};
+                                gl.draw_circle(n1.pos, 5, 0.5, .purple) catch {};
+                                gl.draw_circle(n2.pos, 5, 0.5, .purple) catch {};
+                            }
                         }
                     }
                 }
@@ -804,7 +829,7 @@ fn find_nearest_node(pos: ng.Vec2) ?ng.Entity {
     while (iter.next()) |entity| {
         if (entity.get(com.Node)) |node| {
             const dist = ng.distance(node.pos - pos);
-            if (dist < 5 and (best_entity == null or dist < best_dist)) {
+            if (dist <= 5 and (best_entity == null or dist < best_dist)) {
                 best_dist = dist;
                 best_entity = entity;
             }
@@ -818,14 +843,65 @@ fn find_nearest_node(pos: ng.Vec2) ?ng.Entity {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn find_nearest_link(pos: ng.Vec2) ?ng.Entity {
-    _ = pos;
     var iter = state.links_query.iterator();
+
+    var best_entity: ?ng.Entity = null;
+    var best_dist: f32 = undefined;
+
     while (iter.next()) |entity| {
         if (entity.get(com.Link)) |link| {
-            log.debug("{}", .{link});
+            const start = link.start;
+            const mid = link.mid;
+            const end = link.end;
+            const width = @as(f32, @floatFromInt(link.width)) * 0.1;
+
+            const w2 = ng.Vec2{ width / 2, width / 2 };
+
+            const start_node = start.get(com.Node);
+            const end_node = end.get(com.Node);
+
+            if (start_node) |n0| {
+                if (end_node) |n2| {
+                    if (mid == ng.Entity.nil) {
+                        const tl = @min(n0.pos - w2, n2.pos - w2);
+                        const br = @max(n0.pos + w2, n2.pos + w2);
+
+                        if (@reduce(.And, pos >= tl) and @reduce(.And, pos <= br)) {
+                            const dist = ng.distance_to_line(pos, n0.pos, n2.pos);
+                            if (dist <= width / 2 and
+                                (best_entity == null or dist < best_dist))
+                            {
+                                best_dist = dist;
+                                best_entity = entity;
+                            }
+                        }
+                    } else {
+                        const mid_node = mid.get(com.Node);
+                        if (mid_node) |n1| {
+                            const tl = @min(n0.pos - w2, n1.pos - w2, n2.pos - w2);
+                            const br = @max(n0.pos + w2, n1.pos + w2, n2.pos + w2);
+
+                            if (@reduce(.And, pos >= tl) and @reduce(.And, pos <= br)) {
+                                const dist = ng.distance_to_curve(
+                                    pos,
+                                    n0.pos,
+                                    n1.pos,
+                                    n2.pos,
+                                );
+                                if (dist <= width / 2 and
+                                    (best_entity == null or dist < best_dist))
+                                {
+                                    best_dist = dist;
+                                    best_entity = entity;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
-    return null;
+    return best_entity;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
