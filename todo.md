@@ -1,3 +1,43 @@
+- Map
+  - select link
+  - move nodes
+  - draw link textures
+  - select link type
+  - draw junctions
+  - adjust junctions
+  - draw
+    - draw vehicles
+    - draw people walking
+    - draw people cycling
+  - movement
+    - move vehicles along links
+    - move vehicles through junctions
+    - move walkers along links
+    - move walkers through junctions
+    - move bicycles along links
+    - move bicycles through junctions
+  - junction types
+    - priority junctions
+    - signalised junctions
+    - small roundabouts
+  - plots
+  - road sections
+    - select from list of pre-existing road cross sections
+    - create new road cross section
+    - change a cross section segment type
+    - change a cross section segment width
+    - add cross section segment
+    - delete cross section segment
+  - land use
+    - select land use from pre-existing land use types
+    - create new land use type
+    - change land use type
+    - change plots to use land use type
+    - delete land use type
+  - buildings
+    - designate plot for specific building type
+  - zoom to node / building / link
+
 - Immediate Mode UI
   - fade out objects that are not 'refreshed'
   - Text (wrapping / formatting)
@@ -13,29 +53,6 @@
   - VerticalScrollBar
   - HorizontalScrollBar
   - themes
-
-- Map
-  - draw nodes
-    - node fragment shader 
-  - draw links
-    - link fragment shader 
-  - move nodes
-  - adjust links
-  - curved links
-  - draw junctions
-  - adjust junctions
-  - draw people walking
-  - draw people with carts
-  - buildings
-  - zoom to node / building / link
-  - Road Sections
-    - create road cross section window 
-      - select from list of pre-existing road cross sections
-      - create new road cross section
-      - change a cross section segment type
-      - change a cross section segment width
-      - add cross section segment
-      - delete cross section segment
 
 - ECS
   - save to binary file
@@ -57,13 +74,52 @@
     - cut branches -> planks / posts / sawdust
   - Education
     - skills
-    - schools
+    - buildings
+      - pre-school
+      - lower school
+      - middle school
+      - high school
+      - polytechnic
+      - technical college
+      - university
+      - research institute
     - job learnt skills
   - Health
     - activity level
     - food quality
     - water quality
     - waste management
+    - buildings
+      - general practice doctors
+      - local medical center
+      - local hospital
+      - emergency hospital
+      - general hospital
+      - regional hospital
+      - undertakers
+      - cemetery
+      - crematorium
+  - Safety
+    - criminals
+      - burglary
+      - physical violence
+      - alcohol violence
+      - domestic violence
+      - vehicle theft
+      - animal theft
+    - buildings
+      - small police station
+      - large police station
+      - regional police station
+      - low security prison
+      - medium security prison
+      - high security prison
+      - small fire station
+      - large fire station
+      - regional fire station
+      - small ambulance station
+      - large ambulance station
+      - regional ambulance station
   - Domesticated Animals
     - wool (sheep)
     - feathers (duck)
