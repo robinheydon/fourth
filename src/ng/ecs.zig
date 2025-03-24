@@ -25,6 +25,8 @@ var components: std.ArrayListUnmanaged(ComponentInfo) = .empty;
 
 var systems: std.ArrayListUnmanaged(SystemInfo) = .empty;
 
+var queries: std.ArrayListUnmanaged(QueryInfo) = .empty;
+
 var entity_changes: std.ArrayHashMapUnmanaged(
     EntityIndex,
     void,
@@ -312,11 +314,16 @@ pub fn deinit() void {
         sys.entities.deinit(allocator);
     }
 
+    for (queries.items) |*query| {
+        query.entities.deinit(allocator);
+    }
+
     generations.deinit(allocator);
     recycled.deinit(allocator);
     old_recycled.deinit(allocator);
     components.deinit(allocator);
     systems.deinit(allocator);
+    queries.deinit(allocator);
     entity_changes.deinit(allocator);
     entity_updates.deinit(allocator);
     entity_update_data.deinit(allocator);
@@ -1006,8 +1013,121 @@ fn update_system_entities() void {
                 _ = sys.entities.swapRemove(entity);
             }
         }
+        for (queries.items) |*query| {
+            var matches = false;
+            for (query.arguments[0..query.num_arguments]) |arg| {
+                if (entity.has_component_type(arg)) {
+                    matches = true;
+                    break;
+                }
+            }
+            if (matches) {
+                query.entities.put(allocator, entity, {}) catch {};
+            } else {
+                _ = query.entities.swapRemove(entity);
+            }
+        }
     }
     entity_changes.clearRetainingCapacity();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const QueryInfo = struct {
+    name: []const u8,
+    num_arguments: usize,
+    arguments: [max_system_arguments]TypeId,
+    entities: std.ArrayHashMapUnmanaged(Entity, void, SystemEntityContext, false),
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const QueryIterator = struct {
+    index: usize,
+    entities: []Entity,
+
+    pub fn next (self: *QueryIterator) ?Entity {
+        if (self.index < self.entities.len)
+        {
+            const entity = self.entities[self.index];
+            self.index += 1;
+            return entity;
+        }
+        return null;
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const Query = enum (u32) { _,
+    pub fn iterator (self: Query) QueryIterator
+    {
+        const index = @intFromEnum (self);
+        const query = queries.items[index];
+        return .{
+            .index = 0,
+            .entities = query.entities.keys(),
+        };
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const QueryOptions = struct {
+    name: []const u8,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub fn register_query (options: QueryOptions, expression: anytype) Query
+{
+    var num_arguments: usize = 0;
+    var arguments: [max_system_arguments]TypeId = undefined;
+    var mutable: [max_system_arguments]bool = undefined;
+
+    inline for (expression) |arg| {
+        const type_info = @typeInfo(arg);
+        switch (type_info) {
+            .@"struct" => |_| {
+                arguments[num_arguments] = get_type_id(arg);
+                mutable[num_arguments] = false;
+                num_arguments += 1;
+            },
+            .@"enum" => |_| {
+                arguments[num_arguments] = get_type_id(arg);
+                mutable[num_arguments] = false;
+                num_arguments += 1;
+            },
+            else => {
+                @compileError("Invalid type in register_system expression : " ++
+                    @typeName(arg));
+            },
+        }
+    }
+
+    const info: QueryInfo = .{
+        .name = options.name,
+        .num_arguments = num_arguments,
+        .arguments = arguments,
+        .entities = .empty,
+    };
+
+    const index = queries.items.len;
+
+    queries.append(allocator, info) catch |err| {
+        log.err("register_system failed {}", .{err});
+    };
+    return @enumFromInt (index);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

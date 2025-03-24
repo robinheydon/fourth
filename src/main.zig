@@ -51,7 +51,7 @@ pub fn main() !void {
     });
     defer state.window.close();
 
-    state.window.toggle_fullscreen();
+    // state.window.toggle_fullscreen();
 
     state.window.set_swap_interval(.lowpower);
 
@@ -420,6 +420,25 @@ fn process_mouse_move(event: ng.MoveEvent) void {
     }
 
     state.map_last_mouse = event.pos;
+
+    if (state.map_selected_state == .clicked) {
+        const delta = @abs(state.map_selected_click - event.pos);
+
+        if (delta[0] > 8 or delta[1] > 8) {
+            state.map_selected_state = .dragging;
+        }
+    }
+    
+    if (state.map_selected_state == .dragging) {
+        const world_position = state.camera.to_world(event.pos);
+        if (state.map_selected) |entity|
+        {
+            if (entity.getPtr(com.Node)) |node|
+            {
+                node.pos = world_position;
+            }
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -435,9 +454,19 @@ fn process_mouse_double_click(event: ng.MouseEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_mouse_down(event: ng.MouseEvent) void {
-    if (event.button == .left) {
-        state.map_state = .clicked;
-        state.map_start_click = event.pos;
+    switch (event.button)
+    {
+        .left => {
+            const map_pos = state.camera.to_world(event.pos);
+            state.map_selected = find_nearest_node (map_pos);
+            state.map_selected_click = event.pos;
+            state.map_selected_state = .clicked;
+        },
+        .right => {
+            state.map_state = .clicked;
+            state.map_start_click = event.pos;
+        },
+        else => {}
     }
 }
 
@@ -446,8 +475,15 @@ fn process_mouse_down(event: ng.MouseEvent) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn process_mouse_up(event: ng.MouseEvent) void {
-    if (event.button == .left) {
-        state.map_state = .none;
+    switch (event.button)
+    {
+        .left => {
+            state.map_selected_state = .none;
+        },
+        .right => {
+            state.map_state = .none;
+        },
+        else => {}
     }
 }
 
@@ -560,6 +596,15 @@ fn init_world() void {
         .{},
     );
 
+    state.nodes_query = ng.register_query(
+        .{
+            .name = "nodes",
+        },
+        .{
+            com.Node,
+        },
+    );
+
     const n1 = ng.new();
     const n2 = ng.new();
     const n3 = ng.new();
@@ -570,12 +615,12 @@ fn init_world() void {
     const l2 = ng.new();
 
     n1.set(com.Node{ .pos = .{ 10, 10 } });
-    n2.set(com.Node{ .pos = .{ 25, 10 } });
-    n3.set(com.Node{ .pos = .{ 30, 20 } });
+    n2.set(com.Node{ .pos = .{ 50, 10 } });
+    n3.set(com.Node{ .pos = .{ 100, 20 } });
     l1.set(com.Link{ .start = n1, .mid = n2, .end = n3, .width = 72 });
-    n4.set(com.Node{ .pos = .{ 40, 20 } });
-    n5.set(com.Node{ .pos = .{ 50, 5 } });
-    n6.set(com.Node{ .pos = .{ 70, 15 } });
+    n4.set(com.Node{ .pos = .{ 40, 40 } });
+    n5.set(com.Node{ .pos = .{ 40, 70 } });
+    n6.set(com.Node{ .pos = .{ 50, 105 } });
     l2.set(com.Link{ .start = n4, .mid = n5, .end = n6, .width = 72 });
     l2.set(com.Construction{ .step = 0, .steps = 360 });
 
@@ -648,7 +693,14 @@ fn movement_system(iter: *const ng.SystemIterator) void {
 fn draw_nodes_system(iter: *const ng.SystemIterator) void {
     for (iter.entities) |entity| {
         if (entity.get(com.Node)) |node| {
-            gl.draw_circle(node.pos, 5, 0.5, .purple) catch {};
+            if (entity == state.map_selected)
+            {
+                gl.draw_circle(node.pos, 10, 0.5, .white) catch {};
+            }
+            else
+            {
+                gl.draw_circle(node.pos, 10, 0.5, .purple) catch {};
+            }
         }
     }
 }
@@ -709,6 +761,30 @@ fn autosave_system(iter: *const ng.SystemIterator) void {
         log.err("Failed to write 'autosave.dat' {}", .{err});
         return;
     };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn find_nearest_node (pos: ng.Vec2) ?ng.Entity
+{
+    var iter = state.nodes_query.iterator ();
+    var best_entity: ?ng.Entity = null;
+    var best_dist: f32 = 0;
+    while (iter.next ()) |entity|
+    {
+        if (entity.get (com.Node)) |node|
+        {
+            const dist = ng.distance (node.pos - pos);
+            if (dist < 10 and (best_entity == null or dist < best_dist))
+            {
+                best_dist = dist;
+                best_entity = entity;
+            }
+        }
+    }
+    return best_entity;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

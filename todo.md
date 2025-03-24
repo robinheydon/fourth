@@ -1,6 +1,7 @@
 - Map
-  - select link
+  - select nodes
   - move nodes
+  - select link
   - draw link textures
   - select link type
   - draw junctions

@@ -60,6 +60,7 @@ pub const mat4_transform = math.mat4_transform;
 pub const mat4_transform2 = math.mat4_transform2;
 pub const Camera2D = math.Camera2D;
 pub const normalize = math.normalize;
+pub const distance = math.distance;
 
 pub const ui_render = ui.render;
 pub const ui_begin_window = ui.Window.begin_window;
@@ -90,9 +91,11 @@ pub const elapsed = time.elapsed;
 pub const sleep = time.sleep;
 
 pub const Entity = ecs.Entity;
+pub const Query = ecs.Query;
 pub const SystemIterator = ecs.SystemIterator;
 pub const register_component = ecs.register_component;
 pub const register_system = ecs.register_system;
+pub const register_query = ecs.register_query;
 pub const new = ecs.new;
 pub const dump = ecs.dump;
 pub const progress = ecs.progress;
