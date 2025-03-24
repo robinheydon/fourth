@@ -442,6 +442,25 @@ fn process_mouse_move(event: ng.MoveEvent) void {
             if (entity.getPtr(com.Node)) |node| {
                 node.pos = world_position;
             }
+            var iter = state.links_query.iterator();
+            while (iter.next ()) |link_entity|
+            {
+                if (link_entity.get (com.Link)) |link|
+                {
+                    if (link.start == entity)
+                    {
+                        link_entity.set(com.Construction{ .steps = 60 });
+                    }
+                    if (link.mid == entity)
+                    {
+                        link_entity.set(com.Construction{ .steps = 60 });
+                    }
+                    if (link.end == entity)
+                    {
+                        link_entity.set(com.Construction{ .steps = 60 });
+                    }
+                }
+            }
         }
     }
 }
@@ -643,7 +662,7 @@ fn init_world() void {
     n5.set(com.Node{ .pos = .{ 40, 70 } });
     n6.set(com.Node{ .pos = .{ 50, 100 } });
     l2.set(com.Link{ .start = n4, .mid = n5, .end = n6, .width = 72 });
-    l2.set(com.Construction{ .step = 0, .steps = 360 });
+    l2.set(com.Construction{ .step = 0, .steps = 60 });
     n7.set(com.Node{ .pos = .{ 70, 40 } });
     n8.set(com.Node{ .pos = .{ 85, 85 } });
     l3.set(com.Link{ .start = n7, .mid = .nil, .end = n8, .width = 72 });
@@ -731,6 +750,7 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
 fn draw_links_system(iter: *const ng.SystemIterator) void {
     var color: ng.Color = undefined;
     var selected: bool = undefined;
+    var construction: f32 = undefined;
 
     for (iter.entities) |entity| {
         if (entity == state.map_selected) {
@@ -740,12 +760,19 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
             selected = false;
             color = .purple;
         }
+        if (entity.get(com.Construction)) |constr| {
+            construction = @max (0, (constr.step / constr.steps - 0.5) * 2);
+        }
+        else
+        {
+            construction = 1;
+        }
         if (entity.get(com.Link)) |link| {
             const start = link.start;
             const mid = link.mid;
             const end = link.end;
             const width = @as(f32, @floatFromInt(link.width)) * 0.1;
-            const w2: ng.Vec2 = @splat(width / 2);
+            // const w2: ng.Vec2 = @splat(width / 2);
 
             const start_node = start.get(com.Node);
             const end_node = end.get(com.Node);
@@ -753,13 +780,20 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
             if (start_node) |n0| {
                 if (end_node) |n2| {
                     if (mid == ng.Entity.nil) {
-                        gl.draw_line(n0.pos, n2.pos, width, .black) catch {};
-                        gl.draw_rectangle(
-                            @min(n0.pos - w2, n2.pos - w2),
-                            @max(n0.pos + w2, n2.pos + w2),
-                            0.1,
-                            color,
-                        ) catch {};
+                        if (selected) {
+                            gl.draw_line(n0.pos, n2.pos, width + 1, .purple) catch {};
+                        }
+                        if (construction < 1) {
+                            gl.draw_line(n0.pos, n2.pos, width, .grey) catch {};
+                            gl.draw_line(
+                                n0.pos,
+                                n2.pos,
+                                width * construction,
+                                .black,
+                            ) catch {};
+                        } else {
+                            gl.draw_line(n0.pos, n2.pos, width, .black) catch {};
+                        }
                         if (selected) {
                             gl.draw_circle(n0.pos, 5, 0.5, .purple) catch {};
                             gl.draw_circle(n2.pos, 5, 0.5, .purple) catch {};
@@ -767,13 +801,39 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
                     } else {
                         const mid_node = mid.get(com.Node);
                         if (mid_node) |n1| {
-                            gl.draw_bezier(n0.pos, n1.pos, n2.pos, width, .black) catch {};
-                            gl.draw_rectangle(
-                                @min(n0.pos - w2, n1.pos - w2, n2.pos - w2),
-                                @max(n0.pos + w2, n1.pos + w2, n2.pos + w2),
-                                0.1,
-                                color,
-                            ) catch {};
+                            if (selected) {
+                                gl.draw_bezier(
+                                    n0.pos,
+                                    n1.pos,
+                                    n2.pos,
+                                    width + 1,
+                                    .purple,
+                                ) catch {};
+                            }
+                            if (construction < 1) {
+                                gl.draw_bezier(
+                                    n0.pos,
+                                    n1.pos,
+                                    n2.pos,
+                                    width,
+                                    .grey,
+                                ) catch {};
+                                gl.draw_bezier(
+                                    n0.pos,
+                                    n1.pos,
+                                    n2.pos,
+                                    width * construction,
+                                    .black,
+                                ) catch {};
+                            } else {
+                                gl.draw_bezier(
+                                    n0.pos,
+                                    n1.pos,
+                                    n2.pos,
+                                    width,
+                                    .black,
+                                ) catch {};
+                            }
                             if (selected) {
                                 gl.draw_circle(n0.pos, 5, 0.5, .purple) catch {};
                                 gl.draw_circle(n1.pos, 5, 0.5, .purple) catch {};

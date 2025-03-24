@@ -29,7 +29,7 @@ pub const Link = extern struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const Construction = extern struct {
-    step: f32,
+    step: f32 = 0,
     steps: f32,
 };
 

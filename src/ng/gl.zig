@@ -159,7 +159,7 @@ pub fn draw_bezier(
     const w2: ng.Vec2 = @splat(width / 2);
 
     const num_segments: f32 =
-        @floor(@min(256, @max(9, @sqrt(detail * dist) * quality)));
+        @floor(@min(256, @max(9, @sqrt(detail * dist) * quality / 2)));
 
     const dt: ng.Vec2 = @splat(1 / num_segments);
     const two = ng.Vec2{ 2, 2 };
@@ -310,6 +310,8 @@ pub fn render(render_pass: ng.RenderPass) void {
     render_pass.apply_bindings(gl_binding);
     render_pass.apply_uniform_mat4(GL_Uniforms.mvp, current_mvp);
     render_pass.draw(gl_indexes.items.len);
+
+    ng.debug_print ("gl vertexes = {}\n", .{gl_indexes.items.len});
 
     gl_vertexes.clearRetainingCapacity();
     gl_indexes.clearRetainingCapacity();
