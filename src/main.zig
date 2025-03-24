@@ -738,10 +738,22 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
                 if (end_node) |n2| {
                     if (mid == ng.Entity.nil) {
                         gl.draw_line(n0.pos, n2.pos, width, .black) catch {};
+                        gl.draw_rectangle(
+                            @min(n0.pos, n2.pos),
+                            @max(n0.pos, n2.pos),
+                            0.1,
+                            .white,
+                        ) catch {};
                     } else {
                         const mid_node = mid.get(com.Node);
                         if (mid_node) |n1| {
                             gl.draw_bezier(n0.pos, n1.pos, n2.pos, width, .black) catch {};
+                            gl.draw_rectangle(
+                                @min(n0.pos, n1.pos, n2.pos),
+                                @max(n0.pos, n1.pos, n2.pos),
+                                0.1,
+                                .white,
+                            ) catch {};
                         }
                     }
                 }
