@@ -311,7 +311,7 @@ pub fn render(render_pass: ng.RenderPass) void {
     render_pass.apply_uniform_mat4(GL_Uniforms.mvp, current_mvp);
     render_pass.draw(gl_indexes.items.len);
 
-    ng.debug_print ("gl vertexes = {}\n", .{gl_indexes.items.len});
+    ng.debug_print("gl vertexes = {}\n", .{gl_indexes.items.len});
 
     gl_vertexes.clearRetainingCapacity();
     gl_indexes.clearRetainingCapacity();
