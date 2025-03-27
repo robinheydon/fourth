@@ -38,7 +38,7 @@ pub var window: ng.Window = undefined;
 pub var dt: f32 = 0;
 
 pub var map_move_velocity: ng.Vec2 = .{ 0, 0 };
-pub var map_center: ng.Vec2 = .{ 50, 50 };
+pub var map_center: ng.Vec2 = .{ 75, 40 };
 pub var map_zoom: f32 = 10;
 pub var map_rotate: f32 = 0;
 

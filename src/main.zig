@@ -646,12 +646,12 @@ fn init_world() void {
     n1.set(com.Node{ .pos = .{ -20, 10 } });
 
     n2.set(com.Node{ .pos = .{ 50, 20 } });
-    n2.set(com.Curve{ .radius = 20 });
+    n2.set(com.Curve{ .radius = 20, .from = l1, .to = l2 });
 
     n3.set(com.Node{ .pos = .{ 100, 60 } });
-    n3.set(com.Curve{ .radius = 20 });
+    n3.set(com.Curve{ .radius = 20, .from = l2, .to = l3 });
 
-    n4.set(com.Node{ .pos = .{ 150, 50 } });
+    n4.set(com.Node{ .pos = .{ 140, 50 } });
 
     l1.set(com.Link{ .start = n1, .end = n2, .width = 72 });
     l2.set(com.Link{ .start = n2, .end = n3, .width = 72 });
@@ -728,6 +728,10 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
         if (entity.get(com.Node)) |node| {
             if (entity == state.map_selected) {
                 gl.draw_circle(node.pos, 5, 0.75, .white) catch {};
+            }
+            if (entity.get(com.Curve)) |curve| {
+                ng.debug_print("Curve {}\n", .{curve});
+                gl.draw_circle(node.pos, curve.radius, 0.75, .yellow) catch {};
             }
         }
     }
@@ -818,7 +822,6 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
             }
         }
     }
-
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
