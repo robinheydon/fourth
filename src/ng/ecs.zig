@@ -540,7 +540,7 @@ pub fn ComponentStorage(Component: type) type {
         }
 
         pub fn contains(self: *Self, key: Entity) bool {
-            return self.store.contains (key.idx);
+            return self.store.contains(key.idx);
         }
     };
 }
