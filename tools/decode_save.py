@@ -96,7 +96,7 @@ def main ():
                     field_offset, offset = read_int (content, offset)
                     field_size, offset = read_int (content, offset)
                     field_kind, offset = read_int (content, offset)
-                    # print (f"  {field_name} {field_offset} {field_size} {field_kind} {field_component}")
+                    # print (f"  {field_name} {field_offset} {field_size} {field_kind}")
                     fields.append (Field (name = field_name, offset = field_offset, size = field_size, kind = field_kind))
                 component = Component (name = name, size = size, struct_info = fields, enum_info = None)
                 all_components[typeid] = component
@@ -109,7 +109,7 @@ def main ():
                     enum_value, offset = read_int (content, offset)
                     enum_name, offset = read_string (content, offset)
                     values[enum_value] = enum_name
-                # pprint.pprint (values)
+                    # print (f"  {enum_name} = {enum_value}")
                 component = Component (name = name, size = size, enum_info = EnumInfo (tag_type = tag_type, values = values), struct_info = None)
                 all_components[typeid] = component
         elif tag == 'ENTT':
@@ -146,6 +146,7 @@ def main ():
         for typeid in entity_data:
             data = entity_data[typeid]
             component = all_components[typeid]
+            print (f"  {component.name}")
             if component.enum_info:
                 info = component.enum_info
                 tag_type = all_kinds[info.tag_type]
@@ -158,7 +159,7 @@ def main ():
                 elif tag_type == 'u32':
                     value = struct.unpack ('<I', data)[0]
                     name = info.values[value]
-                print (f"  {component.name} = .{name}")
+                print (f"    {component.name} = .{name}")
             elif component.struct_info:
                 fields = component.struct_info
                 for field in fields:
@@ -166,45 +167,45 @@ def main ():
                     kind = all_kinds[field.kind]
                     if kind == 'bool':
                         value = struct.unpack ("<B", field_data)[0] != 0
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'u8':
                         value = struct.unpack ("<B", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'u16':
                         value = struct.unpack ("<H", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'u32':
                         value = struct.unpack ("<I", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'u64':
                         value = struct.unpack ("<Q", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'i8':
                         value = struct.unpack ("<b", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'i16':
                         value = struct.unpack ("<h", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'i32':
                         value = struct.unpack ("<i", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'i64':
                         value = struct.unpack ("<q", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value}")
+                        print (f"    .{field.name} = {value}")
                     elif kind == 'f32':
                         value = struct.unpack ("<f", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value:0.3f}")
+                        print (f"    .{field.name} = {value:0.3f}")
                     elif kind == 'f64':
                         value = struct.unpack ("<d", field_data)[0]
-                        print (f"  {component.name}.{field.name} = {value:0.3f}")
+                        print (f"    .{field.name} = {value:0.3f}")
                     elif kind == 'Entity':
                         value = struct.unpack ("<I", field_data)[0]
-                        print (f"  {component.name}.{field.name} = E({value:08x})")
+                        print (f"    .{field.name} = E({value:08x})")
                     elif kind == 'Vec2':
                         x,y = struct.unpack ("<ff", field_data)
-                        print (f"  {component.name}.{field.name} = Vec2 ({x:0.3f},{y:0.3f})")
+                        print (f"    .{field.name} = Vec2 ({x:0.3f},{y:0.3f})")
                     else:
-                        print (f"  {component.name}.{field.name} = {kind} {field_data}")
+                        print (f"    .{field.name} = {kind} {field_data}")
 
 if __name__ == "__main__":
     main ();

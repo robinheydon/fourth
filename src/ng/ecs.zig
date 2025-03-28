@@ -121,7 +121,7 @@ pub const Entity = packed struct(u32) {
             };
         } else {
             var storage = info.storage.cast(Component);
-            if (storage.get(self)) |_| {
+            if (storage.getPtr(self)) |_| {
                 storage.set(self, value);
             } else {
                 entity_changes.put(allocator, self.idx, {}) catch {
@@ -178,12 +178,16 @@ pub const Entity = packed struct(u32) {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
+    pub fn has(self: Entity, Component: type) bool {
+        const type_id = get_type_id(Component);
+        return self.has_component_type(type_id);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     pub fn has_component_type(self: Entity, type_id: TypeId) bool {
         const info = components.items[type_id];
-        if (info.storage.get_data(info.storage, self)) |_| {
-            return true;
-        }
-        return false;
+        return info.storage.contains(info.storage, self);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -392,6 +396,10 @@ const ComponentInfo = struct {
     pub fn get_data(self: ComponentInfo, ent: Entity) ?[]const u8 {
         return self.storage.get_data(self.storage, ent);
     }
+
+    pub fn contains(self: ComponentInfo, ent: Entity) bool {
+        return self.storage.contains(self.storage, ent);
+    }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -530,6 +538,10 @@ pub fn ComponentStorage(Component: type) type {
                 log.err("Cannot set component {} {} : {}", .{ key, value, err });
             };
         }
+
+        pub fn contains(self: *Self, key: Entity) bool {
+            return self.store.contains (key.idx);
+        }
     };
 }
 
@@ -543,6 +555,7 @@ pub const ErasedComponentStorage = struct {
     get_data: *const fn (self: ErasedComponentStorage, ent: Entity) ?[]const u8,
     set_data: *const fn (self: ErasedComponentStorage, ent: Entity, data: []const u8) void,
     remove: *const fn (self: ErasedComponentStorage, ent: Entity) void,
+    contains: *const fn (self: ErasedComponentStorage, ent: Entity) bool,
 
     pub fn cast(
         self: ErasedComponentStorage,
@@ -587,6 +600,12 @@ fn init_erased_component_storage(Component: type) ErasedComponentStorage {
                 cast_ptr.remove(ent);
             }
         }).remove,
+        .contains = (struct {
+            fn contains(self: ErasedComponentStorage, ent: Entity) bool {
+                const cast_ptr = self.cast(Component);
+                return cast_ptr.contains(ent);
+            }
+        }).contains,
     };
 }
 
@@ -895,8 +914,6 @@ pub fn register_system(
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn progress(dt: f32) void {
-    update_system_entities();
-
     std.sort.block(SystemInfo, systems.items, {}, system_sorter);
 
     var number_used_phases: usize = 0;
@@ -910,6 +927,8 @@ pub fn progress(dt: f32) void {
     }
 
     for (used_phases[0..number_used_phases]) |phase| {
+        update_system_entities();
+
         staged = true;
         for (systems.items) |*system| {
             if (system.phase == phase) {
@@ -979,6 +998,8 @@ pub fn progress(dt: f32) void {
         entity_updates.clearRetainingCapacity();
         entity_update_data.clearRetainingCapacity();
     }
+
+    update_system_entities();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1001,11 +1022,11 @@ fn update_system_entities() void {
     for (keys) |idx| {
         const entity = Entity{ .idx = idx, .gen = generations.items[idx] };
         for (systems.items) |*sys| {
-            var matches = false;
+            var matches = true;
             for (sys.arguments[0..sys.num_arguments]) |arg| {
-                if (entity.has_component_type(arg)) {
-                    matches = true;
-                    break;
+                if (!entity.has_component_type(arg)) {
+                    matches = false;
+                    // break;
                 }
             }
             if (matches) {
@@ -1015,11 +1036,11 @@ fn update_system_entities() void {
             }
         }
         for (queries.items) |*query| {
-            var matches = false;
+            var matches = true;
             for (query.arguments[0..query.num_arguments]) |arg| {
-                if (entity.has_component_type(arg)) {
-                    matches = true;
-                    break;
+                if (!entity.has_component_type(arg)) {
+                    matches = false;
+                    // break;
                 }
             }
             if (matches) {
@@ -1144,18 +1165,16 @@ const SaveMemory = struct {
         };
     }
 
-    pub fn deinit (self: *SaveMemory) void {
-        self.memory.deinit ();
-        self.strings.deinit ();
+    pub fn deinit(self: *SaveMemory) void {
+        self.memory.deinit();
+        self.strings.deinit();
     }
 
     pub fn intern(self: *SaveMemory, string: []const u8) !u32 {
         if (std.mem.indexOf(u8, self.strings.items, string)) |index| {
-            log.debug ("Intern {s} => {x:0>8}", .{string, index});
             return @intCast(index);
         }
         const offset = self.strings.items.len;
-        log.debug ("Intern {s} => {x:0>8}", .{string, offset});
         try self.strings.appendSlice(string);
         return @intCast(offset);
     }
@@ -1182,8 +1201,8 @@ const SaveMemory = struct {
         const interned = try self.intern(string);
         const len: u32 = @intCast(string.len);
 
-        try self.write(u32, interned);
-        try self.write(u32, len);
+        try self.write_int(interned);
+        try self.write_int(len);
     }
 
     pub fn write_int(self: *SaveMemory, value: usize) !void {
@@ -1234,7 +1253,7 @@ const SaveMemory = struct {
 
 pub fn save(alloc: std.mem.Allocator) ![]u8 {
     var memory = SaveMemory.init(alloc);
-    errdefer memory.deinit ();
+    errdefer memory.deinit();
 
     const head_offset = try memory.write_header("HEAD");
     try memory.write(u32, 0);
@@ -1271,7 +1290,6 @@ fn save_component_info(memory: *SaveMemory) !void {
             .@"struct" => |info| {
                 try memory.write_int(0);
                 try memory.write_int(info.num_fields);
-                std.debug.print ("{}\n", .{info.num_fields});
                 for (0..info.num_fields) |i| {
                     const field = info.fields[i];
                     try memory.write_string(field.name);

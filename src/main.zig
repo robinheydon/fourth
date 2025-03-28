@@ -446,10 +446,22 @@ fn process_mouse_move(event: ng.MoveEvent) void {
             while (iter.next()) |link_entity| {
                 if (link_entity.get(com.Link)) |link| {
                     if (link.start == entity) {
-                        link_entity.set(com.Construction{ .steps = 10 });
+                        // link_entity.set(com.Construction{ .steps = 10 });
+                        if (link.start.has(com.Curve)) {
+                            link.start.set(com.CurveUpdateRequired{});
+                        }
+                        if (link.end.has(com.Curve)) {
+                            link.end.set(com.CurveUpdateRequired{});
+                        }
                     }
                     if (link.end == entity) {
-                        link_entity.set(com.Construction{ .steps = 10 });
+                        // link_entity.set(com.Construction{ .steps = 10 });
+                        if (link.start.has(com.Curve)) {
+                            link.start.set(com.CurveUpdateRequired{});
+                        }
+                        if (link.end.has(com.Curve)) {
+                            link.end.set(com.CurveUpdateRequired{});
+                        }
                     }
                 }
             }
@@ -652,9 +664,11 @@ fn init_world() void {
     const n2 = ng.new();
     const n3 = ng.new();
     const n4 = ng.new();
+    const n5 = ng.new();
     const l1 = ng.new();
     const l2 = ng.new();
     const l3 = ng.new();
+    const l4 = ng.new();
 
     n1.set(com.Node{ .pos = .{ -20, 10 } });
 
@@ -667,38 +681,15 @@ fn init_world() void {
     n3.set(com.CurveUpdateRequired{});
 
     n4.set(com.Node{ .pos = .{ 140, 50 } });
+    n4.set(com.Curve{ .radius = 15, .from = l3, .to = l4 });
+    n4.set(com.CurveUpdateRequired{});
+
+    n5.set(com.Node{ .pos = .{ 200, 50 } });
 
     l1.set(com.Link{ .start = n1, .end = n2, .width = 72 });
     l2.set(com.Link{ .start = n2, .end = n3, .width = 72 });
     l3.set(com.Link{ .start = n3, .end = n4, .width = 72 });
-
-    const p1 = ng.new();
-    const p2 = ng.new();
-    const p3 = ng.new();
-
-    p1.set(com.Position{ .pos = .{ 8, 10 } });
-    p2.set(com.Position{ .pos = .{ 12, 10 } });
-    p3.set(com.Position{ .pos = .{ 10, 12 } });
-
-    p1.set(com.Velocity{ .vel = .{ -1, 0 } });
-    p2.set(com.Velocity{ .vel = .{ 1, 0 } });
-    p3.set(com.Velocity{ .vel = .{ 0, 1 } });
-
-    p1.set(com.VehicleKind.person);
-    p2.set(com.VehicleKind.cart);
-    p3.set(com.VehicleKind.bicycle);
-
-    const p4 = ng.new();
-    p4.set(com.Position{ .pos = .{ 10, 8 } });
-    p4.set(com.Velocity{ .vel = .{ 0, -1 } });
-    p4.set(com.VehicleKind.truck);
-
-    for (0..1000) |_| {
-        const p5 = ng.new();
-        p5.delete();
-    }
-
-    p4.delete();
+    l4.set(com.Link{ .start = n4, .end = n5, .width = 72 });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
