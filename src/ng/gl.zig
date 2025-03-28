@@ -274,6 +274,59 @@ pub fn draw_circle(pos: ng.Vec2, radius: f32, width: f32, color: ng.Color) !void
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+pub fn draw_arc(
+    pos: ng.Vec2,
+    radius: f32,
+    start: f32,
+    end: f32,
+    width: f32,
+    color: ng.Color,
+) !void {
+    const num: f32 = @min(256, @max(9, @sqrt(detail * radius) * quality));
+    const a: f32 = std.math.tau / @floor(num);
+    const r: ng.Vec2 = @splat(radius);
+    const w: ng.Vec2 = @splat(width);
+
+    set_color(color);
+
+    var angle: f32 = 0;
+
+    const inner = ng.Vec2{ @cos(angle), @sin(angle) } * (r - w);
+    const outer = ng.Vec2{ @cos(angle), @sin(angle) } * r;
+    var last_inner = try add_vertex(pos + inner);
+    var last_outer = try add_vertex(pos + outer);
+    const first_inner = last_inner;
+    const first_outer = last_outer;
+    angle += a;
+
+    const segments: usize = @as(usize, @intFromFloat(num)) - 1;
+
+    for (0..segments) |_| {
+        const cur_inner = ng.Vec2{ @cos(angle), @sin(angle) } * (r - w);
+        const cur_outer = ng.Vec2{ @cos(angle), @sin(angle) } * r;
+        const p0 = try add_vertex(pos + cur_inner);
+        const p1 = try add_vertex(pos + cur_outer);
+        try add_triangle(last_inner, last_outer, p0);
+        try add_triangle(last_outer, p0, p1);
+        last_inner = p0;
+        last_outer = p1;
+        angle += a;
+    }
+
+    try add_triangle(last_inner, last_outer, first_inner);
+    try add_triangle(last_outer, first_inner, first_outer);
+
+    const start_pos = pos + ng.Vec2{ @cos(start), @sin(start) } * r;
+    const end_pos = pos + ng.Vec2{ @cos(end), @sin(end) } * r;
+
+    try draw_line(pos, start_pos, 1, .green);
+    try draw_line(pos, end_pos, 1, .red);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pub fn set_color(col: ng.Color) void {
     current_color = col;
 }

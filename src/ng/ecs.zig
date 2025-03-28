@@ -617,6 +617,7 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
     switch (component_typeinfo) {
         .@"struct" => {
             var info: ComponentStructInfo = undefined;
+            info.num_fields = 0;
             inline for (0.., std.meta.fields(Component)) |i, field| {
                 const kind: ComponentFieldKind = switch (field.type) {
                     bool => .bool,
@@ -1143,11 +1144,18 @@ const SaveMemory = struct {
         };
     }
 
+    pub fn deinit (self: *SaveMemory) void {
+        self.memory.deinit ();
+        self.strings.deinit ();
+    }
+
     pub fn intern(self: *SaveMemory, string: []const u8) !u32 {
         if (std.mem.indexOf(u8, self.strings.items, string)) |index| {
+            log.debug ("Intern {s} => {x:0>8}", .{string, index});
             return @intCast(index);
         }
         const offset = self.strings.items.len;
+        log.debug ("Intern {s} => {x:0>8}", .{string, offset});
         try self.strings.appendSlice(string);
         return @intCast(offset);
     }
@@ -1226,6 +1234,7 @@ const SaveMemory = struct {
 
 pub fn save(alloc: std.mem.Allocator) ![]u8 {
     var memory = SaveMemory.init(alloc);
+    errdefer memory.deinit ();
 
     const head_offset = try memory.write_header("HEAD");
     try memory.write(u32, 0);
@@ -1262,6 +1271,7 @@ fn save_component_info(memory: *SaveMemory) !void {
             .@"struct" => |info| {
                 try memory.write_int(0);
                 try memory.write_int(info.num_fields);
+                std.debug.print ("{}\n", .{info.num_fields});
                 for (0..info.num_fields) |i| {
                     const field = info.fields[i];
                     try memory.write_string(field.name);

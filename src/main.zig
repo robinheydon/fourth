@@ -446,10 +446,10 @@ fn process_mouse_move(event: ng.MoveEvent) void {
             while (iter.next()) |link_entity| {
                 if (link_entity.get(com.Link)) |link| {
                     if (link.start == entity) {
-                        link_entity.set(com.Construction{ .steps = 60 });
+                        link_entity.set(com.Construction{ .steps = 10 });
                     }
                     if (link.end == entity) {
-                        link_entity.set(com.Construction{ .steps = 60 });
+                        link_entity.set(com.Construction{ .steps = 10 });
                     }
                 }
             }
@@ -558,6 +558,7 @@ fn init_world() void {
     ng.register_component("Node", com.Node);
     ng.register_component("Link", com.Link);
     ng.register_component("Curve", com.Curve);
+    ng.register_component("CurveUpdateRequired", com.CurveUpdateRequired);
     ng.register_component("Construction", com.Construction);
     ng.register_component("Position", com.Position);
     ng.register_component("Velocity", com.Velocity);
@@ -587,6 +588,18 @@ fn init_world() void {
 
     ng.register_system(
         .{
+            .name = "update_curves",
+            .phase = .update,
+        },
+        update_curves_system,
+        .{
+            com.CurveUpdateRequired,
+            *com.Curve,
+        },
+    );
+
+    ng.register_system(
+        .{
             .name = "draw_links",
             .phase = .render0,
         },
@@ -611,7 +624,7 @@ fn init_world() void {
         .{
             .name = "autosave",
             .phase = .last_phase,
-            .interval = 60,
+            .interval = 1,
         },
         autosave_system,
         .{},
@@ -647,9 +660,11 @@ fn init_world() void {
 
     n2.set(com.Node{ .pos = .{ 50, 20 } });
     n2.set(com.Curve{ .radius = 20, .from = l1, .to = l2 });
+    n2.set(com.CurveUpdateRequired{});
 
     n3.set(com.Node{ .pos = .{ 100, 60 } });
     n3.set(com.Curve{ .radius = 20, .from = l2, .to = l3 });
+    n3.set(com.CurveUpdateRequired{});
 
     n4.set(com.Node{ .pos = .{ 140, 50 } });
 
@@ -723,6 +738,19 @@ fn movement_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+fn update_curves_system(iter: *const ng.SystemIterator) void {
+    for (iter.entities) |entity| {
+        if (entity.getPtr(com.Curve)) |curve| {
+            curve.offset = ng.rand() * 10;
+        }
+        entity.remove(com.CurveUpdateRequired);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 fn draw_nodes_system(iter: *const ng.SystemIterator) void {
     for (iter.entities) |entity| {
         if (entity.get(com.Node)) |node| {
@@ -730,10 +758,67 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
                 gl.draw_circle(node.pos, 5, 0.75, .white) catch {};
             }
             if (entity.get(com.Curve)) |curve| {
-                ng.debug_print("Curve {}\n", .{curve});
-                gl.draw_circle(node.pos, curve.radius, 0.75, .yellow) catch {};
+                draw_curve(entity, node, curve) catch {};
             }
         }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn draw_curve(entity: ng.Entity, node: com.Node, curve: com.Curve) !void {
+    const radius: ng.Vec2 = @splat(curve.radius);
+
+    const from_link = curve.from.get(com.Link) orelse return;
+    const from = if (from_link.start == entity) from_link.end else from_link.start;
+
+    const to_link = curve.to.get(com.Link) orelse return;
+    const to = if (to_link.start == entity) to_link.end else to_link.start;
+
+    const from_node = from.get(com.Node) orelse return;
+    const to_node = to.get(com.Node) orelse return;
+
+    const df = ng.normalize(from_node.pos - node.pos);
+    const dt = ng.normalize(node.pos - to_node.pos);
+
+    const a = std.math.atan2(df[1], df[0]);
+    const b = std.math.atan2(dt[1], dt[0]);
+    const c = @mod(a - b, std.math.tau);
+    if (c > std.math.pi) {
+        ng.debug_print("Left\n", .{});
+
+        const from_a = node.pos + ng.Vec2{ df[1], -df[0] } * radius;
+        const from_b = from_node.pos + ng.Vec2{ df[1], -df[0] } * radius;
+
+        const to_a = node.pos + ng.Vec2{ dt[1], -dt[0] } * radius;
+        const to_b = to_node.pos + ng.Vec2{ dt[1], -dt[0] } * radius;
+
+        const center = ng.line_intersection(from_a, from_b, to_a, to_b);
+
+        // try gl.draw_line(from_a, from_b, 0.1, .yellow);
+        // try gl.draw_line(to_a, to_b, 0.1, .yellow);
+        const start_angle = std.math.atan2(df[0], -df[1]);
+        const end_angle = std.math.atan2(dt[0], -dt[1]);
+
+        try gl.draw_circle(center, curve.radius, 0.1, .yellow);
+        try gl.draw_arc(center, curve.radius, start_angle, end_angle, 0.2, .yellow);
+    } else {
+        ng.debug_print("Right\n", .{});
+
+        const from_a = node.pos - ng.Vec2{ df[1], -df[0] } * radius;
+        const from_b = from_node.pos - ng.Vec2{ df[1], -df[0] } * radius;
+
+        const to_a = node.pos - ng.Vec2{ dt[1], -dt[0] } * radius;
+        const to_b = to_node.pos - ng.Vec2{ dt[1], -dt[0] } * radius;
+
+        const center = ng.line_intersection(from_a, from_b, to_a, to_b);
+
+        // try gl.draw_line(from_a, from_b, 0.1, .orange);
+        // try gl.draw_line(to_a, to_b, 0.1, .orange);
+
+        try gl.draw_circle(center, curve.radius, 0.1, .orange);
     }
 }
 
@@ -762,7 +847,7 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
 
             if (start_node) |n0| {
                 if (end_node) |n2| {
-                    gl.draw_line(n0.pos, n2.pos, width + 1, .purple) catch {};
+                    gl.draw_line(n0.pos, n2.pos, width + 1, color) catch {};
                 }
             }
         }
@@ -770,7 +855,7 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
 
     for (iter.entities) |entity| {
         if (entity.get(com.Construction)) |constr| {
-            construction = @max(0, (constr.step / constr.steps - 0.5) * 2);
+            construction = @max(0, (constr.step / constr.steps - 0.2) * (1.0 / 0.8));
         } else {
             construction = 1;
         }
@@ -782,19 +867,39 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
 
             const start_node = start.get(com.Node);
             const end_node = end.get(com.Node);
+            const start_curve = start.get(com.Curve);
+            const end_curve = end.get(com.Curve);
+
+            const start_offset = if (start_curve) |curve| curve.offset else 0;
+            const end_offset = if (end_curve) |curve| curve.offset else 0;
+
+            const so = ng.Vec2{ start_offset, start_offset };
+            const eo = ng.Vec2{ end_offset, end_offset };
 
             if (start_node) |n0| {
                 if (end_node) |n2| {
                     if (construction < 1) {
-                        gl.draw_line(n0.pos, n2.pos, width, .grey) catch {};
+                        const dn = ng.normalize(n2.pos - n0.pos);
                         gl.draw_line(
-                            n0.pos,
-                            n2.pos,
+                            n0.pos + dn * so,
+                            n2.pos - dn * eo,
+                            width,
+                            .grey,
+                        ) catch {};
+                        gl.draw_line(
+                            n0.pos + dn * so,
+                            n2.pos - dn * eo,
                             width * construction,
                             .black,
                         ) catch {};
                     } else {
-                        gl.draw_line(n0.pos, n2.pos, width, .black) catch {};
+                        const dn = ng.normalize(n2.pos - n0.pos);
+                        gl.draw_line(
+                            n0.pos + dn * so,
+                            n2.pos - dn * eo,
+                            width,
+                            .black,
+                        ) catch {};
                     }
                 }
             }
@@ -828,12 +933,10 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn autosave_system(iter: *const ng.SystemIterator) void {
+fn autosave_system(_: *const ng.SystemIterator) void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const save_allocator = gpa.allocator();
     defer std.debug.assert(gpa.deinit() == .ok);
-
-    _ = iter;
 
     const memory = ng.save(save_allocator) catch |err| {
         log.err("Failed to save {}", .{err});
