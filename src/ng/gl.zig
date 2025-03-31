@@ -279,27 +279,37 @@ pub fn draw_arc(
     radius: f32,
     start: f32,
     end: f32,
+    clockwise: bool,
     width: f32,
     color: ng.Color,
 ) !void {
     const num: f32 = @min(256, @max(9, @sqrt(detail * radius) * quality));
-    const a: f32 = std.math.tau / @floor(num);
     const r: ng.Vec2 = @splat(radius);
     const w: ng.Vec2 = @splat(width);
 
     set_color(color);
 
-    var angle: f32 = 0;
+    const direction: f32 = if (clockwise) -1 else 1;
+
+    var angle: f32 = start;
+    const sweep: f32 =
+        if (clockwise)
+            @mod(start - end, std.math.tau)
+        else
+            @mod(end - start, std.math.tau);
+
+    const segments: usize =
+        @max(3, @as(usize, @intFromFloat(num * sweep / std.math.tau)));
+
+    const a: f32 = direction * sweep / @as(f32, @floatFromInt(segments));
+
+    ng.debug_print("{d} {d} {d} {}\n", .{ start, end, sweep, clockwise });
 
     const inner = ng.Vec2{ @cos(angle), @sin(angle) } * (r - w);
     const outer = ng.Vec2{ @cos(angle), @sin(angle) } * r;
     var last_inner = try add_vertex(pos + inner);
     var last_outer = try add_vertex(pos + outer);
-    const first_inner = last_inner;
-    const first_outer = last_outer;
     angle += a;
-
-    const segments: usize = @as(usize, @intFromFloat(num)) - 1;
 
     for (0..segments) |_| {
         const cur_inner = ng.Vec2{ @cos(angle), @sin(angle) } * (r - w);
@@ -312,15 +322,6 @@ pub fn draw_arc(
         last_outer = p1;
         angle += a;
     }
-
-    try add_triangle(last_inner, last_outer, first_inner);
-    try add_triangle(last_outer, first_inner, first_outer);
-
-    const start_pos = pos + ng.Vec2{ @cos(start), @sin(start) } * r;
-    const end_pos = pos + ng.Vec2{ @cos(end), @sin(end) } * r;
-
-    try draw_line(pos, start_pos, 1, .green);
-    try draw_line(pos, end_pos, 1, .red);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

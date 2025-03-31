@@ -491,6 +491,8 @@ fn process_mouse_down(event: ng.MouseEvent) void {
                 state.map_selected = entity;
             } else {
                 state.map_selected = null;
+                state.map_state = .clicked;
+                state.map_start_click = event.pos;
             }
             state.map_selected_click = event.pos;
             state.map_selected_state = .clicked;
@@ -511,6 +513,7 @@ fn process_mouse_up(event: ng.MouseEvent) void {
     switch (event.button) {
         .left => {
             state.map_selected_state = .none;
+            state.map_state = .none;
         },
         .right => {
             state.map_state = .none;
@@ -577,6 +580,18 @@ fn init_world() void {
 
     ng.register_system(
         .{
+            .name = "update_curves",
+            .phase = .pre_update,
+        },
+        update_curves_system,
+        .{
+            com.CurveUpdateRequired,
+            *com.Curve,
+        },
+    );
+
+    ng.register_system(
+        .{
             .name = "movement_system",
             .phase = .update,
         },
@@ -595,18 +610,6 @@ fn init_world() void {
         construction_system,
         .{
             com.Construction,
-        },
-    );
-
-    ng.register_system(
-        .{
-            .name = "update_curves",
-            .phase = .update,
-        },
-        update_curves_system,
-        .{
-            com.CurveUpdateRequired,
-            *com.Curve,
         },
     );
 
@@ -731,9 +734,48 @@ fn movement_system(iter: *const ng.SystemIterator) void {
 
 fn update_curves_system(iter: *const ng.SystemIterator) void {
     for (iter.entities) |entity| {
-        if (entity.getPtr(com.Curve)) |curve| {
-            curve.offset = ng.rand() * 10;
-        }
+        const node = entity.get(com.Node) orelse continue;
+
+        const curve = entity.getPtr(com.Curve) orelse continue;
+
+        const radius: ng.Vec2 = @splat(curve.radius);
+
+        const from_link = curve.from.get(com.Link) orelse return;
+        const from = if (from_link.start == entity) from_link.end else from_link.start;
+
+        const to_link = curve.to.get(com.Link) orelse return;
+        const to = if (to_link.start == entity) to_link.end else to_link.start;
+        const from_node = from.get(com.Node) orelse return;
+        const to_node = to.get(com.Node) orelse return;
+
+        const dfrom = ng.normalize(from_node.pos - node.pos);
+        const dto = ng.normalize(node.pos - to_node.pos);
+
+        const a = ng.atan2(dfrom);
+        const b = ng.atan2(dto);
+        const c = @mod(a - b, std.math.tau);
+
+        const side: ng.Vec2 = if (c > std.math.pi) .{ 1, 1 } else .{ -1, -1 };
+
+        const from_a = node.pos + ng.Vec2{ dfrom[1], -dfrom[0] } * radius * side;
+        const from_b = from_node.pos + ng.Vec2{ dfrom[1], -dfrom[0] } * radius * side;
+
+        const to_a = node.pos + ng.Vec2{ dto[1], -dto[0] } * radius * side;
+        const to_b = to_node.pos + ng.Vec2{ dto[1], -dto[0] } * radius * side;
+
+        curve.center = ng.line_intersection(from_a, from_b, to_a, to_b);
+
+        const from_tangent = ng.Vec2{ -dfrom[1], dfrom[0] };
+        const to_tangent = ng.Vec2{ -dto[1], dto[0] };
+
+        const end_link = curve.center + from_tangent * radius * side;
+
+        curve.start_angle = ng.atan2(from_tangent * side);
+        curve.end_angle = ng.atan2(to_tangent * side);
+        curve.clockwise = side[0] < 0;
+        curve.width = from_link.width;
+        curve.offset = ng.distance(end_link - node.pos);
+
         entity.remove(com.CurveUpdateRequired);
     }
 }
@@ -749,7 +791,7 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
                 gl.draw_circle(node.pos, 5, 0.75, .white) catch {};
             }
             if (entity.get(com.Curve)) |curve| {
-                draw_curve(entity, node, curve) catch {};
+                draw_curve(curve) catch {};
             }
         }
     }
@@ -759,58 +801,20 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw_curve(entity: ng.Entity, node: com.Node, curve: com.Curve) !void {
-    const radius: ng.Vec2 = @splat(curve.radius);
+fn draw_curve(curve: com.Curve) !void {
+    // try gl.draw_circle(curve.center, curve.radius, 0.1, .yellow);
 
-    const from_link = curve.from.get(com.Link) orelse return;
-    const from = if (from_link.start == entity) from_link.end else from_link.start;
+    const width = @as(f32, @floatFromInt(curve.width)) * 0.1;
 
-    const to_link = curve.to.get(com.Link) orelse return;
-    const to = if (to_link.start == entity) to_link.end else to_link.start;
-
-    const from_node = from.get(com.Node) orelse return;
-    const to_node = to.get(com.Node) orelse return;
-
-    const df = ng.normalize(from_node.pos - node.pos);
-    const dt = ng.normalize(node.pos - to_node.pos);
-
-    const a = std.math.atan2(df[1], df[0]);
-    const b = std.math.atan2(dt[1], dt[0]);
-    const c = @mod(a - b, std.math.tau);
-    if (c > std.math.pi) {
-        ng.debug_print("Left\n", .{});
-
-        const from_a = node.pos + ng.Vec2{ df[1], -df[0] } * radius;
-        const from_b = from_node.pos + ng.Vec2{ df[1], -df[0] } * radius;
-
-        const to_a = node.pos + ng.Vec2{ dt[1], -dt[0] } * radius;
-        const to_b = to_node.pos + ng.Vec2{ dt[1], -dt[0] } * radius;
-
-        const center = ng.line_intersection(from_a, from_b, to_a, to_b);
-
-        // try gl.draw_line(from_a, from_b, 0.1, .yellow);
-        // try gl.draw_line(to_a, to_b, 0.1, .yellow);
-        const start_angle = std.math.atan2(df[0], -df[1]);
-        const end_angle = std.math.atan2(dt[0], -dt[1]);
-
-        try gl.draw_circle(center, curve.radius, 0.1, .yellow);
-        try gl.draw_arc(center, curve.radius, start_angle, end_angle, 0.2, .yellow);
-    } else {
-        ng.debug_print("Right\n", .{});
-
-        const from_a = node.pos - ng.Vec2{ df[1], -df[0] } * radius;
-        const from_b = from_node.pos - ng.Vec2{ df[1], -df[0] } * radius;
-
-        const to_a = node.pos - ng.Vec2{ dt[1], -dt[0] } * radius;
-        const to_b = to_node.pos - ng.Vec2{ dt[1], -dt[0] } * radius;
-
-        const center = ng.line_intersection(from_a, from_b, to_a, to_b);
-
-        // try gl.draw_line(from_a, from_b, 0.1, .orange);
-        // try gl.draw_line(to_a, to_b, 0.1, .orange);
-
-        try gl.draw_circle(center, curve.radius, 0.1, .orange);
-    }
+    try gl.draw_arc(
+        curve.center,
+        curve.radius + width / 2,
+        curve.start_angle,
+        curve.end_angle,
+        curve.clockwise,
+        width,
+        .black,
+    );
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

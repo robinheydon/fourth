@@ -18,13 +18,15 @@ pub const Node = extern struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const Curve = extern struct {
-    from: ng.Entity,
-    to: ng.Entity,
+    from: ng.Entity, // Link
+    to: ng.Entity, // Link
     radius: f32,
 
     center: ng.Vec2 = .{ 0, 0 },
     start_angle: f32 = 0,
     end_angle: f32 = 0,
+    clockwise: bool = false,
+    width: u16 = 0,
 
     offset: f32 = 0,
 };
