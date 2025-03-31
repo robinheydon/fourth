@@ -1,15 +1,12 @@
 - Map
-  - select nodes
-  - move nodes
-  - select link
-  - draw link textures
-  - select link type
-  - draw junctions
-  - adjust junctions
   - draw
     - draw vehicles
     - draw people walking
     - draw people cycling
+  - draw link textures
+  - select link type
+  - draw junctions
+  - adjust junctions
   - movement
     - move vehicles along links
     - move vehicles through junctions

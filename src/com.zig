@@ -49,16 +49,20 @@ pub const Link = extern struct {
     style: ng.Entity, // the lane style of this link
 };
 
-pub const max_lanes = 16;
+pub const max_lanes = 32;
 
 pub const LaneStyle = extern struct {
     width: [max_lanes]u16,
     kind: [max_lanes]LaneKind,
     num_lanes: u8,
+    total_width: u16,
 };
 
 pub const LaneKind = enum(u8) {
     sidewalk,
+    kerb,
+    lane_line,
+    center_line,
     shared_use,
     cycle_lane_up,
     cycle_lane_down,

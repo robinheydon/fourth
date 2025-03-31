@@ -698,8 +698,11 @@ fn init_world() void {
     l4.set(com.Link{ .start = n4, .end = n5, .width = 120, .style = s1 });
 
     add_lane(s1, .sidewalk, 2.0);
-    add_lane(s1, .traffic_lane_up, 3.2);
-    add_lane(s1, .traffic_lane_down, 3.2);
+    add_lane(s1, .kerb, 0.1);
+    add_lane(s1, .traffic_lane_up, 3.0);
+    add_lane(s1, .center_line, 0.1);
+    add_lane(s1, .traffic_lane_down, 3.0);
+    add_lane(s1, .kerb, 0.1);
     add_lane(s1, .sidewalk, 2.0);
 }
 
@@ -1027,17 +1030,20 @@ fn find_nearest_link(pos: ng.Vec2) ?ng.Entity {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn add_lane(entity: ng.Entity, kind: com.LaneKind, width: f32) void {
+    const int_width = @max(1, @as(u16, @intFromFloat(width / 0.1)));
     if (entity.getPtr(com.LaneStyle)) |style| {
         if (style.num_lanes < com.max_lanes) {
             style.kind[style.num_lanes] = kind;
-            style.width[style.num_lanes] = @intFromFloat(width / 0.1);
+            style.width[style.num_lanes] = int_width;
+            style.total_width += int_width;
             style.num_lanes += 1;
         }
     } else {
         var style: com.LaneStyle = undefined;
         style.num_lanes = 1;
         style.kind[0] = kind;
-        style.width[0] = @intFromFloat(width / 0.1);
+        style.width[0] = int_width;
+        style.total_width = int_width;
 
         entity.set(style);
     }
