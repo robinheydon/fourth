@@ -681,11 +681,11 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
     const type_id: TypeId = @intCast(components.items.len);
     type_id_ptr.* = type_id;
 
-    log.info("register component \"{}\" {s} {x}", .{
-        std.zig.fmtEscapes(name),
-        @typeName(Component),
-        type_id,
-    });
+    // log.debug("register component \"{}\" {s} {x}", .{
+    // std.zig.fmtEscapes(name),
+    // @typeName(Component),
+    // type_id,
+    // });
 
     const component_typeinfo = @typeInfo(Component);
 
@@ -881,7 +881,7 @@ pub fn register_system(
     func: *const fn (*const SystemIterator) void,
     expression: anytype,
 ) void {
-    log.info("register system {s}", .{options.name});
+    // log.debug("register system {s}", .{options.name});
 
     var num_arguments: usize = 0;
     var arguments: [max_system_arguments]TypeId = undefined;

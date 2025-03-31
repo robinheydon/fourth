@@ -51,27 +51,29 @@ pub const Link = extern struct {
 
 pub const max_lanes = 32;
 
-pub const LaneStyle = extern struct {
+// lanes are left to right when road is from bottom to top
+pub const LinkStyle = extern struct {
     width: [max_lanes]u16,
     kind: [max_lanes]LaneKind,
     num_lanes: u8,
     total_width: u16,
 };
 
+// lanes are from bottom to top
 pub const LaneKind = enum(u8) {
     sidewalk,
     kerb,
     lane_line,
     center_line,
     shared_use,
-    cycle_lane_up,
-    cycle_lane_down,
-    buslane_up,
-    buslane_down,
-    traffic_lane_up,
-    traffic_lane_down,
-    parking_lane_up,
-    parking_lane_down,
+    cycle_up,
+    cycle_down,
+    bus_up,
+    bus_down,
+    traffic_up,
+    traffic_down,
+    parking_up,
+    parking_down,
     shoulder,
     medium,
     barrier,
@@ -99,6 +101,15 @@ pub const VehicleKind = enum(u8) {
     bus,
     car,
     truck,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const OnLink = struct {
+    on: ng.Entity,
+    lane: u8,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
