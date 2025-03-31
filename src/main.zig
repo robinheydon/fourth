@@ -699,9 +699,9 @@ fn init_world() void {
 
     add_lane(s1, .sidewalk, 2.0);
     add_lane(s1, .kerb, 0.1);
-    add_lane(s1, .traffic_lane_up, 3.0);
+    add_lane(s1, .traffic_lane_up, 3.2);
     add_lane(s1, .center_line, 0.1);
-    add_lane(s1, .traffic_lane_down, 3.0);
+    add_lane(s1, .traffic_lane_down, 3.2);
     add_lane(s1, .kerb, 0.1);
     add_lane(s1, .sidewalk, 2.0);
 }

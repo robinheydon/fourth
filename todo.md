@@ -4,6 +4,7 @@
     - draw people walking
     - draw people cycling
   - draw link textures
+  - select links
   - select link type
   - draw junctions
   - adjust junctions
