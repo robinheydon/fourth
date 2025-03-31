@@ -437,6 +437,8 @@ const ComponentField = struct {
     name: []const u8,
     offset: usize,
     size: usize,
+    array_len: usize,
+    type_id: usize,
     kind: ComponentFieldKind,
 };
 
@@ -464,6 +466,7 @@ const EnumValue = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 const ComponentFieldKind = enum {
+    any,
     bool,
     u8,
     u16,
@@ -477,6 +480,7 @@ const ComponentFieldKind = enum {
     f64,
     Entity,
     Vec2,
+    Component,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -613,6 +617,58 @@ fn init_erased_component_storage(Component: type) ErasedComponentStorage {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const GetComponentFieldKind = struct {
+    len: usize,
+    type_id: usize,
+    kind: ComponentFieldKind,
+};
+
+fn get_component_field_kind(comptime field_type: type) GetComponentFieldKind {
+    var info: GetComponentFieldKind = .{
+        .len = 1,
+        .type_id = 0,
+        .kind = .any,
+    };
+
+    info.kind = switch (field_type) {
+        bool => .bool,
+        u8 => .u8,
+        u16 => .u16,
+        u32 => .u32,
+        u64 => .u64,
+        i8 => .i8,
+        i16 => .i16,
+        i32 => .i32,
+        i64 => .i64,
+        f32 => .f32,
+        f64 => .f64,
+        ng.Vec2 => .Vec2,
+        Entity => .Entity,
+        else => blk: {
+            const ti = @typeInfo(field_type);
+            if (ti == .array) {
+                info.len = ti.array.len;
+                const child_info = get_component_field_kind(ti.array.child);
+                info.type_id = child_info.type_id;
+                break :blk child_info.kind;
+            } else {
+                const type_id_ptr = get_type_id_ptr(field_type);
+                if (type_id_ptr.* != invalid_type_id) {
+                    info.type_id = type_id_ptr.*;
+                    break :blk .Component;
+                }
+
+                log.err("Unsupported type : {s} {x}", .{
+                    @typeName(field_type),
+                    type_id_ptr.*,
+                });
+            }
+            break :blk .any;
+        },
+    };
+    return info;
+}
+
 pub fn register_component(comptime name: []const u8, comptime Component: type) void {
     std.debug.assert(initialized);
 
@@ -638,39 +694,14 @@ pub fn register_component(comptime name: []const u8, comptime Component: type) v
             var info: ComponentStructInfo = undefined;
             info.num_fields = 0;
             inline for (0.., std.meta.fields(Component)) |i, field| {
-                const kind: ComponentFieldKind = switch (field.type) {
-                    bool => .bool,
-                    u8 => .u8,
-                    u16 => .u16,
-                    u32 => .u32,
-                    u64 => .u64,
-                    i8 => .i8,
-                    i16 => .i16,
-                    i32 => .i32,
-                    i64 => .i64,
-                    f32 => .f32,
-                    f64 => .f64,
-                    ng.Vec2 => .Vec2,
-                    Entity => .Entity,
-                    else => blk: {
-                        const field_type_id = get_type_id(field.type);
-                        if (components.get(field_type_id)) |field_com| {
-                            _ = field_com;
-                            info.fields[i].component = field_type_id;
-                            break :blk .Component;
-                        } else {
-                            log.fatal("{s} field {s} has an unsupported type : {s}", .{
-                                @typeName(Component),
-                                field.name,
-                                @typeName(field.type),
-                            });
-                        }
-                    },
-                };
+                const field_info = get_component_field_kind(field.type);
                 info.fields[i].name = field.name;
                 info.fields[i].offset = @offsetOf(Component, field.name);
                 info.fields[i].size = @sizeOf(field.type);
-                info.fields[i].kind = kind;
+                info.fields[i].array_len = field_info.len;
+                info.fields[i].type_id = field_info.type_id;
+                info.fields[i].kind = field_info.kind;
+
                 info.num_fields = i + 1;
             }
 
@@ -1295,6 +1326,8 @@ fn save_component_info(memory: *SaveMemory) !void {
                     try memory.write_string(field.name);
                     try memory.write_int(field.offset);
                     try memory.write_int(field.size);
+                    try memory.write_int(field.array_len);
+                    try memory.write_int(field.type_id);
                     try memory.write_int(@intFromEnum(field.kind));
                 }
             },
@@ -1386,12 +1419,22 @@ pub fn dump(options: DumpOptions) void {
                 .@"struct" => |info| {
                     for (0..info.num_fields) |i| {
                         const field = info.fields[i];
-                        log.msg("{s}: {s} (offset {}, {} bytes)", .{
-                            field.name,
-                            @tagName(field.kind),
-                            field.offset,
-                            field.size,
-                        });
+                        if (field.array_len == 1) {
+                            log.msg("{s}: {s} (offset {}, {} bytes)", .{
+                                field.name,
+                                @tagName(field.kind),
+                                field.offset,
+                                field.size,
+                            });
+                        } else {
+                            log.msg("{s}: [{}]{s} (offset {}, {} bytes)", .{
+                                field.name,
+                                field.array_len,
+                                @tagName(field.kind),
+                                field.offset,
+                                field.size,
+                            });
+                        }
                     }
                 },
                 .@"enum" => |info| {

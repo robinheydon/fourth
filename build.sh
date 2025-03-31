@@ -5,3 +5,7 @@ zig build \
     -freference-trace=32 \
     -Dcpu=broadwell \
     --summary all
+
+cloc . \
+    --exclude-dir=.zig-cache \
+    --include-ext=zig

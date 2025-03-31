@@ -572,6 +572,8 @@ fn init_world() void {
     ng.register_component("VehicleKind", com.VehicleKind);
     ng.register_component("Node", com.Node);
     ng.register_component("Link", com.Link);
+    ng.register_component("LaneKind", com.LaneKind);
+    ng.register_component("LaneStyle", com.LaneStyle);
     ng.register_component("Curve", com.Curve);
     ng.register_component("CurveUpdateRequired", com.CurveUpdateRequired);
     ng.register_component("Construction", com.Construction);
@@ -672,6 +674,7 @@ fn init_world() void {
     const l2 = ng.new();
     const l3 = ng.new();
     const l4 = ng.new();
+    const s1 = ng.new();
 
     n1.set(com.Node{ .pos = .{ -20, 10 } });
 
@@ -689,10 +692,15 @@ fn init_world() void {
 
     n5.set(com.Node{ .pos = .{ 200, 50 } });
 
-    l1.set(com.Link{ .start = n1, .end = n2, .width = 72 });
-    l2.set(com.Link{ .start = n2, .end = n3, .width = 72 });
-    l3.set(com.Link{ .start = n3, .end = n4, .width = 72 });
-    l4.set(com.Link{ .start = n4, .end = n5, .width = 72 });
+    l1.set(com.Link{ .start = n1, .end = n2, .width = 120, .style = s1 });
+    l2.set(com.Link{ .start = n2, .end = n3, .width = 120, .style = s1 });
+    l3.set(com.Link{ .start = n3, .end = n4, .width = 120, .style = s1 });
+    l4.set(com.Link{ .start = n4, .end = n5, .width = 120, .style = s1 });
+
+    add_lane(s1, .sidewalk, 2.0);
+    add_lane(s1, .traffic_lane_up, 3.2);
+    add_lane(s1, .traffic_lane_down, 3.2);
+    add_lane(s1, .sidewalk, 2.0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -774,6 +782,7 @@ fn update_curves_system(iter: *const ng.SystemIterator) void {
         curve.end_angle = ng.atan2(to_tangent * side);
         curve.clockwise = side[0] < 0;
         curve.width = from_link.width;
+        curve.style = from_link.style;
         curve.offset = ng.distance(end_link - node.pos);
 
         entity.remove(com.CurveUpdateRequired);
@@ -787,11 +796,11 @@ fn update_curves_system(iter: *const ng.SystemIterator) void {
 fn draw_nodes_system(iter: *const ng.SystemIterator) void {
     for (iter.entities) |entity| {
         if (entity.get(com.Node)) |node| {
-            if (entity == state.map_selected) {
-                gl.draw_circle(node.pos, 5, 0.75, .white) catch {};
-            }
             if (entity.get(com.Curve)) |curve| {
                 draw_curve(curve) catch {};
+            }
+            if (entity == state.map_selected) {
+                gl.draw_circle(node.pos, 5, 0.75, .white) catch {};
             }
         }
     }
@@ -802,8 +811,6 @@ fn draw_nodes_system(iter: *const ng.SystemIterator) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn draw_curve(curve: com.Curve) !void {
-    // try gl.draw_circle(curve.center, curve.radius, 0.1, .yellow);
-
     const width = @as(f32, @floatFromInt(curve.width)) * 0.1;
 
     try gl.draw_arc(
@@ -1013,6 +1020,27 @@ fn find_nearest_link(pos: ng.Vec2) ?ng.Entity {
         }
     }
     return best_entity;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn add_lane(entity: ng.Entity, kind: com.LaneKind, width: f32) void {
+    if (entity.getPtr(com.LaneStyle)) |style| {
+        if (style.num_lanes < com.max_lanes) {
+            style.kind[style.num_lanes] = kind;
+            style.width[style.num_lanes] = @intFromFloat(width / 0.1);
+            style.num_lanes += 1;
+        }
+    } else {
+        var style: com.LaneStyle = undefined;
+        style.num_lanes = 1;
+        style.kind[0] = kind;
+        style.width[0] = @intFromFloat(width / 0.1);
+
+        entity.set(style);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

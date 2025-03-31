@@ -27,6 +27,7 @@ pub const Curve = extern struct {
     end_angle: f32 = 0,
     clockwise: bool = false,
     width: u16 = 0,
+    style: ng.Entity = ng.Entity.nil, // the lane style of this link
 
     offset: f32 = 0,
 };
@@ -45,6 +46,33 @@ pub const Link = extern struct {
     start: ng.Entity, // start of the link
     end: ng.Entity, // the end of the link
     width: u16, // the width of the link in 0.1m
+    style: ng.Entity, // the lane style of this link
+};
+
+pub const max_lanes = 16;
+
+pub const LaneStyle = extern struct {
+    width: [max_lanes]u16,
+    kind: [max_lanes]LaneKind,
+    num_lanes: u8,
+};
+
+pub const LaneKind = enum(u8) {
+    sidewalk,
+    shared_use,
+    cycle_lane_up,
+    cycle_lane_down,
+    buslane_up,
+    buslane_down,
+    traffic_lane_up,
+    traffic_lane_down,
+    parking_lane_up,
+    parking_lane_down,
+    shoulder,
+    medium,
+    barrier,
+    dirt,
+    grass,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

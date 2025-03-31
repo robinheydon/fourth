@@ -303,8 +303,6 @@ pub fn draw_arc(
 
     const a: f32 = direction * sweep / @as(f32, @floatFromInt(segments));
 
-    ng.debug_print("{d} {d} {d} {}\n", .{ start, end, sweep, clockwise });
-
     const inner = ng.Vec2{ @cos(angle), @sin(angle) } * (r - w);
     const outer = ng.Vec2{ @cos(angle), @sin(angle) } * r;
     var last_inner = try add_vertex(pos + inner);
