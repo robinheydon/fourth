@@ -85,16 +85,9 @@ pub fn main() !void {
 
         process_events();
 
-        {
-            const world_position = state.camera.to_world(state.map_last_mouse);
-            if (find_nearest_link(world_position)) |entity| {
-                _ = entity;
-            }
-        }
+        end_draw_world(render_pass) catch {};
 
         draw_ui();
-
-        end_draw_world(render_pass) catch {};
 
         ng.ui_render(render_pass);
 
@@ -576,6 +569,7 @@ fn init_world() void {
     ng.register_component("LinkStyle", com.LinkStyle);
     ng.register_component("Curve", com.Curve);
     ng.register_component("CurveUpdateRequired", com.CurveUpdateRequired);
+    ng.register_component("Junction", com.Junction);
     ng.register_component("Construction", com.Construction);
     ng.register_component("OnLink", com.OnLink);
     ng.register_component("Position", com.Position);
@@ -640,17 +634,6 @@ fn init_world() void {
 
     ng.register_system(
         .{
-            .name = "draw_vehicles",
-            .phase = .render2,
-        },
-        draw_vehicles_system,
-        .{
-            com.VehicleKind,
-        },
-    );
-
-    ng.register_system(
-        .{
             .name = "autosave",
             .phase = .last_phase,
             .interval = 1,
@@ -682,11 +665,26 @@ fn init_world() void {
     const n3 = ng.new();
     const n4 = ng.new();
     const n5 = ng.new();
+    const n6 = ng.new();
+    const n7 = ng.new();
+    const n8 = ng.new();
+
     const l1 = ng.new();
     const l2 = ng.new();
     const l3 = ng.new();
     const l4 = ng.new();
+    const l5 = ng.new();
+    const l6 = ng.new();
+    const l7 = ng.new();
+
     const s1 = ng.new();
+    add_lane(s1, .sidewalk, 2.0);
+    add_lane(s1, .kerb, 0.1);
+    add_lane(s1, .traffic_down, 3.2);
+    add_lane(s1, .center_line, 0.1);
+    add_lane(s1, .traffic_up, 3.2);
+    add_lane(s1, .kerb, 0.1);
+    add_lane(s1, .sidewalk, 2.0);
 
     n1.set(com.Node{ .pos = .{ -20, 10 } });
 
@@ -694,41 +692,35 @@ fn init_world() void {
     n2.set(com.Curve{ .radius = 20, .from = l1, .to = l2 });
     n2.set(com.CurveUpdateRequired{});
 
-    n3.set(com.Node{ .pos = .{ 100, 60 } });
-    n3.set(com.Curve{ .radius = 20, .from = l2, .to = l3 });
-    n3.set(com.CurveUpdateRequired{});
+    n3.set(com.Node{ .pos = .{ 100, 50 } });
+    n3.set(com.Junction{ .radius = 20 });
+    add_junction_arm(n3, n2);
+    add_junction_arm(n3, n4);
+    add_junction_arm(n3, n6);
 
     n4.set(com.Node{ .pos = .{ 140, 50 } });
-    n4.set(com.Curve{ .radius = 15, .from = l3, .to = l4 });
+    n4.set(com.Curve{ .radius = 20, .from = l3, .to = l4 });
     n4.set(com.CurveUpdateRequired{});
 
-    n5.set(com.Node{ .pos = .{ 200, 50 } });
+    n5.set(com.Node{ .pos = .{ 200, 40 } });
+
+    n6.set(com.Node{ .pos = .{ 100, 80 } });
+    n6.set(com.Curve{ .radius = 20, .from = l5, .to = l6 });
+    n6.set(com.CurveUpdateRequired{});
+
+    n7.set(com.Node{ .pos = .{ 90, 120 } });
+    n7.set(com.Curve{ .radius = 20, .from = l6, .to = l7 });
+    n7.set(com.CurveUpdateRequired{});
+
+    n8.set(com.Node{ .pos = .{ 120, 160 } });
 
     l1.set(com.Link{ .start = n1, .end = n2, .width = 160, .style = s1 });
     l2.set(com.Link{ .start = n2, .end = n3, .width = 160, .style = s1 });
     l3.set(com.Link{ .start = n3, .end = n4, .width = 160, .style = s1 });
     l4.set(com.Link{ .start = n4, .end = n5, .width = 160, .style = s1 });
-
-    add_lane(s1, .sidewalk, 2.0);
-    add_lane(s1, .cycle_up, 2.5);
-    add_lane(s1, .kerb, 0.1);
-    add_lane(s1, .grass, 1.0);
-    add_lane(s1, .kerb, 0.1);
-    add_lane(s1, .bus_down, 3.2);
-    add_lane(s1, .lane_line, 0.1);
-    add_lane(s1, .traffic_down, 3.2);
-    add_lane(s1, .center_line, 0.1);
-    add_lane(s1, .traffic_up, 3.2);
-    add_lane(s1, .kerb, 0.1);
-    add_lane(s1, .grass, 1.0);
-    add_lane(s1, .kerb, 0.1);
-    add_lane(s1, .cycle_down, 2.5);
-    add_lane(s1, .sidewalk, 2.0);
-
-    const v1 = ng.new();
-    v1.set(com.Position{ .pos = .{ -20, 10 } });
-    v1.set(com.OnLink{ .on = l1, .lane = 4 });
-    v1.set(com.VehicleKind.car);
+    l5.set(com.Link{ .start = n3, .end = n6, .width = 160, .style = s1 });
+    l6.set(com.Link{ .start = n6, .end = n7, .width = 160, .style = s1 });
+    l7.set(com.Link{ .start = n7, .end = n8, .width = 160, .style = s1 });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -949,9 +941,19 @@ fn draw_links_system(iter: *const ng.SystemIterator) void {
             const end_node = end.get(com.Node);
             const start_curve = start.get(com.Curve);
             const end_curve = end.get(com.Curve);
+            const start_junction = start.get(com.Junction);
+            const end_junction = end.get(com.Junction);
 
-            const start_offset = if (start_curve) |curve| curve.offset else 0;
-            const end_offset = if (end_curve) |curve| curve.offset else 0;
+            const start_offset = blk: {
+                if (start_curve) |curve| break :blk curve.offset;
+                if (start_junction) |junction| break :blk junction.radius;
+                break :blk 0;
+            };
+            const end_offset = blk: {
+                if (end_curve) |curve| break :blk curve.offset;
+                if (end_junction) |junction| break :blk junction.radius;
+                break :blk 0;
+            };
 
             const so = ng.Vec2{ start_offset, start_offset };
             const eo = ng.Vec2{ end_offset, end_offset };
@@ -1079,17 +1081,6 @@ fn to_width(width: f32) u16 {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn draw_vehicles_system(iter: *const ng.SystemIterator) void {
-    for (iter.entities) |entity| {
-        const pos = entity.get(com.Position) orelse continue;
-        gl.draw_circle(pos.pos, 2, 0.1, .yellow) catch {};
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
 fn autosave_system(_: *const ng.SystemIterator) void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const save_allocator = gpa.allocator();
@@ -1198,6 +1189,19 @@ fn add_lane(entity: ng.Entity, kind: com.LaneKind, width: f32) void {
         style.total_width = int_width;
 
         entity.set(style);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn add_junction_arm(entity: ng.Entity, arm: ng.Entity) void {
+    if (entity.getPtr(com.Junction)) |junction| {
+        if (junction.num_arms < com.max_junction_arms) {
+            junction.arms[junction.num_arms] = arm;
+            junction.num_arms += 1;
+        }
     }
 }
 

@@ -236,6 +236,9 @@ pub fn normalize(vec: Vec2) Vec2 {
 
 pub fn line_intersection(p1: Vec2, p2: Vec2, p3: Vec2, p4: Vec2) Vec2 {
     const det = (p1[0] - p2[0]) * (p3[1] - p4[1]) - (p1[1] - p2[1]) * (p3[0] - p4[0]);
+    if (det == 0) {
+        return p1;
+    }
 
     const a = p1[0] * p2[1] - p1[1] * p2[0];
     const b = p3[0] * p4[1] - p3[1] * p4[0];
