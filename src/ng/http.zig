@@ -24,7 +24,7 @@ const RequestFunction = *const fn (
 
 var paths: std.StringHashMap(RequestFunction) = undefined;
 
-var gpa: std.heap.GeneralPurposeAllocator (.{}) = undefined;
+var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
 var allocator: std.mem.Allocator = undefined;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -32,8 +32,8 @@ var allocator: std.mem.Allocator = undefined;
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub fn init() !void {
-    gpa = std.heap.GeneralPurposeAllocator (.{}){};
-    allocator = gpa.allocator ();
+    gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    allocator = gpa.allocator();
 
     paths = std.StringHashMap(RequestFunction).init(allocator);
 
@@ -49,9 +49,8 @@ pub fn init() !void {
         .allocator = allocator,
     });
 
-    for (pool.threads) |thread|
-    {
-        thread.detach ();
+    for (pool.threads) |thread| {
+        thread.detach();
     }
 
     http_server_thread = try std.Thread.spawn(.{}, server, .{});
@@ -66,7 +65,7 @@ pub fn init() !void {
 pub fn deinit() void {
     log.debug("deinit", .{});
 
-    pool.ids.deinit (pool.allocator);
+    pool.ids.deinit(pool.allocator);
     pool.allocator.free(pool.threads);
 
     paths.deinit();
@@ -518,10 +517,8 @@ fn do_component(
                         .@"struct" => |info| {
                             response.print("struct:<br>\n<ul>\n", .{});
                             for (info.fields[0..info.num_fields]) |field| {
-                                if (field.kind == .Component)
-                                {
-                                    if (ng.get_component(field.type_id)) |field_com|
-                                    {
+                                if (field.kind == .Component) {
+                                    if (ng.get_component(field.type_id)) |field_com| {
                                         response.print("<li>{s} : {s}\n", .{
                                             field.name,
                                             field_com.name,
@@ -529,19 +526,17 @@ fn do_component(
                                     } else {
                                         response.print("<li>{s} : {s}\n", .{
                                             field.name,
-                                            @tagName (field.kind),
+                                            @tagName(field.kind),
                                         });
                                     }
-                                }
-                                else
-                                {
+                                } else {
                                     response.print("<li>{s} : {s}\n", .{
                                         field.name,
                                         @tagName(field.kind),
                                     });
                                 }
                             }
-                            response.print ("</ul>\n", .{});
+                            response.print("</ul>\n", .{});
                         },
                         .@"enum" => |info| {
                             response.print("enum:<br>\n<ul>\n", .{});
@@ -572,7 +567,6 @@ fn do_system(
     response: *Response,
 ) void {
     _ = request;
-    _ = uri;
 
     response.set_html();
     response.append(html_header);
@@ -583,13 +577,45 @@ fn do_system(
     response.append("<div id=\"left\">");
 
     var iter = ng.system_iterator();
-    while (iter.next()) |system| {
-        response.print("{s}<br>\n", .{system.name});
+    while (iter.next()) |entry| {
+        const system = entry.system;
+        response.print("<a href=\"/system?sid={}\">{s}</a><br>\n", .{
+            entry.index,
+            system.name,
+        });
     }
 
     response.append("</div>");
 
     response.append("<div id=\"right\">");
+
+    var optional_query = parse_query(allocator, uri.query);
+
+    if (optional_query) |*query| {
+        defer query.deinit();
+
+        if (query.get("sid")) |sid_str| {
+            if (parse_int(usize, sid_str)) |index| {
+                if (ng.get_system (index)) |system|
+                {
+                    response.print("<b>{s}</b><br>\n", .{system.name});
+                    response.print("phase: {s}<br>\n", .{@tagName (system.phase)});
+                    if (system.interval > 0) {
+                        response.print("interval: {d}<br>\n", .{system.interval});
+                        response.print("wait_time: {d}<br>\n", .{system.wait_time});
+                    }
+                    response.print("elapsed: {d}<br>\n", .{system.last_elapsed});
+
+                    const ents = system.entities.keys ();
+                    response.print("entities: {}<br>\n", .{ents.len});
+                    for (ents) |ent|
+                    {
+                        response.print ("{}<br>\n", .{ent});
+                    }
+                }
+            }
+        }
+    }
     response.append("</div>");
 
     response.append("</div>");

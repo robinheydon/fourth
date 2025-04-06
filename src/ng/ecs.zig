@@ -1038,9 +1038,9 @@ pub fn progress(dt: f32) void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 fn system_sorter(_: void, a: SystemInfo, b: SystemInfo) bool {
-    if (a.phase == b.phase) {
-        return a.last_elapsed > b.last_elapsed;
-    }
+    // if (a.phase == b.phase) {
+        // return a.last_elapsed > b.last_elapsed;
+    // }
     return @intFromEnum(a.phase) < @intFromEnum(b.phase);
 }
 
@@ -1436,6 +1436,17 @@ pub fn get_component(typeid: usize) ?*const ComponentInfo {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+pub fn get_system(index: usize) ?*const SystemInfo {
+    if (index < systems.items.len) {
+        return &systems.items[index];
+    }
+    return null;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pub fn system_iterator() SystemEnumerator {
     return .{};
 }
@@ -1443,14 +1454,22 @@ pub fn system_iterator() SystemEnumerator {
 pub const SystemEnumerator = struct {
     index: usize = 0,
 
-    pub fn next(self: *SystemEnumerator) ?SystemInfo {
+    pub fn next(self: *SystemEnumerator) ?SystemEntry {
         const index = self.index;
         if (index < systems.items.len) {
             self.index += 1;
-            return systems.items[index];
+            return .{
+                .system = &systems.items[index],
+                .index = index,
+            };
         }
         return null;
     }
+};
+
+const SystemEntry = struct {
+    system: *const SystemInfo,
+    index: usize,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

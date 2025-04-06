@@ -636,7 +636,7 @@ fn init_world() void {
         .{
             .name = "autosave",
             .phase = .last_phase,
-            .interval = 1,
+            .interval = 60,
         },
         autosave_system,
         .{},

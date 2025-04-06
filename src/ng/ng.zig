@@ -105,6 +105,7 @@ pub const entity_iterator = ecs.entity_iterator;
 pub const component_iterator = ecs.component_iterator;
 pub const system_iterator = ecs.system_iterator;
 pub const get_component = ecs.get_component;
+pub const get_system = ecs.get_system;
 pub const new = ecs.new;
 pub const dump = ecs.dump;
 pub const progress = ecs.progress;
