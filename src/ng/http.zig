@@ -62,16 +62,7 @@ pub fn init() !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub fn deinit() void {
-    log.debug("deinit", .{});
-
-    pool.ids.deinit(pool.allocator);
-    pool.allocator.free(pool.threads);
-
-    paths.deinit();
-
-    log.debug("deinit complete", .{});
-}
+pub fn deinit() void {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -519,8 +510,7 @@ fn do_component(
                             for (info.fields[0..info.num_fields]) |field| {
                                 if (field.kind == .Component) {
                                     if (ng.get_component(field.type_id)) |field_com| {
-                                        if (field.array_len == 1)
-                                        {
+                                        if (field.array_len == 1) {
                                             response.print("<li>{s} : {s}\n", .{
                                                 field.name,
                                                 field_com.name,
@@ -533,15 +523,12 @@ fn do_component(
                                             });
                                         }
                                     } else {
-                                        if (field.array_len == 1)
-                                        {
+                                        if (field.array_len == 1) {
                                             response.print("<li>{s} : {s}\n", .{
                                                 field.name,
                                                 @tagName(field.kind),
                                             });
-                                        }
-                                        else
-                                        {
+                                        } else {
                                             response.print("<li>{s} : [{}]{s}\n", .{
                                                 field.name,
                                                 field.array_len,
@@ -550,19 +537,17 @@ fn do_component(
                                         }
                                     }
                                 } else {
-                                    if (field.array_len == 1)
-                                    {
-                                    response.print("<li>{s} : {s}\n", .{
-                                        field.name,
-                                        @tagName(field.kind),
-                                    });
-                                    }
-                                    else {
-                                    response.print("<li>{s} : [{}]{s}\n", .{
-                                        field.name,
-                                        field.array_len,
-                                        @tagName(field.kind),
-                                    });
+                                    if (field.array_len == 1) {
+                                        response.print("<li>{s} : {s}\n", .{
+                                            field.name,
+                                            @tagName(field.kind),
+                                        });
+                                    } else {
+                                        response.print("<li>{s} : [{}]{s}\n", .{
+                                            field.name,
+                                            field.array_len,
+                                            @tagName(field.kind),
+                                        });
                                     }
                                 }
                             }
@@ -626,21 +611,19 @@ fn do_system(
 
         if (query.get("sid")) |sid_str| {
             if (parse_int(usize, sid_str)) |index| {
-                if (ng.get_system (index)) |system|
-                {
+                if (ng.get_system(index)) |system| {
                     response.print("<b>{s}</b><br>\n", .{system.name});
-                    response.print("phase: {s}<br>\n", .{@tagName (system.phase)});
+                    response.print("phase: {s}<br>\n", .{@tagName(system.phase)});
                     if (system.interval > 0) {
                         response.print("interval: {d}<br>\n", .{system.interval});
                         response.print("wait_time: {d}<br>\n", .{system.wait_time});
                     }
                     response.print("elapsed: {d}<br>\n", .{system.last_elapsed});
 
-                    const ents = system.entities.keys ();
+                    const ents = system.entities.keys();
                     response.print("entities: {}<br>\n", .{ents.len});
-                    for (ents) |ent|
-                    {
-                        response.print ("{}<br>\n", .{ent});
+                    for (ents) |ent| {
+                        response.print("{}<br>\n", .{ent});
                     }
                 }
             }

@@ -1039,7 +1039,7 @@ pub fn progress(dt: f32) void {
 
 fn system_sorter(_: void, a: SystemInfo, b: SystemInfo) bool {
     // if (a.phase == b.phase) {
-        // return a.last_elapsed > b.last_elapsed;
+    // return a.last_elapsed > b.last_elapsed;
     // }
     return @intFromEnum(a.phase) < @intFromEnum(b.phase);
 }
