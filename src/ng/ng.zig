@@ -21,6 +21,7 @@ pub const logger = @import("logger.zig");
 pub const ecs = @import("ecs.zig");
 pub const ui = @import("ui.zig");
 pub const gl = @import("gl.zig");
+pub const http = @import("http.zig");
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -100,6 +101,10 @@ pub const SystemIterator = ecs.SystemIterator;
 pub const register_component = ecs.register_component;
 pub const register_system = ecs.register_system;
 pub const register_query = ecs.register_query;
+pub const entity_iterator = ecs.entity_iterator;
+pub const component_iterator = ecs.component_iterator;
+pub const system_iterator = ecs.system_iterator;
+pub const get_component = ecs.get_component;
 pub const new = ecs.new;
 pub const dump = ecs.dump;
 pub const progress = ecs.progress;
@@ -158,6 +163,8 @@ pub fn init(options: InitOptions) !void {
 
     ecs.init(null);
     try ui.init();
+
+    try http.init();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -166,6 +173,7 @@ pub fn init(options: InitOptions) !void {
 
 pub fn deinit() void {
     log.info("deinit", .{});
+    http.deinit();
     ui.deinit();
     ecs.deinit();
     time.deinit();
