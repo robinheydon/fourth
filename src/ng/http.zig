@@ -519,21 +519,51 @@ fn do_component(
                             for (info.fields[0..info.num_fields]) |field| {
                                 if (field.kind == .Component) {
                                     if (ng.get_component(field.type_id)) |field_com| {
-                                        response.print("<li>{s} : {s}\n", .{
-                                            field.name,
-                                            field_com.name,
-                                        });
+                                        if (field.array_len == 1)
+                                        {
+                                            response.print("<li>{s} : {s}\n", .{
+                                                field.name,
+                                                field_com.name,
+                                            });
+                                        } else {
+                                            response.print("<li>{s} : [{}]{s}\n", .{
+                                                field.name,
+                                                field.array_len,
+                                                field_com.name,
+                                            });
+                                        }
                                     } else {
-                                        response.print("<li>{s} : {s}\n", .{
-                                            field.name,
-                                            @tagName(field.kind),
-                                        });
+                                        if (field.array_len == 1)
+                                        {
+                                            response.print("<li>{s} : {s}\n", .{
+                                                field.name,
+                                                @tagName(field.kind),
+                                            });
+                                        }
+                                        else
+                                        {
+                                            response.print("<li>{s} : [{}]{s}\n", .{
+                                                field.name,
+                                                field.array_len,
+                                                @tagName(field.kind),
+                                            });
+                                        }
                                     }
                                 } else {
+                                    if (field.array_len == 1)
+                                    {
                                     response.print("<li>{s} : {s}\n", .{
                                         field.name,
                                         @tagName(field.kind),
                                     });
+                                    }
+                                    else {
+                                    response.print("<li>{s} : [{}]{s}\n", .{
+                                        field.name,
+                                        field.array_len,
+                                        @tagName(field.kind),
+                                    });
+                                    }
                                 }
                             }
                             response.print("</ul>\n", .{});
