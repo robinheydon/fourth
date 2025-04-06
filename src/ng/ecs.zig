@@ -472,6 +472,7 @@ const ComponentFieldKind = enum {
     u16,
     u32,
     u64,
+    u128,
     i8,
     i16,
     i32,
@@ -636,6 +637,7 @@ fn get_component_field_kind(comptime field_type: type) GetComponentFieldKind {
         u16 => .u16,
         u32 => .u32,
         u64 => .u64,
+        u128 => .u128,
         i8 => .i8,
         i16 => .i16,
         i32 => .i32,
@@ -836,6 +838,13 @@ pub const SystemArgument = struct {
 pub const SystemIterator = struct {
     delta_time: f32,
     entities: []Entity,
+    system: *SystemInfo,
+
+    pub fn set_interval (self: *const SystemIterator, interval: f32) void
+    {
+        self.system.wait_time = interval;
+        self.system.interval = interval;
+    }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -981,6 +990,7 @@ pub fn progress(dt: f32) void {
                     const iterator = SystemIterator{
                         .delta_time = dt,
                         .entities = system.entities.keys(),
+                        .system = system,
                     };
 
                     current_system = system;

@@ -451,9 +451,13 @@ fn do_entity(
 
                 var component_iter = ng.component_iterator();
                 while (component_iter.next()) |component| {
-                    if (component.get_data(entity)) |data| {
+                    if (entity.has_component_type(component.type_id_ptr.*)) {
                         response.print("<b>{s}</b><br>\n", .{component.name});
-                        response.print("{any}<br>\n", .{data});
+                        if (component.size > 0) {
+                            if (component.get_data(entity)) |data| {
+                                response.print("{any}<br>\n", .{data});
+                            }
+                        }
                     }
                 }
             }

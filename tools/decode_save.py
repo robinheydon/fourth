@@ -67,6 +67,10 @@ def output_value (kind, field_data, type_id = None):
     elif kind == 'u64':
         value = struct.unpack ("<Q", field_data)[0]
         print (f"{value}", end = '')
+    elif kind == 'u128':
+        values = struct.unpack ("<QQ", field_data)
+        value = values[1] << 64 | values[0]
+        print (f"{value:x} ({field_data})", end = '')
     elif kind == 'i8':
         value = struct.unpack ("<b", field_data)[0]
         print (f"{value}", end = '')

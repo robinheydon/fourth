@@ -14,6 +14,7 @@ const gl = ng.gl;
 
 const state = @import("state.zig");
 const com = @import("com.zig");
+const names = @import("names.zig");
 
 var allocator: std.mem.Allocator = undefined;
 
@@ -574,6 +575,11 @@ fn init_world() void {
     ng.register_component("OnLink", com.OnLink);
     ng.register_component("Position", com.Position);
     ng.register_component("Velocity", com.Velocity);
+    ng.register_component("Person", com.Person);
+    ng.register_component("MaidenName", com.MaidenName);
+    ng.register_component("Random", com.Random);
+    ng.register_component("Single", com.Single);
+    ng.register_component("Partner", com.Partner);
 
     ng.register_system(
         .{
@@ -636,10 +642,22 @@ fn init_world() void {
         .{
             .name = "autosave",
             .phase = .last_phase,
-            .interval = 60,
+            .interval = 1,
         },
         autosave_system,
         .{},
+    );
+
+    ng.register_system(
+        .{
+            .name = "single_persons",
+            .phase = .update,
+        },
+        single_person_system,
+        .{
+            com.Single,
+            *com.Person,
+        },
     );
 
     state.nodes_query = ng.register_query(
@@ -657,6 +675,16 @@ fn init_world() void {
         },
         .{
             com.Link,
+        },
+    );
+
+    state.single_persons_query = ng.register_query(
+        .{
+            .name = "single persons",
+        },
+        .{
+            com.Single,
+            com.Person,
         },
     );
 
@@ -721,6 +749,35 @@ fn init_world() void {
     l5.set(com.Link{ .start = n3, .end = n6, .width = 160, .style = s1 });
     l6.set(com.Link{ .start = n6, .end = n7, .width = 160, .style = s1 });
     l7.set(com.Link{ .start = n7, .end = n8, .width = 160, .style = s1 });
+
+    for (0..10) |_| {
+        const p = ng.new();
+
+        const r128 = ng.rand_u128();
+        const male = names.get_sex(r128);
+
+        const first_name = names.random_first_name();
+        const middle_name = names.random_middle_name(male, first_name);
+        const last_name = names.random_last_name();
+
+        p.set(com.Person{
+            .first_name = first_name,
+            .middle_name = middle_name,
+            .last_name = last_name,
+        });
+
+        p.set(com.Single{});
+
+        log.debug("{} {s} {s} {s} ({s})", .{
+            p,
+            names.get_first_name(male, first_name),
+            names.get_middle_name(male, middle_name),
+            names.get_last_name(last_name),
+            if (male) "M" else "F",
+        });
+
+        p.set(com.Random{ .rand = r128 });
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1203,6 +1260,64 @@ fn add_junction_arm(entity: ng.Entity, arm: ng.Entity) void {
             junction.num_arms += 1;
         }
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn single_person_system(iter: *const ng.SystemIterator) void {
+    for (iter.entities) |entity| {
+        const rentity = entity.get(com.Random) orelse continue;
+        const person = entity.getPtr(com.Person) orelse continue;
+        const sex = names.get_sex(rentity.rand);
+
+        var other_iter = state.single_persons_query.iterator();
+        while (other_iter.next()) |other_entity| {
+            if (other_entity != entity) {
+                const rother = other_entity.get(com.Random) orelse continue;
+                const other_person = other_entity.getPtr(com.Person) orelse continue;
+                const other_sex = names.get_sex(rother.rand);
+
+                if (sex != other_sex) {
+                    if (!std.mem.eql(
+                        u8,
+                        names.get_last_name(person.last_name),
+                        names.get_last_name(other_person.last_name),
+                    )) {
+                        entity.set(com.Partner{ .partner = other_entity });
+                        other_entity.set(com.Partner{ .partner = entity });
+                        entity.remove(com.Single);
+                        other_entity.remove(com.Single);
+
+                        if (names.get_sex(rentity.rand)) {
+                            other_entity.set(com.MaidenName{
+                                .last_name = other_person.last_name,
+                            });
+                            other_person.last_name = person.last_name;
+                        } else {
+                            entity.set(com.MaidenName{ .last_name = person.last_name });
+                            person.last_name = other_person.last_name;
+                        }
+
+                        log.debug("Partners {} {s} {s} {s} and {} {s} {s} {s}", .{
+                            entity,
+                            names.get_first_name(sex, person.first_name),
+                            names.get_middle_name(sex, person.middle_name),
+                            names.get_last_name(person.last_name),
+                            other_entity,
+                            names.get_first_name(other_sex, other_person.first_name),
+                            names.get_middle_name(other_sex, other_person.middle_name),
+                            names.get_last_name(other_person.last_name),
+                        });
+                    }
+                    iter.set_interval (0);
+                    return;
+                }
+            }
+        }
+    }
+    iter.set_interval (1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
