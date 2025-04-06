@@ -1311,13 +1311,13 @@ fn single_person_system(iter: *const ng.SystemIterator) void {
                             names.get_last_name(other_person.last_name),
                         });
                     }
-                    iter.set_interval (0);
+                    iter.set_interval(0);
                     return;
                 }
             }
         }
     }
-    iter.set_interval (1);
+    iter.set_interval(1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

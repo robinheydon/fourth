@@ -840,8 +840,7 @@ pub const SystemIterator = struct {
     entities: []Entity,
     system: *SystemInfo,
 
-    pub fn set_interval (self: *const SystemIterator, interval: f32) void
-    {
+    pub fn set_interval(self: *const SystemIterator, interval: f32) void {
         self.system.wait_time = interval;
         self.system.interval = interval;
     }
