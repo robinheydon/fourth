@@ -750,7 +750,7 @@ fn init_world() void {
     l6.set(com.Link{ .start = n6, .end = n7, .width = 160, .style = s1 });
     l7.set(com.Link{ .start = n7, .end = n8, .width = 160, .style = s1 });
 
-    for (0..10) |_| {
+    for (0..100) |_| {
         const p = ng.new();
 
         const r128 = ng.rand_u128();
