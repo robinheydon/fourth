@@ -5,6 +5,7 @@
 const std = @import("std");
 
 const ng = @import("ng");
+const mn = @import("mn");
 
 const gl = ng.gl;
 

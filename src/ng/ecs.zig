@@ -1619,6 +1619,18 @@ fn dump_entity_component(
                 for (0..info.num_fields) |i| {
                     const field = info.fields[i];
                     switch (field.kind) {
+                        .any => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const u8 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
                         .bool => {
                             const field_data =
                                 data[field.offset .. field.offset + field.size];
@@ -1671,6 +1683,18 @@ fn dump_entity_component(
                             const field_data =
                                 data[field.offset .. field.offset + field.size];
                             const value: *const u64 =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .u128 => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const u128 =
                                 @alignCast(@ptrCast(&field_data[0]));
                             log.msg("    {s}{s}.{s} = {}", .{
                                 prefix,
@@ -1767,6 +1791,18 @@ fn dump_entity_component(
                             const field_data =
                                 data[field.offset .. field.offset + field.size];
                             const value: *const Entity =
+                                @alignCast(@ptrCast(&field_data[0]));
+                            log.msg("    {s}{s}.{s} = {}", .{
+                                prefix,
+                                component.name,
+                                field.name,
+                                value.*,
+                            });
+                        },
+                        .Component => {
+                            const field_data =
+                                data[field.offset .. field.offset + field.size];
+                            const value: *const u8 =
                                 @alignCast(@ptrCast(&field_data[0]));
                             log.msg("    {s}{s}.{s} = {}", .{
                                 prefix,

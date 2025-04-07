@@ -24,6 +24,16 @@ pub fn build(b: *std.Build) !void {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
+    const moon_mod = b.createModule(.{
+        .root_source_file = b.path("src/moon/moon.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    moon_mod.addImport("moon", moon_mod);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -31,6 +41,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     exe_mod.addImport("ng", ng_mod);
+    exe_mod.addImport("moon", moon_mod);
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -96,12 +107,39 @@ pub fn build(b: *std.Build) !void {
         },
     });
 
-    const test_run = b.addRunArtifact(ng_test);
-    test_run.step.dependOn(check_line_lengths_step);
-    test_run.step.dependOn(check_fmt_step);
+    ///////////////////////////////////////////////////////////////////////////////////////////
 
-    const test_step = b.step("test", "Test the ng");
-    test_step.dependOn(&test_run.step);
+    const moon_mod_test = b.createModule(.{
+        .root_source_file = b.path("src/moon/moon.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .stack_protector = true,
+        .omit_frame_pointer = false,
+        .error_tracing = true,
+    });
+    moon_mod_test.addImport("moon", moon_mod_test);
+
+    const moon_test = b.addTest(.{
+        .name = "test",
+        .root_module = moon_mod_test,
+        .test_runner = .{
+            .path = b.path("tools/test_runner.zig"),
+            .mode = .simple,
+        },
+    });
+
+    const test_ng = b.addRunArtifact(ng_test);
+    test_ng.step.dependOn(check_line_lengths_step);
+    test_ng.step.dependOn(check_fmt_step);
+
+    const test_moon = b.addRunArtifact(moon_test);
+    test_moon.step.dependOn(check_line_lengths_step);
+    test_moon.step.dependOn(check_fmt_step);
+
+    const test_step = b.step("test", "Test");
+    // test_step.dependOn(&test_ng.step);
+    test_step.dependOn(&test_moon.step);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
