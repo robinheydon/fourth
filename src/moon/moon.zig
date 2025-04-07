@@ -168,6 +168,8 @@ pub const TokenIterator = struct {
         star,
         slash,
         percent,
+        open_block,
+        close_block,
         open_round,
         close_round,
         equals,
@@ -179,6 +181,7 @@ pub const TokenIterator = struct {
         bar,
         hat,
         bang,
+        comma,
         cr,
         semicolon,
     };
@@ -252,10 +255,15 @@ pub const TokenIterator = struct {
                     },
                     ')' => {
                         self.index += 1;
-                        return .{
-                            .kind = .close_round,
-                            .str = self.source[start..self.index],
-                        };
+                        continue :next_token .close_round;
+                    },
+                    '{' => {
+                        self.index += 1;
+                        continue :next_token .open_block;
+                    },
+                    '}' => {
+                        self.index += 1;
+                        continue :next_token .close_block;
                     },
                     '&' => {
                         self.index += 1;
@@ -280,6 +288,10 @@ pub const TokenIterator = struct {
                     ';' => {
                         self.index += 1;
                         continue :next_token .semicolon;
+                    },
+                    ',' => {
+                        self.index += 1;
+                        continue :next_token .comma;
                     },
                     '\n' => {
                         self.index += 1;
@@ -505,6 +517,18 @@ pub const TokenIterator = struct {
                     .str = self.source[start..self.index],
                 };
             },
+            .open_block => {
+                return .{
+                    .kind = .open_block,
+                    .str = self.source[start..self.index],
+                };
+            },
+            .close_block => {
+                return .{
+                    .kind = .close_block,
+                    .str = self.source[start..self.index],
+                };
+            },
             .ampersand => {
                 return .{
                     .kind = .op_band,
@@ -562,6 +586,12 @@ pub const TokenIterator = struct {
                     .str = self.source[start..self.index],
                 };
             },
+            .comma => {
+                return .{
+                    .kind = .comma,
+                    .str = self.source[start..self.index],
+                };
+            },
             .cr => {
                 return .{
                     .kind = .eol,
@@ -584,28 +614,30 @@ pub const TokenIterator = struct {
 fn check_keyword(str: []const u8) TokenKind {
     switch (str.len) {
         2 => {
-            if (std.mem.eql (u8, "if", str)) return .keyword_if;
-            if (std.mem.eql (u8, "or", str)) return .keyword_or;
+            if (std.mem.eql(u8, "fn", str)) return .keyword_fn;
+            if (std.mem.eql(u8, "if", str)) return .keyword_if;
+            if (std.mem.eql(u8, "or", str)) return .keyword_or;
         },
         3 => {
-            if (std.mem.eql (u8, "and", str)) return .keyword_and;
-            if (std.mem.eql (u8, "not", str)) return .keyword_not;
-            if (std.mem.eql (u8, "var", str)) return .keyword_var;
+            if (std.mem.eql(u8, "and", str)) return .keyword_and;
+            if (std.mem.eql(u8, "not", str)) return .keyword_not;
+            if (std.mem.eql(u8, "pub", str)) return .keyword_pub;
+            if (std.mem.eql(u8, "var", str)) return .keyword_var;
         },
         4 => {
-            if (std.mem.eql (u8, "else", str)) return .keyword_else;
-            if (std.mem.eql (u8, "then", str)) return .keyword_then;
+            if (std.mem.eql(u8, "else", str)) return .keyword_else;
+            if (std.mem.eql(u8, "then", str)) return .keyword_then;
         },
         5 => {
-            if (std.mem.eql (u8, "break", str)) return .keyword_break;
-            if (std.mem.eql (u8, "const", str)) return .keyword_const;
-            if (std.mem.eql (u8, "while", str)) return .keyword_while;
+            if (std.mem.eql(u8, "break", str)) return .keyword_break;
+            if (std.mem.eql(u8, "const", str)) return .keyword_const;
+            if (std.mem.eql(u8, "while", str)) return .keyword_while;
         },
         6 => {
-            if (std.mem.eql (u8, "return", str)) return .keyword_return;
+            if (std.mem.eql(u8, "return", str)) return .keyword_return;
         },
         8 => {
-            if (std.mem.eql (u8, "continue", str)) return .keyword_continue;
+            if (std.mem.eql(u8, "continue", str)) return .keyword_continue;
         },
         else => {},
     }
@@ -639,6 +671,8 @@ pub const TokenKind = enum(u8) {
     number,
     open_round,
     close_round,
+    open_block,
+    close_block,
     string_literal,
     op_assign,
     op_add,
@@ -657,6 +691,7 @@ pub const TokenKind = enum(u8) {
     op_gte,
     op_lt,
     op_gt,
+    comma,
     keyword_if,
     keyword_then,
     keyword_else,
@@ -669,6 +704,8 @@ pub const TokenKind = enum(u8) {
     keyword_return,
     keyword_const,
     keyword_var,
+    keyword_pub,
+    keyword_fn,
     eol,
     eos,
 };
@@ -827,6 +864,32 @@ test "tokenize variables" {
         .{ .kind = .identifier, .str = "a" },
         .{ .kind = .op_add, .str = "+" },
         .{ .kind = .identifier, .str = "b" },
+    });
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "tokenize function def" {
+    var moon = Moon.init(std.testing.allocator);
+    defer moon.deinit();
+
+    try test_tokenize("pub fn add (a, b) { return a + b }", &[_]Token{
+        .{ .kind = .keyword_pub, .str = "pub" },
+        .{ .kind = .keyword_fn, .str = "fn" },
+        .{ .kind = .identifier, .str = "add" },
+        .{ .kind = .open_round, .str = "(" },
+        .{ .kind = .identifier, .str = "a" },
+        .{ .kind = .comma, .str = "," },
+        .{ .kind = .identifier, .str = "b" },
+        .{ .kind = .close_round, .str = ")" },
+        .{ .kind = .open_block, .str = "{" },
+        .{ .kind = .keyword_return, .str = "return" },
+        .{ .kind = .identifier, .str = "a" },
+        .{ .kind = .op_add, .str = "+" },
+        .{ .kind = .identifier, .str = "b" },
+        .{ .kind = .close_block, .str = "}" },
     });
 }
 
