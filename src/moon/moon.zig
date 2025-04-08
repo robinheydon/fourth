@@ -116,11 +116,10 @@ pub const Moon_AST = struct {
                 .identifier,
                 => {
                     var lhs = try self.parse_expr(iter);
-                    if (iter.peek ()) |atk| {
-                        if (atk.kind == .op_assign)
-                        {
-                            _ = iter.next ();
-                            const rhs = try self.parse_expr (iter);
+                    if (iter.peek()) |atk| {
+                        if (atk.kind == .op_assign) {
+                            _ = iter.next();
+                            const rhs = try self.parse_expr(iter);
                             lhs = try self.new_node(
                                 .{ .assignment = .{ .lhs = lhs, .rhs = rhs } },
                             );
@@ -238,10 +237,10 @@ pub const Moon_AST = struct {
                 std.debug.print("parse_while: {?}\n", .{tk});
             }
 
-            const expr = try self.parse_expr (iter);
+            const expr = try self.parse_expr(iter);
 
-            iter.debug ();
-            const block = try self.parse_block (iter);
+            iter.debug();
+            const block = try self.parse_block(iter);
 
             return try self.new_node(
                 .{ .while_stmt = .{ .expr = expr, .block = block } },
@@ -250,35 +249,31 @@ pub const Moon_AST = struct {
         return error.InvalidStatement;
     }
 
-    pub fn parse_block (
+    pub fn parse_block(
         self: *Moon_AST,
         iter: *TokenIterator,
     ) MoonErrors!usize {
-        if (iter.peek ()) |tk|
-        {
+        if (iter.peek()) |tk| {
             if (self.trace) {
                 std.debug.print("parse_block: {?}\n", .{tk});
             }
-            if (tk.kind != .open_block)
-            {
-                std.debug.print ("Missing Open Block {}\n", .{tk});
+            if (tk.kind != .open_block) {
+                std.debug.print("Missing Open Block {}\n", .{tk});
                 return error.MissingOpenBlock;
             }
 
-            _ = iter.next ();
-            const stmts = try self.parse_statements (iter);
+            _ = iter.next();
+            const stmts = try self.parse_statements(iter);
 
-            if (iter.peek ()) |etk|
-            {
+            if (iter.peek()) |etk| {
                 if (self.trace) {
                     std.debug.print("parse_block: {?}\n", .{etk});
                 }
-                if (etk.kind != .close_block)
-                {
-                    std.debug.print ("Missing Close Block {}\n", .{tk});
+                if (etk.kind != .close_block) {
+                    std.debug.print("Missing Close Block {}\n", .{tk});
                     return error.MissingCloseBlock;
                 }
-                _ = iter.next ();
+                _ = iter.next();
             }
 
             return stmts;
@@ -595,7 +590,7 @@ pub const Moon_AST = struct {
                     return self.parse_atom(iter);
                 },
                 else => {
-                    std.debug.print ("Invalid Expression at {}\n", .{tk});
+                    std.debug.print("Invalid Expression at {}\n", .{tk});
                     return error.InvalidExpressionAtom;
                 },
             }
@@ -687,7 +682,7 @@ pub const Moon_AST = struct {
                     try writer.print("\n", .{});
                     try self.dump_internal(stmt.lhs, depth + 1, writer);
                     try self.dump_internal(stmt.rhs, depth + 1, writer);
-                }
+                },
             }
         }
     }
@@ -923,7 +918,7 @@ pub const TokenIterator = struct {
         }
         self.current_token = self.next_token();
         if (self.trace) {
-            self.debug ();
+            self.debug();
         }
         return self.current_token;
     }
@@ -931,13 +926,13 @@ pub const TokenIterator = struct {
     pub fn next(self: *TokenIterator) ?Token {
         self.current_token = self.next_token();
         if (self.trace) {
-            self.debug ();
+            self.debug();
         }
         return self.current_token;
     }
 
-    pub fn debug (self: *TokenIterator) void {
-        std.debug.print ("TokenIterator({}/{} {?})\n", .{
+    pub fn debug(self: *TokenIterator) void {
+        std.debug.print("TokenIterator({}/{} {?})\n", .{
             self.index,
             self.source.len,
             self.current_token,
