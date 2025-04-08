@@ -115,8 +115,18 @@ pub const Moon_AST = struct {
                 .keyword_not,
                 .identifier,
                 => {
-                    const expr = try self.parse_expr(iter);
-                    try stmts.append(self.moon.allocator, expr);
+                    var lhs = try self.parse_expr(iter);
+                    if (iter.peek ()) |atk| {
+                        if (atk.kind == .op_assign)
+                        {
+                            _ = iter.next ();
+                            const rhs = try self.parse_expr (iter);
+                            lhs = try self.new_node(
+                                .{ .assignment = .{ .lhs = lhs, .rhs = rhs } },
+                            );
+                        }
+                    }
+                    try stmts.append(self.moon.allocator, lhs);
                 },
                 .keyword_var => {
                     _ = iter.next();
@@ -128,11 +138,19 @@ pub const Moon_AST = struct {
                     const decl = try self.parse_const_decl(iter);
                     try stmts.append(self.moon.allocator, decl);
                 },
+                .keyword_while => {
+                    _ = iter.next();
+                    const stmt = try self.parse_while(iter);
+                    try stmts.append(self.moon.allocator, stmt);
+                },
                 .eol => {
                     _ = iter.next();
                 },
                 .eos => {
                     _ = iter.next();
+                },
+                .close_block => {
+                    break;
                 },
                 else => {
                     return error.InvalidStatement;
@@ -209,6 +227,63 @@ pub const Moon_AST = struct {
             );
         }
         return error.InvalidConstantDeclaration;
+    }
+
+    pub fn parse_while(
+        self: *Moon_AST,
+        iter: *TokenIterator,
+    ) MoonErrors!usize {
+        if (iter.peek()) |tk| {
+            if (self.trace) {
+                std.debug.print("parse_while: {?}\n", .{tk});
+            }
+
+            const expr = try self.parse_expr (iter);
+
+            iter.debug ();
+            const block = try self.parse_block (iter);
+
+            return try self.new_node(
+                .{ .while_stmt = .{ .expr = expr, .block = block } },
+            );
+        }
+        return error.InvalidStatement;
+    }
+
+    pub fn parse_block (
+        self: *Moon_AST,
+        iter: *TokenIterator,
+    ) MoonErrors!usize {
+        if (iter.peek ()) |tk|
+        {
+            if (self.trace) {
+                std.debug.print("parse_block: {?}\n", .{tk});
+            }
+            if (tk.kind != .open_block)
+            {
+                std.debug.print ("Missing Open Block {}\n", .{tk});
+                return error.MissingOpenBlock;
+            }
+
+            _ = iter.next ();
+            const stmts = try self.parse_statements (iter);
+
+            if (iter.peek ()) |etk|
+            {
+                if (self.trace) {
+                    std.debug.print("parse_block: {?}\n", .{etk});
+                }
+                if (etk.kind != .close_block)
+                {
+                    std.debug.print ("Missing Close Block {}\n", .{tk});
+                    return error.MissingCloseBlock;
+                }
+                _ = iter.next ();
+            }
+
+            return stmts;
+        }
+        return error.NotImplemented;
     }
 
     pub fn parse_expr(
@@ -603,6 +678,16 @@ pub const Moon_AST = struct {
                     try writer.print(" {s}\n", .{decl.name});
                     try self.dump_internal(decl.expr, depth + 1, writer);
                 },
+                .while_stmt => |stmt| {
+                    try writer.print("\n", .{});
+                    try self.dump_internal(stmt.expr, depth + 1, writer);
+                    try self.dump_internal(stmt.block, depth + 1, writer);
+                },
+                .assignment => |stmt| {
+                    try writer.print("\n", .{});
+                    try self.dump_internal(stmt.lhs, depth + 1, writer);
+                    try self.dump_internal(stmt.rhs, depth + 1, writer);
+                }
             }
         }
     }
@@ -639,6 +724,8 @@ pub const AST_NodeKind = enum {
     statements,
     var_decl,
     const_decl,
+    while_stmt,
+    assignment,
 };
 
 pub const AST_Node = union(AST_NodeKind) {
@@ -668,6 +755,8 @@ pub const AST_Node = union(AST_NodeKind) {
     statements: AST_List,
     var_decl: Decl,
     const_decl: Decl,
+    while_stmt: WhileStmt,
+    assignment: AST_BinaryOp,
 };
 
 pub const AST_BinaryOp = struct {
@@ -682,6 +771,11 @@ pub const AST_List = struct {
 pub const Decl = struct {
     name: []const u8,
     expr: usize,
+};
+
+pub const WhileStmt = struct {
+    expr: usize,
+    block: usize,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -705,6 +799,8 @@ pub const MoonErrors = error{
     MissingStatements,
     MissingIdentifier,
     MissingAssignment,
+    MissingOpenBlock,
+    MissingCloseBlock,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -788,6 +884,7 @@ pub const TokenIterator = struct {
     index: usize,
     source: []const u8,
     current_token: ?Token = null,
+    trace: bool = false,
 
     const State = enum {
         whitespace,
@@ -825,12 +922,26 @@ pub const TokenIterator = struct {
             return tk;
         }
         self.current_token = self.next_token();
+        if (self.trace) {
+            self.debug ();
+        }
         return self.current_token;
     }
 
     pub fn next(self: *TokenIterator) ?Token {
         self.current_token = self.next_token();
+        if (self.trace) {
+            self.debug ();
+        }
         return self.current_token;
+    }
+
+    pub fn debug (self: *TokenIterator) void {
+        std.debug.print ("TokenIterator({}/{} {?})\n", .{
+            self.index,
+            self.source.len,
+            self.current_token,
+        });
     }
 
     pub fn next_token(self: *TokenIterator) ?Token {
@@ -1447,11 +1558,12 @@ fn test_parse(str: []const u8, result: []const u8) !void {
     defer moon.deinit();
 
     var iter = tokenize(str);
+    iter.trace = true;
 
     var tree = moon.AST();
     defer tree.deinit();
 
-    tree.trace = false;
+    tree.trace = true;
     if (tree.trace) {
         std.debug.print("---------------\n", .{});
     }
@@ -1745,8 +1857,8 @@ test "parse unary operators" {
 
 test "parse statements" {
     try test_parse(
-        \\ var a = 3;
-        \\ const b = 4;
+        \\ var a = 3
+        \\ const b = 4
         \\ const c = a + b
         \\
     ,
@@ -1760,6 +1872,34 @@ test "parse statements" {
         \\      op_add
         \\        identifier a
         \\        identifier b
+        \\
+    );
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "parse while" {
+    try test_parse(
+        \\ var a = 0
+        \\ while (a < 4) { a = a + 1 }
+        \\
+    ,
+        \\AST
+        \\  statements
+        \\    var_decl a
+        \\      integer_literal 0
+        \\    while_stmt
+        \\      op_lt
+        \\        identifier a
+        \\        integer_literal 4
+        \\      statements
+        \\        assignment
+        \\          identifier a
+        \\          op_add
+        \\            identifier a
+        \\            integer_literal 1
         \\
     );
 }
