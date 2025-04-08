@@ -87,7 +87,10 @@ pub const Moon_AST = struct {
         for (self.nodes.items) |*node| {
             switch (node.*) {
                 .statements => |*stmts| {
-                    stmts.items.deinit(self.moon.allocator);
+                    self.moon.allocator.free(stmts.items);
+                },
+                .call => |*call| {
+                    self.moon.allocator.free(call.args);
                 },
                 else => {},
             }
@@ -108,56 +111,54 @@ pub const Moon_AST = struct {
                 std.debug.print("parse_statements: {?}\n", .{tk});
             }
 
-            switch (tk.kind) {
-                .integer,
-                .op_neg,
-                .open_round,
-                .keyword_not,
-                .identifier,
-                => {
-                    var lhs = try self.parse_expr(iter);
-                    if (iter.peek()) |atk| {
-                        if (atk.kind == .op_assign) {
-                            _ = iter.next();
-                            const rhs = try self.parse_expr(iter);
-                            lhs = try self.new_node(
-                                .{ .assignment = .{ .lhs = lhs, .rhs = rhs } },
-                            );
-                        }
+            if (is_expression(tk.kind)) {
+                var lhs = try self.parse_expr(iter);
+                if (iter.peek()) |atk| {
+                    if (atk.kind == .op_assign) {
+                        _ = iter.next();
+                        const rhs = try self.parse_expr(iter);
+                        lhs = try self.new_node(
+                            .{ .assignment = .{ .lhs = lhs, .rhs = rhs } },
+                        );
                     }
-                    try stmts.append(self.moon.allocator, lhs);
-                },
-                .keyword_var => {
-                    _ = iter.next();
-                    const decl = try self.parse_var_decl(iter);
-                    try stmts.append(self.moon.allocator, decl);
-                },
-                .keyword_const => {
-                    _ = iter.next();
-                    const decl = try self.parse_const_decl(iter);
-                    try stmts.append(self.moon.allocator, decl);
-                },
-                .keyword_while => {
-                    _ = iter.next();
-                    const stmt = try self.parse_while(iter);
-                    try stmts.append(self.moon.allocator, stmt);
-                },
-                .eol => {
-                    _ = iter.next();
-                },
-                .eos => {
-                    _ = iter.next();
-                },
-                .close_block => {
-                    break;
-                },
-                else => {
-                    return error.InvalidStatement;
-                },
+                }
+                try stmts.append(self.moon.allocator, lhs);
+            } else {
+                switch (tk.kind) {
+                    .keyword_var => {
+                        _ = iter.next();
+                        const decl = try self.parse_var_decl(iter);
+                        try stmts.append(self.moon.allocator, decl);
+                    },
+                    .keyword_const => {
+                        _ = iter.next();
+                        const decl = try self.parse_const_decl(iter);
+                        try stmts.append(self.moon.allocator, decl);
+                    },
+                    .keyword_while => {
+                        _ = iter.next();
+                        const stmt = try self.parse_while(iter);
+                        try stmts.append(self.moon.allocator, stmt);
+                    },
+                    .eol => {
+                        _ = iter.next();
+                    },
+                    .eos => {
+                        _ = iter.next();
+                    },
+                    .close_block => {
+                        break;
+                    },
+                    else => {
+                        return error.InvalidStatement;
+                    },
+                }
             }
         }
 
-        return try self.new_node(.{ .statements = .{ .items = stmts } });
+        return try self.new_node(.{ .statements = .{
+            .items = try stmts.toOwnedSlice(self.moon.allocator),
+        } });
     }
 
     pub fn parse_var_decl(
@@ -239,7 +240,6 @@ pub const Moon_AST = struct {
 
             const expr = try self.parse_expr(iter);
 
-            iter.debug();
             const block = try self.parse_block(iter);
 
             return try self.new_node(
@@ -562,6 +562,14 @@ pub const Moon_AST = struct {
             }
 
             switch (tk.kind) {
+                .keyword_true => {
+                    _ = iter.next();
+                    return try self.new_node(.boolean_true);
+                },
+                .keyword_false => {
+                    _ = iter.next();
+                    return try self.new_node(.boolean_false);
+                },
                 .integer => {
                     _ = iter.next();
                     return try self.new_node(
@@ -580,9 +588,12 @@ pub const Moon_AST = struct {
                     return error.MissingCloseParenthesis;
                 },
                 .identifier => {
+                    return self.parse_prefix(iter);
+                },
+                .string_literal => {
                     _ = iter.next();
                     return try self.new_node(
-                        .{ .identifier = tk.str },
+                        .{ .string = tk.str },
                     );
                 },
                 .eol => {
@@ -599,13 +610,135 @@ pub const Moon_AST = struct {
         return error.InvalidExpression;
     }
 
-    pub fn new_node(self: *Moon_AST, node: AST_Node) !usize {
+    pub fn parse_prefix(self: *Moon_AST, iter: *TokenIterator) MoonErrors!usize {
+        if (iter.peek()) |tk| {
+            if (self.trace) {
+                std.debug.print("parse_prefix: {}\n", .{tk});
+            }
+            _ = iter.next();
+            var lhs = try self.new_node(
+                .{ .identifier = tk.str },
+            );
+
+            while (iter.peek()) |ntk| {
+                if (self.trace) {
+                    std.debug.print("parse_prefix: {}\n", .{ntk});
+                }
+                switch (ntk.kind) {
+                    .dot => {
+                        _ = iter.next ();
+                        if (iter.peek ()) |itk|
+                        {
+                            if (itk.kind == .identifier)
+                            {
+                                const rhs = try self.parse_prefix (iter);
+                                lhs = try self.new_node (.{
+                                    .op_dot = .{
+                                        .lhs = lhs,
+                                        .rhs = rhs,
+                                    }});
+                            }
+                        }
+                    },
+                    .open_round => {
+                        _ = iter.next();
+                        const args = try self.parse_args(iter);
+                        return self.new_node(.{ .call = .{
+                            .func = lhs,
+                            .args = args,
+                        } });
+                    },
+                    else => {
+                        break;
+                    }
+                }
+            }
+
+            return lhs;
+        }
+        return error.MissingIdentifier;
+    }
+
+    pub fn parse_args(
+        self: *Moon_AST,
+        iter: *TokenIterator,
+    ) MoonErrors![]usize {
+        var args: std.ArrayListUnmanaged(usize) = .empty;
+        errdefer args.deinit(self.moon.allocator);
+
+        while (iter.peek()) |tk| {
+            if (self.trace) {
+                std.debug.print("parse_args: {}\n", .{tk});
+            }
+            if (tk.kind == .eol) {
+                _ = iter.next();
+                continue;
+            }
+            if (is_expression(tk.kind)) {
+                const arg = try self.parse_expr(iter);
+                try args.append(self.moon.allocator, arg);
+
+                while (iter.peek()) |ctk| {
+                    if (ctk.kind == .eol) {
+                        _ = iter.next();
+                    } else {
+                        break;
+                    }
+                }
+
+                if (iter.peek()) |ctk| {
+                    if (ctk.kind == .comma) {
+                        _ = iter.next();
+                    }
+                }
+
+                while (iter.peek()) |ctk| {
+                    if (ctk.kind == .eol) {
+                        _ = iter.next();
+                    } else {
+                        break;
+                    }
+                }
+
+                if (iter.peek()) |ctk| {
+                    if (ctk.kind == .close_round) {
+                        _ = iter.next();
+                        break;
+                    }
+                }
+            } else {
+                std.debug.print("Invalid Expression at {}\n", .{tk});
+                return error.InvalidExpression;
+            }
+        }
+
+        return args.toOwnedSlice(self.moon.allocator);
+    }
+
+    pub fn is_expression(kind: Kind) bool {
+        switch (kind) {
+            .integer,
+            .op_neg,
+            .open_round,
+            .identifier,
+            .string_literal,
+            .keyword_not,
+            .op_sub,
+            .op_com,
+            .keyword_true,
+            .keyword_false,
+            => return true,
+            else => return false,
+        }
+    }
+
+    pub fn new_node(self: *Moon_AST, node: AST_Node) MoonErrors!usize {
         const index = self.nodes.items.len;
         try self.nodes.append(self.moon.allocator, node);
         return index;
     }
 
-    pub fn update_node(self: *Moon_AST, index: usize, node: AST_Node) !void {
+    pub fn update_node(self: *Moon_AST, index: usize, node: AST_Node) void {
         std.debug.assert(index < self.nodes.items.len);
         self.nodes.items[index] = node;
     }
@@ -623,11 +756,19 @@ pub const Moon_AST = struct {
             const node = self.nodes.items[index];
             try writer.print("{s}", .{@tagName(node)});
             switch (node) {
+                .boolean_true,
+                .boolean_false,
+                => {
+                    try writer.print("\n", .{});
+                },
                 .integer_literal => |i| {
                     try writer.print(" {}\n", .{i});
                 },
                 .identifier => |str| {
                     try writer.print(" {s}\n", .{str});
+                },
+                .string => |str| {
+                    try writer.print(" \"{}\"\n", .{std.zig.fmtEscapes(str)});
                 },
                 .op_add,
                 .op_sub,
@@ -647,6 +788,7 @@ pub const Moon_AST = struct {
                 .op_neq,
                 .op_and,
                 .op_or,
+                .op_dot,
                 => |op| {
                     try writer.print("\n", .{});
                     try self.dump_internal(op.lhs, depth + 1, writer);
@@ -659,9 +801,16 @@ pub const Moon_AST = struct {
                     try writer.print("\n", .{});
                     try self.dump_internal(op, depth + 1, writer);
                 },
+                .call => |call| {
+                    try writer.print("\n", .{});
+                    try self.dump_internal(call.func, depth + 1, writer);
+                    for (call.args) |item| {
+                        try self.dump_internal(item, depth + 1, writer);
+                    }
+                },
                 .statements => |stmts| {
                     try writer.print("\n", .{});
-                    for (stmts.items.items) |item| {
+                    for (stmts.items) |item| {
                         try self.dump_internal(item, depth + 1, writer);
                     }
                 },
@@ -693,8 +842,11 @@ pub const Moon_AST = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const AST_NodeKind = enum {
+    boolean_true,
+    boolean_false,
     integer_literal,
     identifier,
+    string,
     op_add,
     op_sub,
     op_mul,
@@ -713,9 +865,11 @@ pub const AST_NodeKind = enum {
     op_neq,
     op_and,
     op_or,
+    op_dot,
     op_not,
     op_neg,
     op_com,
+    call,
     statements,
     var_decl,
     const_decl,
@@ -724,8 +878,11 @@ pub const AST_NodeKind = enum {
 };
 
 pub const AST_Node = union(AST_NodeKind) {
+    boolean_true,
+    boolean_false,
     integer_literal: i64,
     identifier: []const u8,
+    string: []const u8,
     op_add: AST_BinaryOp,
     op_sub: AST_BinaryOp,
     op_mul: AST_BinaryOp,
@@ -744,9 +901,11 @@ pub const AST_Node = union(AST_NodeKind) {
     op_neq: AST_BinaryOp,
     op_and: AST_BinaryOp,
     op_or: AST_BinaryOp,
+    op_dot: AST_BinaryOp,
     op_not: usize,
     op_neg: usize,
     op_com: usize,
+    call: Call,
     statements: AST_List,
     var_decl: Decl,
     const_decl: Decl,
@@ -760,7 +919,12 @@ pub const AST_BinaryOp = struct {
 };
 
 pub const AST_List = struct {
-    items: std.ArrayListUnmanaged(usize) = .empty,
+    items: []usize,
+};
+
+pub const Call = struct {
+    func: usize,
+    args: []usize,
 };
 
 pub const Decl = struct {
@@ -909,6 +1073,7 @@ pub const TokenIterator = struct {
         bang,
         comma,
         cr,
+        dot,
         semicolon,
     };
 
@@ -1042,6 +1207,10 @@ pub const TokenIterator = struct {
                     ',' => {
                         self.index += 1;
                         continue :next_token .comma;
+                    },
+                    '.' => {
+                        self.index += 1;
+                        continue :next_token .dot;
                     },
                     '\n' => {
                         self.index += 1;
@@ -1380,6 +1549,12 @@ pub const TokenIterator = struct {
                     .str = self.source[start..self.index],
                 };
             },
+            .dot => {
+                return .{
+                    .kind = .dot,
+                    .str = self.source[start..self.index],
+                };
+            },
             .cr => {
                 return .{
                     .kind = .eol,
@@ -1415,11 +1590,13 @@ fn check_keyword(str: []const u8) Kind {
         4 => {
             if (std.mem.eql(u8, "else", str)) return .keyword_else;
             if (std.mem.eql(u8, "then", str)) return .keyword_then;
+            if (std.mem.eql(u8, "true", str)) return .keyword_true;
         },
         5 => {
             if (std.mem.eql(u8, "break", str)) return .keyword_break;
             if (std.mem.eql(u8, "const", str)) return .keyword_const;
             if (std.mem.eql(u8, "while", str)) return .keyword_while;
+            if (std.mem.eql(u8, "false", str)) return .keyword_false;
         },
         6 => {
             if (std.mem.eql(u8, "return", str)) return .keyword_return;
@@ -1481,6 +1658,7 @@ pub const Kind = enum(u8) {
     op_lt,
     op_gt,
     op_com,
+    dot,
     comma,
     keyword_if,
     keyword_then,
@@ -1496,6 +1674,8 @@ pub const Kind = enum(u8) {
     keyword_var,
     keyword_pub,
     keyword_fn,
+    keyword_true,
+    keyword_false,
     eol,
     eos,
 };
@@ -1548,17 +1728,22 @@ fn test_tokenize(str: []const u8, tokens: []const Token) !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn test_parse(str: []const u8, result: []const u8) !void {
+const TestParseOptions = struct {
+    trace_tokenize: bool = false,
+    trace_parse: bool = false,
+};
+
+fn test_parse(str: []const u8, result: []const u8, options: TestParseOptions) !void {
     var moon = Moon.init(std.testing.allocator);
     defer moon.deinit();
 
     var iter = tokenize(str);
-    iter.trace = true;
+    iter.trace = options.trace_tokenize;
 
     var tree = moon.AST();
     defer tree.deinit();
 
-    tree.trace = true;
+    tree.trace = options.trace_parse;
     if (tree.trace) {
         std.debug.print("---------------\n", .{});
     }
@@ -1579,8 +1764,8 @@ fn test_parse(str: []const u8, result: []const u8) !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-test "tokenize operators" {
-    try test_tokenize("= + - * / % << >> & | ^ ~ == != <= >= < >", &[_]Token{
+test "tokenize symbols" {
+    try test_tokenize("= + - * / % << >> & | ^ ~ == != <= >= < > , .", &[_]Token{
         .{ .kind = .op_assign, .str = "=" },
         .{ .kind = .op_add, .str = "+" },
         .{ .kind = .op_sub, .str = "-" },
@@ -1599,6 +1784,8 @@ test "tokenize operators" {
         .{ .kind = .op_gte, .str = ">=" },
         .{ .kind = .op_lt, .str = "<" },
         .{ .kind = .op_gt, .str = ">" },
+        .{ .kind = .comma, .str = "," },
+        .{ .kind = .dot, .str = "." },
     });
 }
 
@@ -1716,7 +1903,7 @@ test "parse simple" {
         \\        integer_literal 42
         \\      integer_literal 12
         \\
-    );
+    , .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1733,7 +1920,7 @@ test "parse mul add" {
         \\        integer_literal 42
         \\        integer_literal 12
         \\
-    );
+    , .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1757,7 +1944,7 @@ test "parse mul add brackets" {
         \\            integer_literal 2
         \\        integer_literal 3
         \\
-    );
+    , .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1781,7 +1968,7 @@ test "parse operator precedence" {
         \\        integer_literal 255
         \\      integer_literal 16
         \\
-    );
+    , .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1820,7 +2007,7 @@ test "parse logical operator precedence" {
         \\        integer_literal 13
         \\        integer_literal 14
         \\
-    );
+    , .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1843,7 +2030,7 @@ test "parse unary operators" {
         \\            integer_literal 4
         \\        integer_literal 5
         \\
-    );
+    , .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1868,7 +2055,7 @@ test "parse statements" {
         \\        identifier a
         \\        identifier b
         \\
-    );
+    , .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1896,7 +2083,82 @@ test "parse while" {
         \\            identifier a
         \\            integer_literal 1
         \\
-    );
+    , .{});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "parse call" {
+    try test_parse(
+        \\ print (
+        \\   "Hello, World!\n",
+        \\   32,
+        \\   -33,
+        \\   ~34,
+        \\   true,
+        \\   false,
+        \\   not true,
+        \\ );
+        \\
+    ,
+        \\AST
+        \\  statements
+        \\    call
+        \\      identifier print
+        \\      string "\"Hello, World!\\n\""
+        \\      integer_literal 32
+        \\      op_neg
+        \\        integer_literal 33
+        \\      op_com
+        \\        integer_literal 34
+        \\      boolean_true
+        \\      boolean_false
+        \\      op_not
+        \\        boolean_true
+        \\
+    , .{});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "parse dots" {
+    try test_parse(
+        \\ const dist = std.math.sqrt (pos.x * pos.x + pos.y * pos.y)
+        \\
+    ,
+        \\AST
+        \\  statements
+        \\    const_decl dist
+        \\      call
+        \\        op_dot
+        \\          op_dot
+        \\            identifier std
+        \\            identifier math
+        \\          identifier sqrt
+        \\        op_add
+        \\          op_mul
+        \\            op_dot
+        \\              identifier pos
+        \\              identifier x
+        \\            op_dot
+        \\              identifier pos
+        \\              identifier x
+        \\          op_mul
+        \\            op_dot
+        \\              identifier pos
+        \\              identifier y
+        \\            op_dot
+        \\              identifier pos
+        \\              identifier y
+        \\
+    , .{
+        .trace_tokenize = true,
+        .trace_parse = true,
+    });
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
