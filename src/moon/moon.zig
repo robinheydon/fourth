@@ -27,7 +27,6 @@ pub const Moon = struct {
         for (self.modules.items) |module| {
             module.deinit();
             self.allocator.destroy(module);
-            self.allocator.destroy(module);
         }
         self.modules.deinit(self.allocator);
 
