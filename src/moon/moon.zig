@@ -92,8 +92,14 @@ pub const Moon_AST = struct {
                 .call => |*call| {
                     self.moon.allocator.free(call.args);
                 },
-                .if_stmt => |*stmt| {
-                    self.moon.allocator.free(stmt.conds);
+                .if_stmt => |*if_stmt| {
+                    self.moon.allocator.free(if_stmt.conds);
+                },
+                .func_decl => |*func| {
+                    self.moon.allocator.free(func.params);
+                },
+                .table_decl => |table| {
+                    self.moon.allocator.free(table);
                 },
                 else => {},
             }
@@ -147,6 +153,19 @@ pub const Moon_AST = struct {
                     .keyword_if => {
                         _ = iter.next();
                         const stmt = try self.parse_if(iter);
+                        try stmts.append(self.moon.allocator, stmt);
+                    },
+                    .keyword_fn => {
+                        _ = iter.next();
+                        const stmt = try self.parse_function_decl(iter);
+                        try stmts.append(self.moon.allocator, stmt);
+                    },
+                    .keyword_return => {
+                        _ = iter.next();
+                        const expr = try self.parse_expr(iter);
+                        const stmt = try self.new_node(
+                            .{ .return_stmt = expr },
+                        );
                         try stmts.append(self.moon.allocator, stmt);
                     },
                     .eos => {
@@ -316,6 +335,87 @@ pub const Moon_AST = struct {
             );
         }
         return error.InvalidStatement;
+    }
+
+    pub fn parse_function_decl(
+        self: *Moon_AST,
+        iter: *TokenIterator,
+    ) MoonErrors!usize {
+        iter.skip_whitespace();
+        if (iter.peek()) |tk| {
+            if (self.trace) {
+                std.debug.print("parse_function_decl: {?}\n", .{tk});
+            }
+            if (tk.kind == .identifier) {
+                _ = iter.next();
+                const name = tk.str;
+                const params = try self.parse_parameter_list(iter);
+                const block = try self.parse_block(iter);
+
+                return try self.new_node(
+                    .{ .func_decl = .{
+                        .name = name,
+                        .params = params,
+                        .block = block,
+                    } },
+                );
+            } else {
+                return error.MissingIdentifier;
+            }
+        }
+        return error.InvalidFunctionDeclaration;
+    }
+
+    pub fn parse_parameter_list(
+        self: *Moon_AST,
+        iter: *TokenIterator,
+    ) MoonErrors![]Parameter {
+        var params: std.ArrayListUnmanaged(Parameter) = .empty;
+        errdefer params.deinit(self.moon.allocator);
+
+        if (iter.peek()) |tk| {
+            if (self.trace) {
+                std.debug.print("parse_parameter_list: {?}\n", .{tk});
+            }
+            if (tk.kind != .open_round) {
+                std.debug.print("Missing Open Round {}\n", .{tk});
+                return error.MissingOpenParenthesis;
+            }
+
+            _ = iter.next();
+
+            while (iter.peek()) |ntk| {
+                if (ntk.kind == .identifier) {
+                    _ = iter.next();
+                    try params.append(self.moon.allocator, .{
+                        .name = ntk.str,
+                    });
+                } else {
+                    break;
+                }
+
+                iter.skip_whitespace();
+
+                if (iter.peek()) |ctk| {
+                    if (ctk.kind == .comma) {
+                        _ = iter.next();
+                    }
+                }
+
+                iter.skip_whitespace();
+            }
+
+            if (iter.peek()) |etk| {
+                if (etk.kind == .close_round) {
+                    _ = iter.next();
+
+                    return params.toOwnedSlice(self.moon.allocator);
+                } else {
+                    return error.MissingCloseParenthesis;
+                }
+            }
+        }
+        return error.InvalidParameterList;
     }
 
     pub fn parse_block(
@@ -667,6 +767,10 @@ pub const Moon_AST = struct {
                         .{ .string = tk.str },
                     );
                 },
+                .open_block => {
+                    _ = iter.next();
+                    return self.parse_table_decl(iter);
+                },
                 else => {
                     std.debug.print("Invalid Expression at {}\n", .{tk});
                     return error.InvalidExpressionAtom;
@@ -726,6 +830,129 @@ pub const Moon_AST = struct {
         return error.MissingIdentifier;
     }
 
+    pub fn parse_table_decl(
+        self: *Moon_AST,
+        iter: *TokenIterator,
+    ) MoonErrors!usize {
+        var entries: std.ArrayListUnmanaged(TableEntry) = .empty;
+        errdefer entries.deinit(self.moon.allocator);
+
+        iter.skip_whitespace();
+        while (iter.peek()) |tk| {
+            if (self.trace) {
+                std.debug.print("parse_table_decl: {}\n", .{tk});
+            }
+
+            if (tk.kind == .dot) {
+                _ = iter.next();
+                if (iter.peek()) |ctk| {
+                    if (self.trace) {
+                        std.debug.print("parse_table_decl: {}\n", .{ctk});
+                    }
+                    if (ctk.kind == .identifier) {
+                        _ = iter.next();
+                        const first = try self.new_node(.{
+                            .identifier = ctk.str,
+                        });
+
+                        iter.skip_whitespace();
+
+                        if (iter.peek()) |atk| {
+                            if (self.trace) {
+                                std.debug.print("parse_table_decl: {}\n", .{atk});
+                            }
+                            if (atk.kind == .op_assign) {
+                                _ = iter.next();
+
+                                const second = try self.parse_expr(iter);
+
+                                try entries.append(self.moon.allocator, .{
+                                    .key = first,
+                                    .value = second,
+                                });
+                            } else {
+                                std.debug.print("Missing Assignment at {}\n", .{tk});
+                                return error.MissingAssignment;
+                            }
+                        }
+                    } else {
+                        std.debug.print("Missing Identifier at {}\n", .{tk});
+                        return error.MissingIdentifier;
+                    }
+                }
+            } else if (is_expression(tk.kind)) {
+                const first = try self.parse_expr(iter);
+                var second: ?usize = null;
+
+                iter.skip_whitespace();
+
+                if (iter.peek()) |ctk| {
+                    if (self.trace) {
+                        std.debug.print("parse_table_decl: {}\n", .{ctk});
+                    }
+                    if (ctk.kind == .op_assign) {
+                        _ = iter.next();
+
+                        second = try self.parse_expr(iter);
+                    }
+                }
+
+                iter.skip_whitespace();
+
+                if (second) |snd| {
+                    try entries.append(self.moon.allocator, .{
+                        .key = first,
+                        .value = snd,
+                    });
+                } else {
+                    try entries.append(self.moon.allocator, .{
+                        .key = null,
+                        .value = first,
+                    });
+                }
+            } else {
+                if (iter.peek()) |ctk| {
+                    if (ctk.kind == .close_block) {
+                        _ = iter.next();
+
+                        return self.new_node(.{
+                            .table_decl = try entries.toOwnedSlice(self.moon.allocator),
+                        });
+                    }
+                }
+                std.debug.print("Invalid Expression at {}\n", .{tk});
+                return error.InvalidExpression;
+            }
+
+            iter.skip_whitespace();
+
+            if (iter.peek()) |ctk| {
+                if (self.trace) {
+                    std.debug.print("parse_table_decl: {}\n", .{ctk});
+                }
+                if (ctk.kind == .comma) {
+                    _ = iter.next();
+                }
+            }
+
+            iter.skip_whitespace();
+
+            if (iter.peek()) |ctk| {
+                if (self.trace) {
+                    std.debug.print("parse_table_decl: {}\n", .{ctk});
+                }
+                if (ctk.kind == .close_block) {
+                    _ = iter.next();
+
+                    return self.new_node(.{
+                        .table_decl = try entries.toOwnedSlice(self.moon.allocator),
+                    });
+                }
+            }
+        }
+        return error.InvalidExpression;
+    }
+
     pub fn parse_args(
         self: *Moon_AST,
         iter: *TokenIterator,
@@ -762,7 +989,6 @@ pub const Moon_AST = struct {
                 std.debug.print("Invalid Expression at {}\n", .{tk});
                 return error.InvalidExpression;
             }
-            iter.skip_whitespace();
         }
 
         return args.toOwnedSlice(self.moon.allocator);
@@ -895,6 +1121,30 @@ pub const Moon_AST = struct {
                     try self.dump_internal(stmt.lhs, depth + 1, writer);
                     try self.dump_internal(stmt.rhs, depth + 1, writer);
                 },
+                .func_decl => |func| {
+                    try writer.print(" {s}\n", .{func.name});
+                    for (func.params) |param| {
+                        try writer.print("{s}", .{lots_of_spaces[0 .. depth * 2]});
+                        try writer.print("  {s}\n", .{param.name});
+                    }
+                    try self.dump_internal(func.block, depth + 1, writer);
+                },
+                .return_stmt => |stmt| {
+                    try writer.print("\n", .{});
+                    try self.dump_internal(stmt, depth + 1, writer);
+                },
+                .table_decl => |table| {
+                    try writer.print("\n", .{});
+                    for (table) |entry| {
+                        if (entry.key) |key| {
+                            try self.dump_internal(key, depth + 1, writer);
+                        } else {
+                            try writer.print("{s}", .{lots_of_spaces[0 .. depth * 2]});
+                            try writer.print("  null\n", .{});
+                        }
+                        try self.dump_internal(entry.value, depth + 2, writer);
+                    }
+                },
             }
         }
     }
@@ -939,6 +1189,9 @@ pub const AST_NodeKind = enum {
     while_stmt,
     if_stmt,
     assignment,
+    func_decl,
+    return_stmt,
+    table_decl,
 };
 
 pub const AST_Node = union(AST_NodeKind) {
@@ -976,6 +1229,9 @@ pub const AST_Node = union(AST_NodeKind) {
     while_stmt: WhileStmt,
     if_stmt: IfStmt,
     assignment: AST_BinaryOp,
+    func_decl: FunctionDecl,
+    return_stmt: usize,
+    table_decl: []TableEntry,
 };
 
 pub const AST_BinaryOp = struct {
@@ -1012,6 +1268,21 @@ pub const IfCond = struct {
     block: usize,
 };
 
+pub const Parameter = struct {
+    name: []const u8,
+};
+
+pub const FunctionDecl = struct {
+    name: []const u8,
+    params: []Parameter,
+    block: usize,
+};
+
+pub const TableEntry = struct {
+    key: ?usize,
+    value: usize,
+};
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1029,12 +1300,15 @@ pub const MoonErrors = error{
     InvalidStatement,
     InvalidVariableDeclaration,
     InvalidConstantDeclaration,
-    MissingCloseParenthesis,
+    InvalidFunctionDeclaration,
+    InvalidParameterList,
     MissingStatements,
     MissingIdentifier,
     MissingAssignment,
     MissingOpenBlock,
     MissingCloseBlock,
+    MissingOpenParenthesis,
+    MissingCloseParenthesis,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2296,6 +2570,92 @@ test "parse if" {
         \\            identifier d
         \\            identifier c
         \\          integer_literal 0
+        \\
+    , .{});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "parse function declaration" {
+    try test_parse(
+        \\ fn add (a, b) {
+        \\     return a + b
+        \\ }
+        \\ fn eol () {
+        \\     print ("\n")
+        \\ }
+        \\
+    ,
+        \\AST
+        \\  statements
+        \\    func_decl add
+        \\      a
+        \\      b
+        \\      statements
+        \\        return_stmt
+        \\          op_add
+        \\            identifier a
+        \\            identifier b
+        \\    func_decl eol
+        \\      statements
+        \\        call
+        \\          identifier print
+        \\          string "\"\\n\""
+        \\
+    , .{});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "parse table array" {
+    try test_parse(
+        \\ const empty = {}
+        \\ const names = { "Alice", "Bob", "Charlie" }
+        \\ const look = { "Alice" = 3, "Bob" = 4, "Charlie" = 2 }
+        \\ const mixed = { 3 + 4, "Bob", "x" = 5 }
+        \\ const dot = { .x = 7, .y = 6 }
+        \\
+    ,
+        \\AST
+        \\  statements
+        \\    const_decl empty
+        \\      table_decl
+        \\    const_decl names
+        \\      table_decl
+        \\        null
+        \\          string "\"Alice\""
+        \\        null
+        \\          string "\"Bob\""
+        \\        null
+        \\          string "\"Charlie\""
+        \\    const_decl look
+        \\      table_decl
+        \\        string "\"Alice\""
+        \\          integer_literal 3
+        \\        string "\"Bob\""
+        \\          integer_literal 4
+        \\        string "\"Charlie\""
+        \\          integer_literal 2
+        \\    const_decl mixed
+        \\      table_decl
+        \\        null
+        \\          op_add
+        \\            integer_literal 3
+        \\            integer_literal 4
+        \\        null
+        \\          string "\"Bob\""
+        \\        string "\"x\""
+        \\          integer_literal 5
+        \\    const_decl dot
+        \\      table_decl
+        \\        identifier x
+        \\          integer_literal 7
+        \\        identifier y
+        \\          integer_literal 6
         \\
     , .{});
 }
