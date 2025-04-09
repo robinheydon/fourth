@@ -11,21 +11,27 @@ const std = @import("std");
 pub const Moon = struct {
     allocator: std.mem.Allocator,
 
-    globals: SymbolTable,
+    modules: std.ArrayListUnmanaged(*Module),
 
     stack: std.ArrayListUnmanaged(Value),
 
     pub fn init(alloc: std.mem.Allocator) Moon {
         return .{
             .allocator = alloc,
-            .globals = .empty,
+            .modules = .empty,
             .stack = .empty,
         };
     }
 
     pub fn deinit(self: *Moon) void {
+        for (self.modules.items) |module| {
+            module.deinit();
+            self.allocator.destroy(module);
+            self.allocator.destroy(module);
+        }
+        self.modules.deinit(self.allocator);
+
         self.stack.deinit(self.allocator);
-        self.globals.deinit(self.allocator);
     }
 
     pub fn push_integer(self: *Moon, value: i64) MoonErrors!void {
@@ -58,13 +64,61 @@ pub const Moon = struct {
     }
 
     pub fn compile(self: *Moon, source: []const u8) MoonErrors!Value {
-        _ = self;
+        const module = try self.generate_module(source);
 
-        var token_iter = tokenize(source);
-        while (token_iter.next()) |token| {
-            std.debug.print("Token {}\n", .{token});
+        const index = self.add_module(module);
+
+        return index;
+    }
+
+    fn add_module(self: *Moon, module: *Module) !Value {
+        const index = self.modules.items.len;
+        try self.modules.append(self.allocator, module);
+
+        return .{
+            .module = @enumFromInt(index),
+        };
+    }
+
+    fn generate_module(
+        self: *Moon,
+        source: []const u8,
+    ) MoonErrors!*Module {
+        var iter = tokenize(source);
+
+        var tree = self.AST();
+        defer tree.deinit();
+
+        const root = try tree.parse(&iter);
+        _ = root;
+
+        var module = try self.allocator.create(Module);
+        module.* = .{
+            .moon = self,
+            .source = try self.allocator.dupe(u8, source),
+            .code = .empty,
+            .constants = .empty,
+            .globals = .empty,
+            .strings = .empty,
+        };
+        errdefer module.deinit();
+
+        _ = try module.add_code(.integer, 3);
+        {
+            const value_index = try module.add_constant_i64(4);
+            _ = try module.add_code(.load_constant, value_index);
         }
-        return .{ .nil = {} };
+
+        _ = try module.add_opcode(.add);
+        _ = try module.add_opcode(.ret);
+
+        _ = try module.add_constant_f64(3.1415926);
+        _ = try module.add_constant_string("Hello, World!\n");
+        _ = try module.add_constant_string("Hello");
+        _ = try module.add_constant_string("World");
+        _ = try module.add_constant_string("or");
+
+        return module;
     }
 
     pub fn AST(self: *Moon) Moon_AST {
@@ -90,7 +144,6 @@ pub const Moon = struct {
     }
 
     pub fn dump(self: *Moon, value: Value, writer: anytype) !void {
-        _ = self;
         switch (value) {
             .nil => try writer.writeAll("nil"),
             .integer => |i| try writer.print("{}", .{i}),
@@ -101,13 +154,222 @@ pub const Moon = struct {
                 try writer.print("string#{}", .{s});
             },
             .function => |f| {
-                try writer.print("func#{}", .{f});
+                const index = @intFromEnum(f);
+                try writer.print("func#{}", .{index});
             },
             .module => |m| {
-                try writer.print("module#{}", .{m});
+                const index = @intFromEnum(m);
+                const module = self.modules.items[index];
+                try self.dump_module(module, writer);
             },
         }
     }
+
+    fn dump_module(self: *Moon, module: *Module, writer: anytype) !void {
+        _ = self;
+
+        try writer.print("module\n", .{});
+        try writer.print("  source\n", .{});
+        try writer.print("    \"{}\"\n", .{std.zig.fmtEscapes(module.source)});
+        try writer.print("  code\n", .{});
+        for (module.code.items) |code| {
+            switch (code.op) {
+                .integer,
+                .load_constant,
+                .load_local,
+                .store_local,
+                .load_global,
+                .store_global,
+                .call,
+                => {
+                    try writer.print("    {s} {}\n", .{ @tagName(code.op), code.arg });
+                },
+                .nop,
+                .drop,
+                .add,
+                .sub,
+                .mul,
+                .div,
+                .mod,
+                .lsh,
+                .rsh,
+                .lt,
+                .gt,
+                .lte,
+                .gte,
+                .eq,
+                .neq,
+                .ret,
+                .new_table,
+                => {
+                    try writer.print("    {s}\n", .{@tagName(code.op)});
+                },
+            }
+        }
+        try writer.print("  constants\n", .{});
+        for (module.constants.items, 0..) |constant, index| {
+            try writer.print("    {}: {}\n", .{ index, constant });
+        }
+        var iter = module.globals.iterator();
+        try writer.print("  globals\n", .{});
+        while (iter.next()) |kv| {
+            try writer.print("    {}\n", .{kv});
+        }
+        try writer.print("  strings\n", .{});
+        for (0..module.strings.items.len) |index| {
+            const start = index * 16;
+            if (start >= module.strings.items.len) break;
+
+            const end = @min(module.strings.items.len, index * 16 + 16);
+            try writer.print("    {x:0>8} \"{}\"\n", .{
+                start,
+                std.zig.fmtEscapes(module.strings.items[start..end]),
+            });
+        }
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const Module = struct {
+    moon: *Moon,
+    source: []const u8,
+    globals: SymbolTable,
+    code: std.ArrayListUnmanaged(Instruction),
+    constants: std.ArrayListUnmanaged(Constant),
+    strings: std.ArrayListUnmanaged(u8),
+
+    pub fn add_code(self: *Module, op: Opcode, arg: u8) MoonErrors!u24 {
+        const index: u24 = @intCast(self.code.items.len);
+        try self.code.append(self.moon.allocator, .{ .op = op, .arg = arg });
+        return index;
+    }
+
+    pub fn add_opcode(self: *Module, op: Opcode) MoonErrors!u24 {
+        return self.add_code(op, 0);
+    }
+
+    pub fn add_constant_i64(self: *Module, value: i64) MoonErrors!u8 {
+        const index: u8 = @intCast(self.constants.items.len);
+        try self.constants.append(self.moon.allocator, .{
+            .integer = value,
+        });
+        return index;
+    }
+
+    pub fn add_constant_f64(self: *Module, value: f64) MoonErrors!u8 {
+        const index: u8 = @intCast(self.constants.items.len);
+        try self.constants.append(self.moon.allocator, .{
+            .number = value,
+        });
+        return index;
+    }
+
+    pub fn add_constant_string(self: *Module, value: []const u8) MoonErrors!u8 {
+        const index: u8 = @intCast(self.constants.items.len);
+        const len: u32 = @intCast(value.len);
+        if (std.mem.indexOf(u8, self.strings.items, value)) |uoffset| {
+            const offset: u32 = @intCast(uoffset);
+            try self.constants.append(self.moon.allocator, .{
+                .string = .{
+                    .offset = offset,
+                    .len = len,
+                },
+            });
+        } else {
+            const offset: u32 = @intCast(self.strings.items.len);
+            try self.strings.appendSlice(self.moon.allocator, value);
+            try self.constants.append(self.moon.allocator, .{
+                .string = .{
+                    .offset = offset,
+                    .len = len,
+                },
+            });
+        }
+        return index;
+    }
+
+    pub fn deinit(self: *Module) void {
+        self.moon.allocator.free(self.source);
+        self.globals.deinit(self.moon.allocator);
+        self.code.deinit(self.moon.allocator);
+        self.constants.deinit(self.moon.allocator);
+        self.strings.deinit(self.moon.allocator);
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const Instruction = packed struct {
+    op: Opcode,
+    arg: u8,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const Opcode = enum(u8) {
+    nop,
+    drop,
+    add,
+    sub,
+    mul,
+    div,
+    mod,
+    lsh,
+    rsh,
+    lt,
+    gt,
+    lte,
+    gte,
+    eq,
+    neq,
+    integer,
+    load_constant,
+    load_local,
+    store_local,
+    load_global,
+    store_global,
+    call,
+    ret,
+    new_table,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const ConstantKind = enum {
+    integer,
+    number,
+    string,
+};
+
+pub const Constant = union(ConstantKind) {
+    integer: i64,
+    number: f64,
+    string: ConstantString,
+
+    pub fn format(self: Constant, _: anytype, _: anytype, writer: anytype) !void {
+        switch (self) {
+            .integer => |value| try writer.print("integer: {x}", .{value}),
+            .number => |value| try writer.print("number: {d}", .{value}),
+            .string => |value| try writer.print("string: {d}:{d}", .{
+                value.offset,
+                value.len,
+            }),
+        }
+    }
+};
+
+pub const ConstantString = packed struct {
+    offset: u32,
+    len: u32,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1379,20 +1641,6 @@ pub const Value = union(ValueKind) {
     string: StringIndex,
     function: FunctionIndex,
     module: ModuleIndex,
-
-    pub fn dump(ctx: Moon, value: Value, writer: anytype) !void {
-        switch (value) {
-            .nil => try writer.writeAll("nil"),
-            .integer => |i| try writer.print("{}", .{i}),
-            .number => |n| try writer.print("{d}", .{n}),
-            .string => |s| {
-                const str = ctx.get_string(s);
-                try writer.print("\"{}\"", .{std.zig.fmtEscapes(str)});
-            },
-            .function => try writer.print("function", .{}),
-            .module => try writer.print("module", .{}),
-        }
-    }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2879,6 +3127,14 @@ test "parse hello world" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+test "compile simple" {
+    try test_compile("3 + 4", "nil");
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 // test "compile hello world" {
 //     try test_compile(
 //         \\ const std = @import ("std");
@@ -2895,13 +3151,12 @@ test "parse hello world" {
 //         \\    0: "std"
 //         \\    1: "print"
 //         \\    2: "Hello, World!\n"
-//         \\    3: {}
 //         \\  code
 //         \\    push_constant 0
 //         \\    call_import 1
 //         \\    store_global std
 //         \\    push 2
-//         \\    push 3
+//         \\    new_table
 //         \\    load_global std
 //         \\    push_constant 1 // "print"
 //         \\    deref
