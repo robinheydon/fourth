@@ -37,7 +37,7 @@ pub const Moon = struct {
             .add => {
                 if (self.stack.pop()) |rhs| {
                     if (self.stack.pop()) |lhs| {
-                        const res = try Value.add(lhs, rhs);
+                        const res = try self.add(lhs, rhs);
                         try self.stack.append(self.allocator, res);
                         return;
                     }
@@ -71,6 +71,53 @@ pub const Moon = struct {
         return .{
             .moon = self,
         };
+    }
+
+    pub fn add(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        _ = self;
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l + r };
+                    },
+                    else => {},
+                }
+            },
+            else => {},
+        }
+        return error.TypeMismatch;
+    }
+
+    pub fn dump(self: *Moon, value: Value, writer: anytype) !void {
+        _ = self;
+        switch (value) {
+            .nil => try writer.writeAll("nil"),
+            .integer => |i| try writer.print("{}", .{i}),
+            .number => |n| try writer.print("{d}", .{n}),
+            .string => |s| {
+                // const str = self.get_string (s);
+                // try writer.print ("\"{}\"", .{std.zig.fmtEscapes (str)});
+                try writer.print("string#{}", .{s});
+            },
+            .function => |f| {
+                try writer.print("func#{}", .{f});
+            },
+            .module => |m| {
+                try writer.print("module#{}", .{m});
+            },
+        }
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const NodeIndex = enum(u32) {
+    _,
+    pub fn as_usize(self: NodeIndex) usize {
+        return @intFromEnum(self);
     }
 };
 
@@ -107,12 +154,12 @@ pub const Moon_AST = struct {
         self.nodes.deinit(self.moon.allocator);
     }
 
-    pub fn parse(self: *Moon_AST, iter: *TokenIterator) MoonErrors!usize {
+    pub fn parse(self: *Moon_AST, iter: *TokenIterator) MoonErrors!NodeIndex {
         return try self.parse_statements(iter);
     }
 
-    pub fn parse_statements(self: *Moon_AST, iter: *TokenIterator) MoonErrors!usize {
-        var stmts: std.ArrayListUnmanaged(usize) = .empty;
+    pub fn parse_statements(self: *Moon_AST, iter: *TokenIterator) MoonErrors!NodeIndex {
+        var stmts: std.ArrayListUnmanaged(NodeIndex) = .empty;
         errdefer stmts.deinit(self.moon.allocator);
 
         iter.skip_whitespace();
@@ -190,7 +237,7 @@ pub const Moon_AST = struct {
     pub fn parse_var_decl(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (iter.peek()) |tk| {
             if (self.trace) {
                 std.debug.print("parse_var_decl: {?}\n", .{tk});
@@ -224,7 +271,7 @@ pub const Moon_AST = struct {
     pub fn parse_const_decl(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (iter.peek()) |tk| {
             if (self.trace) {
                 std.debug.print("parse_const_decl: {?}\n", .{tk});
@@ -258,7 +305,7 @@ pub const Moon_AST = struct {
     pub fn parse_while(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (iter.peek()) |tk| {
             if (self.trace) {
                 std.debug.print("parse_while: {?}\n", .{tk});
@@ -278,7 +325,7 @@ pub const Moon_AST = struct {
     pub fn parse_if(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         var conds: std.ArrayListUnmanaged(IfCond) = .empty;
         errdefer conds.deinit(self.moon.allocator);
 
@@ -318,7 +365,7 @@ pub const Moon_AST = struct {
                 iter.skip_whitespace();
             }
 
-            var else_block: ?usize = null;
+            var else_block: ?NodeIndex = null;
 
             if (iter.peek()) |etk| {
                 if (etk.kind == .keyword_else) {
@@ -340,7 +387,7 @@ pub const Moon_AST = struct {
     pub fn parse_function_decl(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         iter.skip_whitespace();
         if (iter.peek()) |tk| {
             if (self.trace) {
@@ -421,7 +468,7 @@ pub const Moon_AST = struct {
     pub fn parse_block(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         iter.skip_whitespace();
         if (iter.peek()) |tk| {
             if (self.trace) {
@@ -454,7 +501,7 @@ pub const Moon_AST = struct {
     pub fn parse_expr(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
             std.debug.print("parse_expr: {?}\n", .{tk});
@@ -466,7 +513,7 @@ pub const Moon_AST = struct {
     pub fn parse_logical_or(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
             std.debug.print("parse_logical_or: {?}\n", .{tk});
@@ -493,7 +540,7 @@ pub const Moon_AST = struct {
     pub fn parse_logical_and(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
             std.debug.print("parse_logical_and: {?}\n", .{tk});
@@ -520,7 +567,7 @@ pub const Moon_AST = struct {
     pub fn parse_comparative(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
             std.debug.print("parse_comparative: {?}\n", .{tk});
@@ -582,7 +629,7 @@ pub const Moon_AST = struct {
     pub fn parse_addition(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
             std.debug.print("parse_addition: {?}\n", .{tk});
@@ -631,7 +678,7 @@ pub const Moon_AST = struct {
     pub fn parse_multiplication(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
             std.debug.print("parse_multiplication: {?}\n", .{tk});
@@ -691,7 +738,7 @@ pub const Moon_AST = struct {
         return lhs;
     }
 
-    pub fn parse_unary(self: *Moon_AST, iter: *TokenIterator) MoonErrors!usize {
+    pub fn parse_unary(self: *Moon_AST, iter: *TokenIterator) MoonErrors!NodeIndex {
         if (iter.peek()) |tk| {
             if (self.trace) {
                 std.debug.print("parse_atom: {}\n", .{tk});
@@ -725,7 +772,7 @@ pub const Moon_AST = struct {
         return self.parse_atom(iter);
     }
 
-    pub fn parse_atom(self: *Moon_AST, iter: *TokenIterator) MoonErrors!usize {
+    pub fn parse_atom(self: *Moon_AST, iter: *TokenIterator) MoonErrors!NodeIndex {
         iter.skip_whitespace();
         if (iter.peek()) |tk| {
             if (self.trace) {
@@ -781,7 +828,7 @@ pub const Moon_AST = struct {
         return error.InvalidExpression;
     }
 
-    pub fn parse_prefix(self: *Moon_AST, iter: *TokenIterator) MoonErrors!usize {
+    pub fn parse_prefix(self: *Moon_AST, iter: *TokenIterator) MoonErrors!NodeIndex {
         if (iter.peek()) |tk| {
             if (self.trace) {
                 std.debug.print("parse_prefix: {}\n", .{tk});
@@ -833,7 +880,7 @@ pub const Moon_AST = struct {
     pub fn parse_table_decl(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors!usize {
+    ) MoonErrors!NodeIndex {
         var entries: std.ArrayListUnmanaged(TableEntry) = .empty;
         errdefer entries.deinit(self.moon.allocator);
 
@@ -882,7 +929,7 @@ pub const Moon_AST = struct {
                 }
             } else if (is_expression(tk.kind)) {
                 const first = try self.parse_expr(iter);
-                var second: ?usize = null;
+                var second: ?NodeIndex = null;
 
                 iter.skip_whitespace();
 
@@ -956,8 +1003,8 @@ pub const Moon_AST = struct {
     pub fn parse_args(
         self: *Moon_AST,
         iter: *TokenIterator,
-    ) MoonErrors![]usize {
-        var args: std.ArrayListUnmanaged(usize) = .empty;
+    ) MoonErrors![]NodeIndex {
+        var args: std.ArrayListUnmanaged(NodeIndex) = .empty;
         errdefer args.deinit(self.moon.allocator);
 
         iter.skip_whitespace();
@@ -1006,30 +1053,27 @@ pub const Moon_AST = struct {
             .op_com,
             .keyword_true,
             .keyword_false,
+            .open_block,
             => return true,
             else => return false,
         }
     }
 
-    pub fn new_node(self: *Moon_AST, node: AST_Node) MoonErrors!usize {
+    pub fn new_node(self: *Moon_AST, node: AST_Node) MoonErrors!NodeIndex {
         const index = self.nodes.items.len;
         try self.nodes.append(self.moon.allocator, node);
-        return index;
+        return @enumFromInt(@as(u32, @intCast(index)));
     }
 
-    pub fn update_node(self: *Moon_AST, index: usize, node: AST_Node) void {
-        std.debug.assert(index < self.nodes.items.len);
-        self.nodes.items[index] = node;
-    }
-
-    pub fn dump(self: *Moon_AST, index: usize, writer: anytype) !void {
+    pub fn dump(self: *Moon_AST, index: NodeIndex, writer: anytype) !void {
         try writer.print("AST\n", .{});
         try self.dump_internal(index, 1, writer);
     }
 
     const lots_of_spaces = " " ** 256;
 
-    fn dump_internal(self: *Moon_AST, index: usize, depth: usize, writer: anytype) !void {
+    fn dump_internal(self: *Moon_AST, nindex: NodeIndex, depth: usize, writer: anytype) !void {
+        const index = nindex.as_usize();
         if (index < self.nodes.items.len) {
             try writer.print("{s}", .{lots_of_spaces[0 .. depth * 2]});
             const node = self.nodes.items[index];
@@ -1084,7 +1128,8 @@ pub const Moon_AST = struct {
                     try writer.print("\n", .{});
                     try self.dump_internal(call.func, depth + 1, writer);
                     for (call.args) |item| {
-                        try self.dump_internal(item, depth + 1, writer);
+                        try writer.print("{s}  arg\n", .{lots_of_spaces[0 .. depth * 2]});
+                        try self.dump_internal(item, depth + 2, writer);
                     }
                 },
                 .statements => |stmts| {
@@ -1218,9 +1263,9 @@ pub const AST_Node = union(AST_NodeKind) {
     op_and: AST_BinaryOp,
     op_or: AST_BinaryOp,
     op_dot: AST_BinaryOp,
-    op_not: usize,
-    op_neg: usize,
-    op_com: usize,
+    op_not: NodeIndex,
+    op_neg: NodeIndex,
+    op_com: NodeIndex,
     call: Call,
     statements: AST_List,
     var_decl: Decl,
@@ -1229,42 +1274,42 @@ pub const AST_Node = union(AST_NodeKind) {
     if_stmt: IfStmt,
     assignment: AST_BinaryOp,
     func_decl: FunctionDecl,
-    return_stmt: usize,
+    return_stmt: NodeIndex,
     table_decl: []TableEntry,
 };
 
 pub const AST_BinaryOp = struct {
-    lhs: usize,
-    rhs: usize,
+    lhs: NodeIndex,
+    rhs: NodeIndex,
 };
 
 pub const AST_List = struct {
-    items: []usize,
+    items: []NodeIndex,
 };
 
 pub const Call = struct {
-    func: usize,
-    args: []usize,
+    func: NodeIndex,
+    args: []NodeIndex,
 };
 
 pub const Decl = struct {
     name: []const u8,
-    expr: usize,
+    expr: NodeIndex,
 };
 
 pub const WhileStmt = struct {
-    expr: usize,
-    block: usize,
+    expr: NodeIndex,
+    block: NodeIndex,
 };
 
 pub const IfStmt = struct {
     conds: []IfCond,
-    else_block: ?usize,
+    else_block: ?NodeIndex,
 };
 
 pub const IfCond = struct {
-    expr: usize,
-    block: usize,
+    expr: NodeIndex,
+    block: NodeIndex,
 };
 
 pub const Parameter = struct {
@@ -1274,12 +1319,12 @@ pub const Parameter = struct {
 pub const FunctionDecl = struct {
     name: []const u8,
     params: []Parameter,
-    block: usize,
+    block: NodeIndex,
 };
 
 pub const TableEntry = struct {
-    key: ?usize,
-    value: usize,
+    key: ?NodeIndex,
+    value: NodeIndex,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1320,6 +1365,7 @@ pub const ValueKind = enum {
     number,
     string,
     function,
+    module,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1332,20 +1378,20 @@ pub const Value = union(ValueKind) {
     number: f64,
     string: StringIndex,
     function: FunctionIndex,
+    module: ModuleIndex,
 
-    pub fn add(lhs: Value, rhs: Value) MoonErrors!Value {
-        switch (lhs) {
-            .integer => |l| {
-                switch (rhs) {
-                    .integer => |r| {
-                        return .{ .integer = l + r };
-                    },
-                    else => {},
-                }
+    pub fn dump(ctx: Moon, value: Value, writer: anytype) !void {
+        switch (value) {
+            .nil => try writer.writeAll("nil"),
+            .integer => |i| try writer.print("{}", .{i}),
+            .number => |n| try writer.print("{d}", .{n}),
+            .string => |s| {
+                const str = ctx.get_string(s);
+                try writer.print("\"{}\"", .{std.zig.fmtEscapes(str)});
             },
-            else => {},
+            .function => try writer.print("function", .{}),
+            .module => try writer.print("module", .{}),
         }
-        return error.TypeMismatch;
     }
 };
 
@@ -1368,6 +1414,12 @@ pub const StringIndex = enum(u32) { _ };
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const FunctionIndex = enum(u32) { _ };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const ModuleIndex = enum(u32) { _ };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1423,6 +1475,9 @@ pub const TokenIterator = struct {
         cr,
         dot,
         semicolon,
+        builtin,
+        literal_identifier,
+        literal_identifier_escaped,
     };
 
     pub fn peek(self: *TokenIterator) ?Token {
@@ -1579,6 +1634,10 @@ pub const TokenIterator = struct {
                     '\n' => {
                         self.index += 1;
                         continue :next_token .cr;
+                    },
+                    '@' => {
+                        self.index += 1;
+                        continue :next_token .builtin;
                     },
                     else => {
                         self.index += 1;
@@ -1894,11 +1953,14 @@ pub const TokenIterator = struct {
                     .str = self.source[start..self.index],
                 };
                 const ch = self.source[self.index];
-                if (ch == 'n') {
-                    self.index += 1;
-                    continue :next_token .string_literal;
-                } else {
-                    continue :next_token .string_literal;
+                switch (ch) {
+                    'n', 'r', 't', '\"' => {
+                        self.index += 1;
+                        continue :next_token .string_literal;
+                    },
+                    else => {
+                        continue :next_token .string_literal;
+                    },
                 }
             },
             .semicolon => {
@@ -1924,6 +1986,68 @@ pub const TokenIterator = struct {
                     .kind = .eol,
                     .str = self.source[start..self.index],
                 };
+            },
+            .builtin => {
+                if (self.index >= self.source.len) return .{
+                    .kind = .identifier,
+                    .str = self.source[start..self.index],
+                };
+                const ch = self.source[self.index];
+                switch (ch) {
+                    'a'...'z',
+                    'A'...'Z',
+                    '_',
+                    => {
+                        continue :next_token .identifier;
+                    },
+                    '"' => {
+                        self.index += 1;
+                        start = self.index;
+                        continue :next_token .literal_identifier;
+                    },
+                    else => {
+                        return .{
+                            .kind = .identifier,
+                            .str = self.source[start..self.index],
+                        };
+                    },
+                }
+            },
+            .literal_identifier => {
+                if (self.index >= self.source.len) return .{
+                    .kind = .identifier,
+                    .str = self.source[start..self.index],
+                };
+                const ch = self.source[self.index];
+                if (ch == '\\') {
+                    self.index += 1;
+                    continue :next_token .literal_identifier_escaped;
+                } else if (ch == '"') {
+                    self.index += 1;
+                    return .{
+                        .kind = .identifier,
+                        .str = self.source[start .. self.index - 1],
+                    };
+                } else {
+                    self.index += 1;
+                    continue :next_token .literal_identifier;
+                }
+            },
+            .literal_identifier_escaped => {
+                if (self.index >= self.source.len) return .{
+                    .kind = .identifier,
+                    .str = self.source[start..self.index],
+                };
+                const ch = self.source[self.index];
+                switch (ch) {
+                    'n', 'r', 't', '\"' => {
+                        self.index += 1;
+                        continue :next_token .literal_identifier;
+                    },
+                    else => {
+                        continue :next_token .literal_identifier;
+                    },
+                }
             },
         }
         self.index += 1;
@@ -2040,6 +2164,7 @@ pub const Kind = enum(u8) {
     keyword_true,
     keyword_var,
     keyword_while,
+    keyword_at_import,
     eol,
     eos,
 };
@@ -2081,8 +2206,8 @@ fn test_tokenize(str: []const u8, tokens: []const Token) !void {
     var iter = tokenize(str);
     var index: usize = 0;
     while (iter.next()) |tk| {
-        try std.testing.expectEqual(tk.kind, tokens[index].kind);
-        try std.testing.expectEqualStrings(tk.str, tokens[index].str);
+        try std.testing.expectEqual(tokens[index].kind, tk.kind);
+        try std.testing.expectEqualStrings(tokens[index].str, tk.str);
         index += 1;
     }
     try std.testing.expectEqual(index, tokens.len);
@@ -2120,6 +2245,26 @@ fn test_parse(str: []const u8, result: []const u8, options: TestParseOptions) !v
     const writer = buffer.writer();
 
     try tree.dump(root, writer);
+
+    try std.testing.expectEqualStrings(result, buffer.items);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn test_compile(str: []const u8, result: []const u8) !void {
+    var moon = Moon.init(std.testing.allocator);
+    defer moon.deinit();
+
+    const module = try moon.compile(str);
+
+    var buffer = std.ArrayList(u8).init(std.testing.allocator);
+    defer buffer.deinit();
+
+    const writer = buffer.writer();
+
+    try moon.dump(module, writer);
 
     try std.testing.expectEqualStrings(result, buffer.items);
 }
@@ -2184,6 +2329,17 @@ test "tokenize keywords" {
         .{ .kind = .keyword_break, .str = "break" },
         .{ .kind = .keyword_continue, .str = "continue" },
         .{ .kind = .keyword_return, .str = "return" },
+    });
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "tokenize non-keywords" {
+    try test_tokenize("@\"if\" @import", &[_]Token{
+        .{ .kind = .identifier, .str = "if" },
+        .{ .kind = .identifier, .str = "@import" },
     });
 }
 
@@ -2471,16 +2627,23 @@ test "parse call" {
         \\  statements
         \\    call
         \\      identifier print
-        \\      string "\"Hello, World!\\n\""
-        \\      integer_literal 32
-        \\      op_neg
-        \\        integer_literal 33
-        \\      op_com
-        \\        integer_literal 34
-        \\      boolean_true
-        \\      boolean_false
-        \\      op_not
+        \\      arg
+        \\        string "\"Hello, World!\\n\""
+        \\      arg
+        \\        integer_literal 32
+        \\      arg
+        \\        op_neg
+        \\          integer_literal 33
+        \\      arg
+        \\        op_com
+        \\          integer_literal 34
+        \\      arg
         \\        boolean_true
+        \\      arg
+        \\        boolean_false
+        \\      arg
+        \\        op_not
+        \\          boolean_true
         \\
     , .{});
 }
@@ -2503,21 +2666,22 @@ test "parse dots" {
         \\            identifier std
         \\            identifier math
         \\          identifier sqrt
-        \\        op_add
-        \\          op_mul
-        \\            op_dot
-        \\              identifier pos
-        \\              identifier x
-        \\            op_dot
-        \\              identifier pos
-        \\              identifier x
-        \\          op_mul
-        \\            op_dot
-        \\              identifier pos
-        \\              identifier y
-        \\            op_dot
-        \\              identifier pos
-        \\              identifier y
+        \\        arg
+        \\          op_add
+        \\            op_mul
+        \\              op_dot
+        \\                identifier pos
+        \\                identifier x
+        \\              op_dot
+        \\                identifier pos
+        \\                identifier x
+        \\            op_mul
+        \\              op_dot
+        \\                identifier pos
+        \\                identifier y
+        \\              op_dot
+        \\                identifier pos
+        \\                identifier y
         \\
     , .{});
 }
@@ -2601,7 +2765,8 @@ test "parse function declaration" {
         \\      statements
         \\        call
         \\          identifier print
-        \\          string "\"\\n\""
+        \\          arg
+        \\            string "\"\\n\""
         \\
     , .{});
 }
@@ -2680,6 +2845,70 @@ test "parse table array" {
         \\
     , .{});
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "parse hello world" {
+    try test_parse(
+        \\ const std = @import ("std")
+        \\ std.print ("Hello, World!\n", {})
+        \\
+    ,
+        \\AST
+        \\  statements
+        \\    const_decl std
+        \\      call
+        \\        identifier @import
+        \\        arg
+        \\          string "\"std\""
+        \\    call
+        \\      op_dot
+        \\        identifier std
+        \\        identifier print
+        \\      arg
+        \\        string "\"Hello, World!\\n\""
+        \\      arg
+        \\        table_decl
+        \\
+    , .{});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// test "compile hello world" {
+//     try test_compile(
+//         \\ const std = @import ("std");
+//         \\ std.print ("Hello, World!\n", {})
+//         \\
+//     ,
+//         \\module
+//         \\  source
+//         \\    " const std = @import (\"std\");"
+//         \\    " std.print (\"Hello, World!\\n\", {})"
+//         \\  globals
+//         \\    std
+//         \\  constants
+//         \\    0: "std"
+//         \\    1: "print"
+//         \\    2: "Hello, World!\n"
+//         \\    3: {}
+//         \\  code
+//         \\    push_constant 0
+//         \\    call_import 1
+//         \\    store_global std
+//         \\    push 2
+//         \\    push 3
+//         \\    load_global std
+//         \\    push_constant 1 // "print"
+//         \\    deref
+//         \\    call 2
+//         \\
+//     );
+// }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
