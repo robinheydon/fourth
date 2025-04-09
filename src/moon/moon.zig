@@ -1137,11 +1137,10 @@ pub const Moon_AST = struct {
                     try writer.print("\n", .{});
                     for (table) |entry| {
                         if (entry.key) |key| {
-                            try self.dump_internal(key, depth + 1, writer);
-                        } else {
-                            try writer.print("{s}", .{lots_of_spaces[0 .. depth * 2]});
-                            try writer.print("  null\n", .{});
+                            try writer.print("{s}  key\n", .{lots_of_spaces[0 .. depth * 2]});
+                            try self.dump_internal(key, depth + 2, writer);
                         }
+                        try writer.print("{s}  value\n", .{lots_of_spaces[0 .. depth * 2]});
                         try self.dump_internal(entry.value, depth + 2, writer);
                     }
                 },
@@ -2616,7 +2615,7 @@ test "parse table array" {
         \\ const empty = {}
         \\ const names = { "Alice", "Bob", "Charlie" }
         \\ const look = { "Alice" = 3, "Bob" = 4, "Charlie" = 2 }
-        \\ const mixed = { 3 + 4, "Bob", "x" = 5 }
+        \\ const mixed = { 3 + 4, "Bob", "x" = 5, 5 = "x", 7 + 9 = 16 }
         \\ const dot = { .x = 7, .y = 6 }
         \\
     ,
@@ -2626,35 +2625,57 @@ test "parse table array" {
         \\      table_decl
         \\    const_decl names
         \\      table_decl
-        \\        null
+        \\        value
         \\          string "\"Alice\""
-        \\        null
+        \\        value
         \\          string "\"Bob\""
-        \\        null
+        \\        value
         \\          string "\"Charlie\""
         \\    const_decl look
         \\      table_decl
-        \\        string "\"Alice\""
+        \\        key
+        \\          string "\"Alice\""
+        \\        value
         \\          integer_literal 3
-        \\        string "\"Bob\""
+        \\        key
+        \\          string "\"Bob\""
+        \\        value
         \\          integer_literal 4
-        \\        string "\"Charlie\""
+        \\        key
+        \\          string "\"Charlie\""
+        \\        value
         \\          integer_literal 2
         \\    const_decl mixed
         \\      table_decl
-        \\        null
+        \\        value
         \\          op_add
         \\            integer_literal 3
         \\            integer_literal 4
-        \\        null
+        \\        value
         \\          string "\"Bob\""
-        \\        string "\"x\""
+        \\        key
+        \\          string "\"x\""
+        \\        value
         \\          integer_literal 5
+        \\        key
+        \\          integer_literal 5
+        \\        value
+        \\          string "\"x\""
+        \\        key
+        \\          op_add
+        \\            integer_literal 7
+        \\            integer_literal 9
+        \\        value
+        \\          integer_literal 16
         \\    const_decl dot
         \\      table_decl
-        \\        identifier x
+        \\        key
+        \\          identifier x
+        \\        value
         \\          integer_literal 7
-        \\        identifier y
+        \\        key
+        \\          identifier y
+        \\        value
         \\          integer_literal 6
         \\
     , .{});
