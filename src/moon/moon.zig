@@ -11,15 +11,13 @@ const std = @import("std");
 pub const Moon = struct {
     allocator: std.mem.Allocator,
 
-    modules: std.ArrayListUnmanaged(*Module),
+    modules: std.ArrayListUnmanaged(*Module) = .empty,
 
-    stack: std.ArrayListUnmanaged(Value),
+    stack: std.ArrayListUnmanaged(Value) = .empty,
 
     pub fn init(alloc: std.mem.Allocator) Moon {
         return .{
             .allocator = alloc,
-            .modules = .empty,
-            .stack = .empty,
         };
     }
 
@@ -29,7 +27,6 @@ pub const Moon = struct {
             self.allocator.destroy(module);
         }
         self.modules.deinit(self.allocator);
-
         self.stack.deinit(self.allocator);
     }
 
@@ -89,33 +86,33 @@ pub const Moon = struct {
         defer tree.deinit();
 
         const root = try tree.parse(&iter);
-        _ = root;
+
+        {
+            var buffer = std.ArrayList(u8).init(std.testing.allocator);
+            defer buffer.deinit();
+
+            const writer = buffer.writer();
+            try tree.dump(root, writer);
+            std.debug.print("{s}\n", .{buffer.items});
+        }
 
         var module = try self.allocator.create(Module);
         module.* = .{
             .moon = self,
-            .source = try self.allocator.dupe(u8, source),
             .code = .empty,
             .constants = .empty,
             .globals = .empty,
+            .functions = .empty,
             .strings = .empty,
         };
         errdefer module.deinit();
 
+        _ = try module.add_constant_string(source);
+
         _ = try module.add_code(.integer, 3);
-        {
-            const value_index = try module.add_constant_i64(4);
-            _ = try module.add_code(.load_constant, value_index);
-        }
-
-        _ = try module.add_opcode(.add);
-        _ = try module.add_opcode(.ret);
-
-        _ = try module.add_constant_f64(3.1415926);
-        _ = try module.add_constant_string("Hello, World!\n");
-        _ = try module.add_constant_string("Hello");
-        _ = try module.add_constant_string("World");
-        _ = try module.add_constant_string("or");
+        _ = try module.add_code(.integer, 4);
+        _ = try module.add_code(.add, 0);
+        _ = try module.add_code(.ret, 0);
 
         return module;
     }
@@ -168,46 +165,73 @@ pub const Moon = struct {
         _ = self;
 
         try writer.print("module\n", .{});
-        try writer.print("  source\n", .{});
-        try writer.print("    \"{}\"\n", .{std.zig.fmtEscapes(module.source)});
         try writer.print("  code\n", .{});
-        for (module.code.items) |code| {
-            switch (code.op) {
-                .integer,
-                .load_constant,
-                .load_local,
-                .store_local,
-                .load_global,
-                .store_global,
-                .call,
-                => {
-                    try writer.print("    {s} {}\n", .{ @tagName(code.op), code.arg });
+        for (module.code.items) |instruction| {
+            switch (instruction) {
+                .short => |code| {
+                    switch (code.op) {
+                        .constant,
+                        .jmpk,
+                        => {
+                            const name = @tagName(code.op);
+                            try writer.print("    {s} {}\n", .{ name, code.arg });
+                        },
+                        .jmp,
+                        .bra,
+                        => {
+                            const iarg: i13 = @bitCast(code.arg);
+                            try writer.print("    {s} {}\n", .{ @tagName(code.op), iarg });
+                        },
+                    }
                 },
-                .nop,
-                .drop,
-                .add,
-                .sub,
-                .mul,
-                .div,
-                .mod,
-                .lsh,
-                .rsh,
-                .lt,
-                .gt,
-                .lte,
-                .gte,
-                .eq,
-                .neq,
-                .ret,
-                .new_table,
-                => {
-                    try writer.print("    {s}\n", .{@tagName(code.op)});
+                .long => |code| {
+                    switch (code.op) {
+                        .integer,
+                        .load_local,
+                        .store_local,
+                        .load_global,
+                        .store_global,
+                        .call,
+                        => {
+                            try writer.print("    {s} {}\n", .{ @tagName(code.op), code.arg });
+                        },
+                        .nop,
+                        .drop,
+                        .add,
+                        .sub,
+                        .mul,
+                        .div,
+                        .mod,
+                        .lsh,
+                        .rsh,
+                        .lt,
+                        .gt,
+                        .lte,
+                        .gte,
+                        .eq,
+                        .neq,
+                        .ret,
+                        .new_table,
+                        => {
+                            try writer.print("    {s}\n", .{@tagName(code.op)});
+                        },
+                    }
                 },
             }
         }
         try writer.print("  constants\n", .{});
         for (module.constants.items, 0..) |constant, index| {
-            try writer.print("    {}: {}\n", .{ index, constant });
+            try writer.print("    {}: ", .{index});
+            switch (constant) {
+                .integer => |value| try writer.print("integer: {x}", .{value}),
+                .number => |value| try writer.print("number: {d}", .{value}),
+                .string => |value| try writer.print("string: \"{}\"", .{
+                    std.zig.fmtEscapes(
+                        module.strings.items[value.offset .. value.offset + value.len],
+                    ),
+                }),
+            }
+            try writer.print("\n", .{});
         }
         var iter = module.globals.iterator();
         try writer.print("  globals\n", .{});
@@ -232,22 +256,42 @@ pub const Moon = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const CodeAddr = enum (u24) { _ };
+
+const Function = struct {
+    start: CodeAddr,
+    end: CodeAddr,
+};
+
 const Module = struct {
     moon: *Moon,
-    source: []const u8,
     globals: SymbolTable,
     code: std.ArrayListUnmanaged(Instruction),
     constants: std.ArrayListUnmanaged(Constant),
     strings: std.ArrayListUnmanaged(u8),
+    functions: std.ArrayListUnmanaged(Function),
 
-    pub fn add_code(self: *Module, op: Opcode, arg: u8) MoonErrors!u24 {
-        const index: u24 = @intCast(self.code.items.len);
-        try self.code.append(self.moon.allocator, .{ .op = op, .arg = arg });
+    pub fn add_short_code(self: *Module, op: ShortOpcode, arg: ShortArg) MoonErrors!CodeAddr {
+        const index: CodeAddr = @intCast(self.code.items.len);
+        try self.code.append(self.moon.allocator, .{ .short = .{ .op = op, .arg = arg } });
         return index;
     }
 
-    pub fn add_opcode(self: *Module, op: Opcode) MoonErrors!u24 {
-        return self.add_code(op, 0);
+    pub fn add_code(self: *Module, op: LongOpcode, arg: LongArg) MoonErrors!CodeAddr {
+        const index: u24 = @intCast(self.code.items.len);
+        try self.code.append(self.moon.allocator, .{ .long = .{ .op = op, .arg = arg } });
+        return @enumFromInt (index);
+    }
+
+    pub fn add_jmp(self: *Module, offset: CodeAddr) MoonErrors!void {
+        const index: u24 = @intCast(self.code.items.len);
+        const diff = @as(i64, @intCast(offset)) - @as(i64, @intCast(index));
+        if (diff >= std.math.minInt(ShortIArg) and diff <= std.math.maxInt(ShortIArg)) {
+            _ = try self.add_short_code(.jmp, @bitCast(@as(ShortIArg, @truncate(diff))));
+        } else {
+            const kindex = try self.add_constant_i64(diff);
+            _ = try self.add_short_code(.jmpk, kindex);
+        }
     }
 
     pub fn add_constant_i64(self: *Module, value: i64) MoonErrors!u8 {
@@ -291,11 +335,10 @@ const Module = struct {
     }
 
     pub fn deinit(self: *Module) void {
-        self.moon.allocator.free(self.source);
-        self.globals.deinit(self.moon.allocator);
         self.code.deinit(self.moon.allocator);
         self.constants.deinit(self.moon.allocator);
         self.strings.deinit(self.moon.allocator);
+        self.functions.deinit(self.moon.allocator);
     }
 };
 
@@ -303,16 +346,42 @@ const Module = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const Instruction = packed struct {
-    op: Opcode,
-    arg: u8,
+pub const InstructionKind = enum(u1) {
+    short,
+    long,
+};
+
+pub const Instruction = union(InstructionKind) {
+    short: ShortInstruction,
+    long: LongInstruction,
+};
+
+pub const ShortInstruction = packed struct(u15) {
+    op: ShortOpcode,
+    arg: ShortArg,
+};
+
+pub const LongInstruction = packed struct(u15) {
+    op: LongOpcode,
+    arg: LongArg,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const Opcode = enum(u8) {
+pub const ShortOpcode = enum(u2) {
+    jmp,
+    bra,
+    jmpk,
+    constant,
+};
+
+pub const ShortArg = u13;
+pub const ShortIArg = i13;
+pub const LongArg = u8;
+
+pub const LongOpcode = enum(u7) {
     nop,
     drop,
     add,
@@ -329,7 +398,6 @@ pub const Opcode = enum(u8) {
     eq,
     neq,
     integer,
-    load_constant,
     load_local,
     store_local,
     load_global,
@@ -353,18 +421,19 @@ pub const Constant = union(ConstantKind) {
     integer: i64,
     number: f64,
     string: ConstantString,
-
-    pub fn format(self: Constant, _: anytype, _: anytype, writer: anytype) !void {
-        switch (self) {
-            .integer => |value| try writer.print("integer: {x}", .{value}),
-            .number => |value| try writer.print("number: {d}", .{value}),
-            .string => |value| try writer.print("string: {d}:{d}", .{
-                value.offset,
-                value.len,
-            }),
-        }
-    }
 };
+
+//     pub fn format(self: Constant, _: anytype, _: anytype, writer: anytype) !void {
+//         switch (self) {
+//             .integer => |value| try writer.print("integer: {x}", .{value}),
+//             .number => |value| try writer.print("number: {d}", .{value}),
+//             .string => |value| try writer.print("string: \"{}\" ({d}:{d})", .{
+//                 std.zig.fmtEscapes(
+//                 value.offset,
+//                 value.len,
+//             }),
+//         }
+//     }
 
 pub const ConstantString = packed struct {
     offset: u32,
