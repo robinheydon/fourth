@@ -87,7 +87,7 @@ pub const Moon = struct {
 
         const root = try tree.parse(&iter);
 
-        {
+        if (true) {
             var buffer = std.ArrayList(u8).init(std.testing.allocator);
             defer buffer.deinit();
 
@@ -105,14 +105,14 @@ pub const Moon = struct {
             .functions = .empty,
             .strings = .empty,
         };
-        errdefer module.deinit();
+        errdefer {
+            module.deinit();
+            self.allocator.destroy(module);
+        }
 
-        _ = try module.add_constant_string(source);
+        // _ = try module.add_constant_string(source);
 
-        _ = try module.add_code(.integer, 3);
-        _ = try module.add_code(.integer, 4);
-        _ = try module.add_code(.add, 0);
-        _ = try module.add_code(.ret, 0);
+        try module.generate_code(&tree, root);
 
         return module;
     }
@@ -166,26 +166,34 @@ pub const Moon = struct {
 
         try writer.print("module\n", .{});
         try writer.print("  code\n", .{});
-        for (module.code.items) |instruction| {
+        for (module.code.items, 0..) |instruction, addr| {
             switch (instruction) {
                 .short => |code| {
                     switch (code.op) {
                         .constant,
                         .jmpk,
+                        .brak,
                         => {
                             const name = @tagName(code.op);
-                            try writer.print("    {s} {}\n", .{ name, code.arg });
+                            try writer.print("    {x:0>6} {s} {}\n", .{
+                                addr,
+                                name,
+                                code.arg,
+                            });
                         },
                         .jmp,
                         .bra,
                         => {
-                            const iarg: i13 = @bitCast(code.arg);
-                            try writer.print("    {s} {}\n", .{ @tagName(code.op), iarg });
+                            const name = @tagName(code.op);
+                            const iarg: ShortIArg = @bitCast(code.arg);
+                            try writer.print("    {x:0>6} {s} {}\n", .{ addr, name, iarg });
                         },
                     }
                 },
                 .long => |code| {
                     switch (code.op) {
+                        .nop,
+                        .boolean,
                         .integer,
                         .load_local,
                         .store_local,
@@ -193,9 +201,12 @@ pub const Moon = struct {
                         .store_global,
                         .call,
                         => {
-                            try writer.print("    {s} {}\n", .{ @tagName(code.op), code.arg });
+                            try writer.print("    {x:0>6} {s} {}\n", .{
+                                addr,
+                                @tagName(code.op),
+                                code.arg,
+                            });
                         },
-                        .nop,
                         .drop,
                         .add,
                         .sub,
@@ -204,16 +215,25 @@ pub const Moon = struct {
                         .mod,
                         .lsh,
                         .rsh,
+                        .band,
+                        .bor,
+                        .bxor,
                         .lt,
                         .gt,
                         .lte,
                         .gte,
                         .eq,
                         .neq,
+                        .@"and",
+                        .@"or",
+                        .deref,
                         .ret,
                         .new_table,
                         => {
-                            try writer.print("    {s}\n", .{@tagName(code.op)});
+                            try writer.print("    {x:0>6} {s}\n", .{
+                                addr,
+                                @tagName(code.op),
+                            });
                         },
                     }
                 },
@@ -239,6 +259,7 @@ pub const Moon = struct {
             try writer.print("    {}\n", .{kv});
         }
         try writer.print("  strings\n", .{});
+
         for (0..module.strings.items.len) |index| {
             const start = index * 16;
             if (start >= module.strings.items.len) break;
@@ -256,7 +277,7 @@ pub const Moon = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const CodeAddr = enum (u24) { _ };
+const CodeAddr = enum(u24) { _ };
 
 const Function = struct {
     start: CodeAddr,
@@ -271,26 +292,182 @@ const Module = struct {
     strings: std.ArrayListUnmanaged(u8),
     functions: std.ArrayListUnmanaged(Function),
 
+    pub fn generate_code(
+        self: *Module,
+        tree: *const Moon_AST,
+        node_index: NodeIndex,
+    ) MoonErrors!void {
+        const index = node_index.as_usize();
+        const node = tree.nodes.items[index];
+        switch (node) {
+            .op_add,
+            .op_sub,
+            .op_mul,
+            .op_div,
+            .op_mod,
+            .op_lsh,
+            .op_rsh,
+            .op_band,
+            .op_bor,
+            .op_bxor,
+            .op_lt,
+            .op_lte,
+            .op_gt,
+            .op_gte,
+            .op_eq,
+            .op_neq,
+            .op_and,
+            .op_or,
+            .op_dot,
+            => |op| {
+                try self.generate_code(tree, op.lhs);
+                try self.generate_code(tree, op.rhs);
+            },
+            else => {},
+        }
+        switch (node) {
+            .boolean_true => {
+                _ = try self.add_code(.boolean, 1);
+            },
+            .boolean_false => {
+                _ = try self.add_code(.boolean, 0);
+            },
+            .integer_literal => |i| {
+                if (i >= std.math.minInt(LongIArg) and i <= std.math.maxInt(LongIArg)) {
+                    const value: LongArg = @bitCast(@as(LongIArg, @truncate(i)));
+                    _ = try self.add_code(.integer, value);
+                }
+            },
+            .string => |str| {
+                if (string_is_simple(str)) {
+                    const i = try self.add_constant_string(str);
+                    if (i <= std.math.maxInt(ShortArg)) {
+                        _ = try self.add_short_code(.constant, @truncate(i));
+                    } else {
+                        return error.TooManyConstants;
+                    }
+                } else {
+                    var buffer = std.ArrayList(u8).init(self.moon.allocator);
+                    defer buffer.deinit();
+                    const writer = buffer.writer();
+                    try expand_string(str, writer);
+                    const i = try self.add_constant_string(buffer.items);
+                    if (i <= std.math.maxInt(ShortArg)) {
+                        _ = try self.add_short_code(.constant, @truncate(i));
+                    } else {
+                        return error.TooManyConstants;
+                    }
+                }
+            },
+            .op_add => _ = try self.add_code(.add, 0),
+            .op_sub => _ = try self.add_code(.sub, 0),
+            .op_mul => _ = try self.add_code(.mul, 0),
+            .op_div => _ = try self.add_code(.div, 0),
+            .op_mod => _ = try self.add_code(.mod, 0),
+            .op_lsh => _ = try self.add_code(.lsh, 0),
+            .op_rsh => _ = try self.add_code(.rsh, 0),
+            .op_band => _ = try self.add_code(.band, 0),
+            .op_bor => _ = try self.add_code(.bor, 0),
+            .op_bxor => _ = try self.add_code(.bxor, 0),
+            .op_lt => _ = try self.add_code(.lt, 0),
+            .op_gt => _ = try self.add_code(.gt, 0),
+            .op_lte => _ = try self.add_code(.lte, 0),
+            .op_gte => _ = try self.add_code(.gte, 0),
+            .op_eq => _ = try self.add_code(.eq, 0),
+            .op_neq => _ = try self.add_code(.neq, 0),
+            .op_and => _ = try self.add_code(.@"and", 0),
+            .op_or => _ = try self.add_code(.@"or", 0),
+            .op_dot => _ = try self.add_code(.deref, 0),
+            .statements => |stmts| {
+                for (stmts.items) |item| {
+                    try self.generate_code(tree, item);
+                }
+            },
+            .while_stmt => |stmt| {
+                const first_jump = try self.add_short_code(.jmp, 0);
+                const start_block = self.get_code_addr();
+                try self.generate_code(tree, stmt.block);
+                const end_block = self.get_code_addr();
+                try self.generate_code(tree, stmt.expr);
+                try self.add_bra(start_block);
+                try self.patch_jmp(first_jump, end_block);
+            },
+            .call => |stmt| {
+                try self.generate_code(tree, stmt.func);
+                for (stmt.args) |arg| {
+                    try self.generate_code(tree, arg);
+                }
+                const num_args: LongArg = @truncate(stmt.args.len);
+                _ = try self.add_code(.call, num_args);
+            },
+            .identifier => |str| {
+                const i = try self.add_constant_string(str);
+                const arg: LongArg = @truncate(i);
+                _ = try self.add_code(.nop, arg);
+            },
+            else => {
+                std.debug.print("Not Implemented: {s}\n", .{@tagName(node)});
+                return error.NotImplemented;
+            },
+        }
+    }
+
+    pub fn get_code_addr(self: *Module) CodeAddr {
+        return @enumFromInt(self.code.items.len);
+    }
+
     pub fn add_short_code(self: *Module, op: ShortOpcode, arg: ShortArg) MoonErrors!CodeAddr {
-        const index: CodeAddr = @intCast(self.code.items.len);
+        const index: u24 = @intCast(self.code.items.len);
         try self.code.append(self.moon.allocator, .{ .short = .{ .op = op, .arg = arg } });
-        return index;
+        return @enumFromInt(index);
     }
 
     pub fn add_code(self: *Module, op: LongOpcode, arg: LongArg) MoonErrors!CodeAddr {
         const index: u24 = @intCast(self.code.items.len);
         try self.code.append(self.moon.allocator, .{ .long = .{ .op = op, .arg = arg } });
-        return @enumFromInt (index);
+        return @enumFromInt(index);
     }
 
-    pub fn add_jmp(self: *Module, offset: CodeAddr) MoonErrors!void {
-        const index: u24 = @intCast(self.code.items.len);
-        const diff = @as(i64, @intCast(offset)) - @as(i64, @intCast(index));
+    pub fn add_jmp(self: *Module, offset_addr: CodeAddr) MoonErrors!void {
+        const index: i64 = @intCast(self.code.items.len);
+        const offset: i64 = @intFromEnum(offset_addr);
+        const diff = offset - index;
         if (diff >= std.math.minInt(ShortIArg) and diff <= std.math.maxInt(ShortIArg)) {
             _ = try self.add_short_code(.jmp, @bitCast(@as(ShortIArg, @truncate(diff))));
         } else {
             const kindex = try self.add_constant_i64(diff);
             _ = try self.add_short_code(.jmpk, kindex);
+        }
+    }
+
+    pub fn add_bra(self: *Module, offset_addr: CodeAddr) MoonErrors!void {
+        const index: i64 = @intCast(self.code.items.len);
+        const offset: i64 = @intFromEnum(offset_addr);
+        const diff = offset - index;
+        if (diff >= std.math.minInt(ShortIArg) and diff <= std.math.maxInt(ShortIArg)) {
+            _ = try self.add_short_code(.bra, @bitCast(@as(ShortIArg, @truncate(diff))));
+        } else {
+            const kindex = try self.add_constant_i64(diff);
+            _ = try self.add_short_code(.brak, kindex);
+        }
+    }
+
+    pub fn patch_jmp(
+        self: *Module,
+        code_addr: CodeAddr,
+        target_addr: CodeAddr,
+    ) MoonErrors!void {
+        const code: i64 = @intFromEnum(code_addr);
+        const offset: i64 = @intFromEnum(target_addr);
+        const diff = offset - code;
+        const addr: usize = @bitCast(code);
+        if (diff >= std.math.minInt(ShortIArg) and diff <= std.math.maxInt(ShortIArg)) {
+            const arg: ShortArg = @bitCast(@as(ShortIArg, @truncate(diff)));
+            self.code.items[addr] = .{ .short = .{ .op = .jmp, .arg = arg } };
+        } else {
+            const kindex = try self.add_constant_i64(diff);
+            const arg: ShortArg = @intCast(kindex);
+            self.code.items[addr] = .{ .short = .{ .op = .jmpk, .arg = arg } };
         }
     }
 
@@ -310,8 +487,8 @@ const Module = struct {
         return index;
     }
 
-    pub fn add_constant_string(self: *Module, value: []const u8) MoonErrors!u8 {
-        const index: u8 = @intCast(self.constants.items.len);
+    pub fn add_constant_string(self: *Module, value: []const u8) MoonErrors!u32 {
+        const index: u32 = @intCast(self.constants.items.len);
         const len: u32 = @intCast(value.len);
         if (std.mem.indexOf(u8, self.strings.items, value)) |uoffset| {
             const offset: u32 = @intCast(uoffset);
@@ -370,16 +547,18 @@ pub const LongInstruction = packed struct(u15) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const ShortOpcode = enum(u2) {
+pub const ShortOpcode = enum(u3) {
     jmp,
-    bra,
     jmpk,
+    bra,
+    brak,
     constant,
 };
 
-pub const ShortArg = u13;
-pub const ShortIArg = i13;
+pub const ShortArg = u12;
+pub const ShortIArg = i12;
 pub const LongArg = u8;
+pub const LongIArg = i8;
 
 pub const LongOpcode = enum(u7) {
     nop,
@@ -391,12 +570,19 @@ pub const LongOpcode = enum(u7) {
     mod,
     lsh,
     rsh,
+    band,
+    bor,
+    bxor,
     lt,
     gt,
     lte,
     gte,
     eq,
     neq,
+    @"and",
+    @"or",
+    deref,
+    boolean,
     integer,
     load_local,
     store_local,
@@ -1683,6 +1869,7 @@ pub const MoonErrors = error{
     MissingCloseBlock,
     MissingOpenParenthesis,
     MissingCloseParenthesis,
+    TooManyConstants,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2256,7 +2443,7 @@ pub const TokenIterator = struct {
                     self.index += 1;
                     return .{
                         .kind = .string_literal,
-                        .str = self.source[start..self.index],
+                        .str = self.source[start + 1 .. self.index - 1],
                     };
                 } else {
                     self.index += 1;
@@ -2489,6 +2676,40 @@ pub const Kind = enum(u8) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+fn string_is_simple(str: []const u8) bool {
+    for (str) |ch| {
+        if (ch < 0x20 or ch == '\\' or ch >= 0x7f) return false;
+    }
+    return true;
+}
+
+fn expand_string(str: []const u8, writer: anytype) !void {
+    var index: usize = 0;
+    while (index < str.len) {
+        const ch = str[index];
+        if (ch == '\\') {
+            index += 1;
+            if (index < str.len) {
+                switch (str[index]) {
+                    'n' => try writer.writeByte('\n'),
+                    'r' => try writer.writeByte('\r'),
+                    't' => try writer.writeByte('\t'),
+                    '"' => try writer.writeByte('\"'),
+                    '\'' => try writer.writeByte('\''),
+                    else => return error.InvalidCharacter,
+                }
+            }
+        } else {
+            try writer.writeByte(ch);
+        }
+        index += 1;
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 test "init / deinit" {
     var moon = Moon.init(std.testing.allocator);
     defer moon.deinit();
@@ -2667,7 +2888,7 @@ test "tokenize call" {
     try test_tokenize("print (\"Hello, World!\n\")", &[_]Token{
         .{ .kind = .identifier, .str = "print" },
         .{ .kind = .open_round, .str = "(" },
-        .{ .kind = .string_literal, .str = "\"Hello, World!\n\"" },
+        .{ .kind = .string_literal, .str = "Hello, World!\n" },
         .{ .kind = .close_round, .str = ")" },
     });
 }
@@ -2944,7 +3165,7 @@ test "parse call" {
         \\    call
         \\      identifier print
         \\      arg
-        \\        string "\"Hello, World!\\n\""
+        \\        string "Hello, World!\\n"
         \\      arg
         \\        integer_literal 32
         \\      arg
@@ -3082,7 +3303,7 @@ test "parse function declaration" {
         \\        call
         \\          identifier print
         \\          arg
-        \\            string "\"\\n\""
+        \\            string "\\n"
         \\
     , .{});
 }
@@ -3107,23 +3328,23 @@ test "parse table array" {
         \\    const_decl names
         \\      table_decl
         \\        value
-        \\          string "\"Alice\""
+        \\          string "Alice"
         \\        value
-        \\          string "\"Bob\""
+        \\          string "Bob"
         \\        value
-        \\          string "\"Charlie\""
+        \\          string "Charlie"
         \\    const_decl look
         \\      table_decl
         \\        key
-        \\          string "\"Alice\""
+        \\          string "Alice"
         \\        value
         \\          integer_literal 3
         \\        key
-        \\          string "\"Bob\""
+        \\          string "Bob"
         \\        value
         \\          integer_literal 4
         \\        key
-        \\          string "\"Charlie\""
+        \\          string "Charlie"
         \\        value
         \\          integer_literal 2
         \\    const_decl mixed
@@ -3133,15 +3354,15 @@ test "parse table array" {
         \\            integer_literal 3
         \\            integer_literal 4
         \\        value
-        \\          string "\"Bob\""
+        \\          string "Bob"
         \\        key
-        \\          string "\"x\""
+        \\          string "x"
         \\        value
         \\          integer_literal 5
         \\        key
         \\          integer_literal 5
         \\        value
-        \\          string "\"x\""
+        \\          string "x"
         \\        key
         \\          op_add
         \\            integer_literal 7
@@ -3178,13 +3399,13 @@ test "parse hello world" {
         \\      call
         \\        identifier @import
         \\        arg
-        \\          string "\"std\""
+        \\          string "std"
         \\    call
         \\      op_dot
         \\        identifier std
         \\        identifier print
         \\      arg
-        \\        string "\"Hello, World!\\n\""
+        \\        string "Hello, World!\\n"
         \\      arg
         \\        table_decl
         \\
@@ -3196,7 +3417,9 @@ test "parse hello world" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "compile simple" {
-    try test_compile("3 + 4", "nil");
+    try test_compile(
+        \\ std.print ("Hello, World!\n");
+    , "nil");
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
