@@ -112,6 +112,8 @@ pub const Moon = struct {
 
         // _ = try module.add_constant_string(source);
 
+        try module.semantic_analysis(&tree, root);
+
         try module.generate_code(&tree, root);
 
         return module;
@@ -200,6 +202,8 @@ pub const Moon = struct {
                         .load_global,
                         .store_global,
                         .call,
+                        .import,
+                        .deref,
                         => {
                             try writer.print("    {x:0>6} {s} {}\n", .{
                                 addr,
@@ -226,7 +230,6 @@ pub const Moon = struct {
                         .neq,
                         .@"and",
                         .@"or",
-                        .deref,
                         .ret,
                         .new_table,
                         => {
@@ -253,10 +256,12 @@ pub const Moon = struct {
             }
             try writer.print("\n", .{});
         }
-        var iter = module.globals.iterator();
         try writer.print("  globals\n", .{});
-        while (iter.next()) |kv| {
-            try writer.print("    {}\n", .{kv});
+        var giter = module.globals.iterator();
+        while (giter.next()) |kv| {
+            const key = kv.key_ptr.*;
+            const value = kv.value_ptr;
+            try writer.print("    \"{}\" {}\n", .{ std.zig.fmtEscapes(key), value.index });
         }
         try writer.print("  strings\n", .{});
 
@@ -284,13 +289,77 @@ const Function = struct {
     end: CodeAddr,
 };
 
+const Global = struct {
+    index: u32,
+};
+
 const Module = struct {
     moon: *Moon,
-    globals: SymbolTable,
+    globals: std.StringArrayHashMapUnmanaged(Global),
     code: std.ArrayListUnmanaged(Instruction),
     constants: std.ArrayListUnmanaged(Constant),
     strings: std.ArrayListUnmanaged(u8),
     functions: std.ArrayListUnmanaged(Function),
+    next_global: u32 = 0,
+
+    pub fn deinit(self: *Module) void {
+        self.globals.deinit(self.moon.allocator);
+        self.code.deinit(self.moon.allocator);
+        self.constants.deinit(self.moon.allocator);
+        self.strings.deinit(self.moon.allocator);
+        self.functions.deinit(self.moon.allocator);
+    }
+
+    pub fn semantic_analysis(
+        self: *Module,
+        tree: *const Moon_AST,
+        node_index: NodeIndex,
+    ) MoonErrors!void {
+        const index = node_index.as_usize();
+        const node = tree.nodes.items[index];
+        switch (node) {
+            .block => |stmts| {
+                std.debug.print("Semantic: {s}\n", .{@tagName(node)});
+                for (stmts.items) |stmt| {
+                    try self.semantic_statement(tree, stmt);
+                }
+            },
+            else => {
+                std.debug.print("No Semantic: {s}\n", .{@tagName(node)});
+            },
+        }
+    }
+
+    pub fn semantic_statement(
+        self: *Module,
+        tree: *const Moon_AST,
+        node_index: NodeIndex,
+    ) MoonErrors!void {
+        const index = node_index.as_usize();
+        const node = tree.nodes.items[index];
+        switch (node) {
+            .const_decl => |decl| {
+                try self.declare_global(decl.name);
+            },
+            else => {
+                std.debug.print("Statement: {s}\n", .{@tagName(node)});
+            },
+        }
+    }
+
+    pub fn declare_global(self: *Module, name: []const u8) MoonErrors!void {
+        try self.globals.put(self.moon.allocator, name, .{
+            .index = self.next_global,
+        });
+        self.next_global += 1;
+    }
+
+    pub fn find_global(self: *Module, name: []const u8) ?u32 {
+        if (self.globals.get(name)) |value| {
+            return value.index;
+        }
+        return null;
+    }
 
     pub fn generate_code(
         self: *Module,
@@ -318,10 +387,25 @@ const Module = struct {
             .op_neq,
             .op_and,
             .op_or,
-            .op_dot,
             => |op| {
                 try self.generate_code(tree, op.lhs);
                 try self.generate_code(tree, op.rhs);
+            },
+            .op_dot,
+            => |op| {
+                const lhs_index = op.lhs.as_usize();
+                const lhs = tree.nodes.items[lhs_index];
+                if (lhs == .identifier) {
+                    try self.generate_code(tree, op.lhs);
+                } else {
+                    try self.generate_code(tree, op.lhs);
+                }
+                const rhs_index = op.rhs.as_usize();
+                const rhs = tree.nodes.items[rhs_index];
+
+                const i = try self.add_constant_string(rhs.identifier);
+                const arg: LongArg = @truncate(i);
+                _ = try self.add_code(.deref, arg);
             },
             else => {},
         }
@@ -377,10 +461,10 @@ const Module = struct {
             .op_neq => _ = try self.add_code(.neq, 0),
             .op_and => _ = try self.add_code(.@"and", 0),
             .op_or => _ = try self.add_code(.@"or", 0),
-            .op_dot => _ = try self.add_code(.deref, 0),
-            .statements => |stmts| {
-                for (stmts.items) |item| {
-                    try self.generate_code(tree, item);
+            .op_dot => {},
+            .block => |stmts| {
+                for (stmts.items) |stmt| {
+                    try self.generate_code(tree, stmt);
                 }
             },
             .while_stmt => |stmt| {
@@ -393,21 +477,82 @@ const Module = struct {
                 try self.patch_jmp(first_jump, end_block);
             },
             .call => |stmt| {
-                try self.generate_code(tree, stmt.func);
-                for (stmt.args) |arg| {
-                    try self.generate_code(tree, arg);
+                if (self.is_builtin(tree, stmt.func)) {
+                    try self.generate_call_builtin(tree, stmt.func, stmt.args);
+                } else {
+                    try self.generate_code(tree, stmt.func);
+                    for (stmt.args) |arg| {
+                        try self.generate_code(tree, arg);
+                    }
+                    const num_args: LongArg = @truncate(stmt.args.len);
+                    _ = try self.add_code(.call, num_args);
                 }
-                const num_args: LongArg = @truncate(stmt.args.len);
-                _ = try self.add_code(.call, num_args);
             },
             .identifier => |str| {
-                const i = try self.add_constant_string(str);
-                const arg: LongArg = @truncate(i);
-                _ = try self.add_code(.nop, arg);
+                if (self.find_global(str)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.load_global, arg);
+                } else {
+                    const i = try self.add_constant_string(str);
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.load_local, arg);
+                }
+            },
+            .const_decl => |decl| {
+                try self.generate_code(tree, decl.expr);
+                if (self.find_global(decl.name)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.store_global, arg);
+                } else {
+                    return error.UnknownVariable;
+                }
+            },
+            .at_import => {
+                _ = try self.add_code(.import, 0);
             },
             else => {
-                std.debug.print("Not Implemented: {s}\n", .{@tagName(node)});
+                std.debug.print("generate_code: {s}\n", .{@tagName(node)});
                 return error.NotImplemented;
+            },
+        }
+    }
+
+    pub fn is_builtin(_: *Module, tree: *const Moon_AST, node_index: NodeIndex) bool {
+        const index = node_index.as_usize();
+        const node = tree.nodes.items[index];
+        switch (node) {
+            .at_import => return true,
+            else => return false,
+        }
+    }
+
+    pub fn generate_call_builtin(
+        self: *Module,
+        tree: *const Moon_AST,
+        builtin: NodeIndex,
+        args: []NodeIndex,
+    ) MoonErrors!void {
+        const index = builtin.as_usize();
+        const node = tree.nodes.items[index];
+        switch (node) {
+            .at_import => {
+                if (args.len != 1) {
+                    return error.InvalidNumberOfArgs;
+                }
+                const arg_index = args[0].as_usize();
+                const arg = tree.nodes.items[arg_index];
+                if (arg != .string) {
+                    return error.InvalidParameter;
+                }
+                const i = try self.add_constant_string(arg.string);
+                if (i <= std.math.maxInt(ShortArg)) {
+                    _ = try self.add_code(.import, @truncate(i));
+                } else {
+                    return error.TooManyConstants;
+                }
+            },
+            else => {
+                return error.InvalidBuiltin;
             },
         }
     }
@@ -492,6 +637,16 @@ const Module = struct {
         const len: u32 = @intCast(value.len);
         if (std.mem.indexOf(u8, self.strings.items, value)) |uoffset| {
             const offset: u32 = @intCast(uoffset);
+            for (self.constants.items, 0..) |item, i| {
+                switch (item) {
+                    .string => |str| {
+                        if (str.offset == offset and str.len == len) {
+                            return @intCast(i);
+                        }
+                    },
+                    else => {},
+                }
+            }
             try self.constants.append(self.moon.allocator, .{
                 .string = .{
                     .offset = offset,
@@ -509,13 +664,6 @@ const Module = struct {
             });
         }
         return index;
-    }
-
-    pub fn deinit(self: *Module) void {
-        self.code.deinit(self.moon.allocator);
-        self.constants.deinit(self.moon.allocator);
-        self.strings.deinit(self.moon.allocator);
-        self.functions.deinit(self.moon.allocator);
     }
 };
 
@@ -591,6 +739,7 @@ pub const LongOpcode = enum(u7) {
     call,
     ret,
     new_table,
+    import,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -649,7 +798,7 @@ pub const Moon_AST = struct {
     pub fn deinit(self: *Moon_AST) void {
         for (self.nodes.items) |*node| {
             switch (node.*) {
-                .statements => |*stmts| {
+                .block => |*stmts| {
                     self.moon.allocator.free(stmts.items);
                 },
                 .call => |*call| {
@@ -734,6 +883,22 @@ pub const Moon_AST = struct {
                     .eos => {
                         _ = iter.next();
                     },
+                    .open_block => {
+                        _ = iter.next();
+                        const block = try self.parse_statements(iter);
+
+                        if (iter.peek()) |etk| {
+                            if (self.trace) {
+                                std.debug.print("parse_block: {?}\n", .{etk});
+                            }
+                            if (etk.kind != .close_block) {
+                                std.debug.print("Missing Close Block {}\n", .{tk});
+                                return error.MissingCloseBlock;
+                            }
+                            _ = iter.next();
+                        }
+                        try stmts.append(self.moon.allocator, block);
+                    },
                     .close_block => {
                         break;
                     },
@@ -745,7 +910,7 @@ pub const Moon_AST = struct {
             iter.skip_whitespace();
         }
 
-        return try self.new_node(.{ .statements = .{
+        return try self.new_node(.{ .block = .{
             .items = try stmts.toOwnedSlice(self.moon.allocator),
         } });
     }
@@ -1324,13 +1489,17 @@ pub const Moon_AST = struct {
                 .identifier => {
                     return self.parse_prefix(iter);
                 },
+                .keyword_at_import,
+                => {
+                    return self.parse_at_prefix(iter);
+                },
                 .string_literal => {
                     _ = iter.next();
                     return try self.new_node(
                         .{ .string = tk.str },
                     );
                 },
-                .open_block => {
+                .dot_block => {
                     _ = iter.next();
                     return self.parse_table_decl(iter);
                 },
@@ -1384,6 +1553,46 @@ pub const Moon_AST = struct {
                     },
                     else => {
                         break;
+                    },
+                }
+            }
+
+            return lhs;
+        }
+        return error.MissingIdentifier;
+    }
+
+    pub fn parse_at_prefix(self: *Moon_AST, iter: *TokenIterator) MoonErrors!NodeIndex {
+        if (iter.peek()) |tk| {
+            if (self.trace) {
+                std.debug.print("parse_prefix: {}\n", .{tk});
+            }
+            _ = iter.next();
+            var lhs: NodeIndex = undefined;
+            switch (tk.kind) {
+                .keyword_at_import => {
+                    lhs = try self.new_node(.at_import);
+                },
+                else => {
+                    return error.InvalidBuiltin;
+                },
+            }
+
+            if (iter.peek()) |ntk| {
+                if (self.trace) {
+                    std.debug.print("parse_prefix: {}\n", .{ntk});
+                }
+                switch (ntk.kind) {
+                    .open_round => {
+                        _ = iter.next();
+                        const args = try self.parse_args(iter);
+                        return self.new_node(.{ .call = .{
+                            .func = lhs,
+                            .args = args,
+                        } });
+                    },
+                    else => {
+                        return error.MissingOpenParenthesis;
                     },
                 }
             }
@@ -1569,7 +1778,7 @@ pub const Moon_AST = struct {
             .op_com,
             .keyword_true,
             .keyword_false,
-            .open_block,
+            .dot_block,
             => return true,
             else => return false,
         }
@@ -1648,10 +1857,10 @@ pub const Moon_AST = struct {
                         try self.dump_internal(item, depth + 2, writer);
                     }
                 },
-                .statements => |stmts| {
+                .block => |stmts| {
                     try writer.print("\n", .{});
-                    for (stmts.items) |item| {
-                        try self.dump_internal(item, depth + 1, writer);
+                    for (stmts.items) |stmt| {
+                        try self.dump_internal(stmt, depth + 1, writer);
                     }
                 },
                 .var_decl => |decl| {
@@ -1705,6 +1914,10 @@ pub const Moon_AST = struct {
                         try self.dump_internal(entry.value, depth + 2, writer);
                     }
                 },
+                .at_import,
+                => {
+                    try writer.print("\n", .{});
+                },
             }
         }
     }
@@ -1743,7 +1956,7 @@ pub const AST_NodeKind = enum {
     op_neg,
     op_com,
     call,
-    statements,
+    block,
     var_decl,
     const_decl,
     while_stmt,
@@ -1752,6 +1965,7 @@ pub const AST_NodeKind = enum {
     func_decl,
     return_stmt,
     table_decl,
+    at_import,
 };
 
 pub const AST_Node = union(AST_NodeKind) {
@@ -1783,7 +1997,7 @@ pub const AST_Node = union(AST_NodeKind) {
     op_neg: NodeIndex,
     op_com: NodeIndex,
     call: Call,
-    statements: AST_List,
+    block: AST_List,
     var_decl: Decl,
     const_decl: Decl,
     while_stmt: WhileStmt,
@@ -1792,6 +2006,7 @@ pub const AST_Node = union(AST_NodeKind) {
     func_decl: FunctionDecl,
     return_stmt: NodeIndex,
     table_decl: []TableEntry,
+    at_import,
 };
 
 pub const AST_BinaryOp = struct {
@@ -1862,6 +2077,9 @@ pub const MoonErrors = error{
     InvalidConstantDeclaration,
     InvalidFunctionDeclaration,
     InvalidParameterList,
+    InvalidBuiltin,
+    InvalidNumberOfArgs,
+    InvalidParameter,
     MissingStatements,
     MissingIdentifier,
     MissingAssignment,
@@ -1870,6 +2088,7 @@ pub const MoonErrors = error{
     MissingOpenParenthesis,
     MissingCloseParenthesis,
     TooManyConstants,
+    UnknownVariable,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1928,7 +2147,6 @@ pub const ModuleIndex = enum(u32) { _ };
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const SymbolTable = std.AutoHashMapUnmanaged(StringIndex, Value);
 pub const Stack = std.ArrayListUnmanaged(Value);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2479,10 +2697,26 @@ pub const TokenIterator = struct {
                 };
             },
             .dot => {
-                return .{
+                if (self.index >= self.source.len) return .{
                     .kind = .dot,
                     .str = self.source[start..self.index],
                 };
+                const ch = self.source[self.index];
+                switch (ch) {
+                    '{' => {
+                        self.index += 1;
+                        return .{
+                            .kind = .dot_block,
+                            .str = self.source[start..self.index],
+                        };
+                    },
+                    else => {
+                        return .{
+                            .kind = .dot,
+                            .str = self.source[start..self.index],
+                        };
+                    },
+                }
             },
             .cr => {
                 return .{
@@ -2592,6 +2826,9 @@ fn check_keyword(str: []const u8) Kind {
         6 => {
             if (std.mem.eql(u8, "return", str)) return .keyword_return;
         },
+        7 => {
+            if (std.mem.eql(u8, "@import", str)) return .keyword_at_import;
+        },
         8 => {
             if (std.mem.eql(u8, "continue", str)) return .keyword_continue;
         },
@@ -2650,6 +2887,7 @@ pub const Kind = enum(u8) {
     op_gt,
     op_com,
     dot,
+    dot_block,
     comma,
     keyword_and,
     keyword_break,
@@ -2811,7 +3049,7 @@ fn test_compile(str: []const u8, result: []const u8) !void {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize symbols" {
-    try test_tokenize("= + - * / % << >> & | ^ ~ == != <= >= < > , .", &[_]Token{
+    try test_tokenize("= + - * / % << >> & | ^ ~ == != <= >= < > , . .{", &[_]Token{
         .{ .kind = .op_assign, .str = "=" },
         .{ .kind = .op_add, .str = "+" },
         .{ .kind = .op_sub, .str = "-" },
@@ -2832,6 +3070,7 @@ test "tokenize symbols" {
         .{ .kind = .op_gt, .str = ">" },
         .{ .kind = .comma, .str = "," },
         .{ .kind = .dot, .str = "." },
+        .{ .kind = .dot_block, .str = ".{" },
     });
 }
 
@@ -2855,7 +3094,7 @@ test "tokenize identifiers" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize keywords" {
-    try test_tokenize("if elif else not and or while break continue return", &[_]Token{
+    try test_tokenize("if elif else not and or while break continue return @import", &[_]Token{
         .{ .kind = .keyword_if, .str = "if" },
         .{ .kind = .keyword_elif, .str = "elif" },
         .{ .kind = .keyword_else, .str = "else" },
@@ -2866,6 +3105,7 @@ test "tokenize keywords" {
         .{ .kind = .keyword_break, .str = "break" },
         .{ .kind = .keyword_continue, .str = "continue" },
         .{ .kind = .keyword_return, .str = "return" },
+        .{ .kind = .keyword_at_import, .str = "@import" },
     });
 }
 
@@ -2874,9 +3114,8 @@ test "tokenize keywords" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize non-keywords" {
-    try test_tokenize("@\"if\" @import", &[_]Token{
+    try test_tokenize("@\"if\"", &[_]Token{
         .{ .kind = .identifier, .str = "if" },
-        .{ .kind = .identifier, .str = "@import" },
     });
 }
 
@@ -2953,7 +3192,7 @@ test "tokenize function def" {
 test "parse simple" {
     try test_parse("37 + 42 - 12",
         \\AST
-        \\  statements
+        \\  block
         \\    op_sub
         \\      op_add
         \\        integer_literal 37
@@ -2970,7 +3209,7 @@ test "parse simple" {
 test "parse mul add" {
     try test_parse("37 + 42 * 12",
         \\AST
-        \\  statements
+        \\  block
         \\    op_add
         \\      integer_literal 37
         \\      op_mul
@@ -2990,7 +3229,7 @@ test "parse mul add brackets" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    op_add
         \\      integer_literal 37
         \\      op_div
@@ -3014,7 +3253,7 @@ test "parse operator precedence" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    op_bor
         \\      op_band
         \\        op_rsh
@@ -3039,7 +3278,7 @@ test "parse logical operator precedence" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    op_or
         \\      op_or
         \\        op_or
@@ -3077,7 +3316,7 @@ test "parse unary operators" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    op_not
         \\      op_lt
         \\        op_add
@@ -3102,7 +3341,7 @@ test "parse statements" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    var_decl a
         \\      integer_literal 3
         \\    const_decl b
@@ -3126,14 +3365,14 @@ test "parse while" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    var_decl a
         \\      integer_literal 0
         \\    while_stmt
         \\      op_lt
         \\        identifier a
         \\        integer_literal 4
-        \\      statements
+        \\      block
         \\        assignment
         \\          identifier a
         \\          op_add
@@ -3161,7 +3400,7 @@ test "parse call" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    call
         \\      identifier print
         \\      arg
@@ -3195,7 +3434,7 @@ test "parse dots" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    const_decl dist
         \\      call
         \\        op_dot
@@ -3244,12 +3483,12 @@ test "parse if" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    if_stmt
         \\      op_lt
         \\        identifier a
         \\        identifier b
-        \\      statements
+        \\      block
         \\        assignment
         \\          op_dot
         \\            identifier d
@@ -3258,13 +3497,13 @@ test "parse if" {
         \\      op_eq
         \\        identifier a
         \\        identifier b
-        \\      statements
+        \\      block
         \\        assignment
         \\          op_dot
         \\            identifier d
         \\            identifier c
         \\          integer_literal 37
-        \\      statements
+        \\      block
         \\        assignment
         \\          op_dot
         \\            identifier d
@@ -3289,17 +3528,17 @@ test "parse function declaration" {
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    func_decl add
         \\      a
         \\      b
-        \\      statements
+        \\      block
         \\        return_stmt
         \\          op_add
         \\            identifier a
         \\            identifier b
         \\    func_decl eol
-        \\      statements
+        \\      block
         \\        call
         \\          identifier print
         \\          arg
@@ -3314,15 +3553,15 @@ test "parse function declaration" {
 
 test "parse table array" {
     try test_parse(
-        \\ const empty = {}
-        \\ const names = { "Alice", "Bob", "Charlie" }
-        \\ const look = { "Alice" = 3, "Bob" = 4, "Charlie" = 2 }
-        \\ const mixed = { 3 + 4, "Bob", "x" = 5, 5 = "x", 7 + 9 = 16 }
-        \\ const dot = { .x = 7, .y = 6 }
+        \\ const empty = .{}
+        \\ const names = .{ "Alice", "Bob", "Charlie" }
+        \\ const look = .{ "Alice" = 3, "Bob" = 4, "Charlie" = 2 }
+        \\ const mixed = .{ 3 + 4, "Bob", "x" = 5, 5 = "x", 7 + 9 = 16 }
+        \\ const dot = .{ .x = 7, .y = 6 }
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    const_decl empty
         \\      table_decl
         \\    const_decl names
@@ -3390,14 +3629,14 @@ test "parse table array" {
 test "parse hello world" {
     try test_parse(
         \\ const std = @import ("std")
-        \\ std.print ("Hello, World!\n", {})
+        \\ std.print ("Hello, World!\n", .{})
         \\
     ,
         \\AST
-        \\  statements
+        \\  block
         \\    const_decl std
         \\      call
-        \\        identifier @import
+        \\        at_import
         \\        arg
         \\          string "std"
         \\    call
@@ -3416,10 +3655,50 @@ test "parse hello world" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+test "parse block" {
+    try test_parse(
+        \\ const std = @import("std");
+        \\ {
+        \\    const builtin = @import ("builtin");
+        \\ }
+        \\ std.print ("Hello, World!\n");
+        \\
+    ,
+        \\AST
+        \\  block
+        \\    const_decl std
+        \\      call
+        \\        at_import
+        \\        arg
+        \\          string "std"
+        \\    block
+        \\      const_decl builtin
+        \\        call
+        \\          at_import
+        \\          arg
+        \\            string "builtin"
+        \\    call
+        \\      op_dot
+        \\        identifier std
+        \\        identifier print
+        \\      arg
+        \\        string "Hello, World!\\n"
+        \\
+    , .{});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 test "compile simple" {
     try test_compile(
-        \\ std.print ("Hello, World!\n");
-    , "nil");
+        \\ const std = @import("std");
+        \\ const builtin = @import ("builtin");
+        \\ std.debug.print ("Hello, World!\n");
+    ,
+        "nil",
+    );
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
