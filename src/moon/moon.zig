@@ -8,6 +8,10 @@ const std = @import("std");
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const CompileOptions = struct {
+    trace_code: bool = false,
+};
+
 pub const Moon = struct {
     allocator: std.mem.Allocator,
 
@@ -59,8 +63,12 @@ pub const Moon = struct {
         return error.StackUnderflow;
     }
 
-    pub fn compile(self: *Moon, source: []const u8) MoonErrors!Value {
-        const module = try self.generate_module(source);
+    pub fn compile(
+        self: *Moon,
+        source: []const u8,
+        options: CompileOptions,
+    ) MoonErrors!Value {
+        const module = try self.generate_module(source, options);
 
         const index = self.add_module(module);
 
@@ -79,6 +87,7 @@ pub const Moon = struct {
     fn generate_module(
         self: *Moon,
         source: []const u8,
+        options: CompileOptions,
     ) MoonErrors!*Module {
         var iter = tokenize(source);
 
@@ -87,12 +96,14 @@ pub const Moon = struct {
 
         const root = try tree.parse(&iter);
 
-        if (true) {
+        if (options.trace_code) {
             var buffer = std.ArrayList(u8).init(std.testing.allocator);
             defer buffer.deinit();
 
             const writer = buffer.writer();
-            try tree.dump(root, writer);
+            try tree.dump(root, .{
+                .show_node_index = true,
+            }, writer);
             std.debug.print("{s}\n", .{buffer.items});
         }
 
@@ -104,6 +115,7 @@ pub const Moon = struct {
             .globals = .empty,
             .strings = .empty,
             .locals = .empty,
+            .trace = options.trace_code,
         };
         errdefer {
             module.deinit();
@@ -114,7 +126,10 @@ pub const Moon = struct {
 
         try module.semantic_analysis(&tree, root);
 
+        module.global_scope = true;
         try module.generate_code_block(&tree, root);
+        module.global_scope = false;
+
         _ = try module.add_code(.ret, 0);
 
         var giter = module.globals.iterator();
@@ -123,10 +138,6 @@ pub const Moon = struct {
             switch (value.*) {
                 .function => |*func| {
                     if (func.need_generation) {
-                        std.debug.print("generate func {s} {}\n", .{
-                            global.key_ptr.*,
-                            func.node_index,
-                        });
                         func.start = module.get_code_addr();
                         try module.generate_code_block(&tree, func.node_index);
                         func.end = module.get_code_addr();
@@ -359,6 +370,7 @@ pub const Moon = struct {
                         .@"or",
                         .ret,
                         .new_table,
+                        .append_table,
                         => {
                             try writer.print("    {x:0>6} {s}\n", .{
                                 addr,
@@ -431,7 +443,9 @@ const Module = struct {
     constants: std.ArrayListUnmanaged(Constant),
     strings: std.ArrayListUnmanaged(u8),
     next_global: u32 = 0,
+    global_scope: bool = false,
     locals: std.ArrayListUnmanaged(Local),
+    trace: bool = false,
 
     pub fn deinit(self: *Module) void {
         self.globals.deinit(self.moon.allocator);
@@ -493,11 +507,11 @@ const Module = struct {
         node_index: NodeIndex,
     ) MoonErrors!void {
         if (self.find_global(name)) |_| {
-            std.debug.print("{s} already declared\n", .{name});
+            std.debug.print("{s} already declared (declare global / global)\n", .{name});
             return error.NameAlreadyDeclared;
         }
         if (self.find_local(name)) |_| {
-            std.debug.print("{s} already declared\n", .{name});
+            std.debug.print("{s} already declared (declare global / local)\n", .{name});
             return error.NameAlreadyDeclared;
         }
         switch (kind) {
@@ -534,11 +548,11 @@ const Module = struct {
 
     pub fn declare_local(self: *Module, name: []const u8, kind: LocalKind) !void {
         if (self.find_global(name)) |_| {
-            std.debug.print("{s} already declared\n", .{name});
+            std.debug.print("{s} already declared (declare_local / global)\n", .{name});
             return error.NameAlreadyDeclared;
         }
         if (self.find_local(name)) |_| {
-            std.debug.print("{s} already declared\n", .{name});
+            std.debug.print("{s} already declared (declare_local / local)\n", .{name});
             return error.NameAlreadyDeclared;
         }
 
@@ -546,8 +560,6 @@ const Module = struct {
             .name = name,
             .kind = kind,
         });
-
-        std.debug.print("Local {s} = {}\n", .{ name, self.locals.items.len - 1 });
     }
 
     pub fn find_local(self: *Module, name: []const u8) ?u32 {
@@ -607,6 +619,13 @@ const Module = struct {
     ) MoonErrors!void {
         const index = node_index.as_usize();
         const node = tree.nodes.items[index];
+        if (self.trace) {
+            std.debug.print("generate_code_block {} {s}{s}\n", .{
+                node_index,
+                @tagName(node),
+                if (self.global_scope) " global_scope" else "",
+            });
+        }
         switch (node) {
             .op_add,
             .op_sub,
@@ -632,7 +651,9 @@ const Module = struct {
                 _ = try self.add_code(.drop, 1);
             },
             .const_decl => |decl| {
-                try self.declare_local(decl.name, .constant);
+                if (!self.global_scope) {
+                    try self.declare_local(decl.name, .constant);
+                }
                 try self.generate_code(tree, decl.expr, .{});
                 if (self.find_global(decl.name)) |i| {
                     const arg: LongArg = @truncate(i);
@@ -645,7 +666,9 @@ const Module = struct {
                 }
             },
             .var_decl => |decl| {
-                try self.declare_local(decl.name, .variable);
+                if (!self.global_scope) {
+                    try self.declare_local(decl.name, .variable);
+                }
                 try self.generate_code(tree, decl.expr, .{});
                 if (self.find_global(decl.name)) |i| {
                     const arg: LongArg = @truncate(i);
@@ -675,6 +698,9 @@ const Module = struct {
     ) MoonErrors!void {
         const index = node_index.as_usize();
         const node = tree.nodes.items[index];
+        if (self.trace) {
+            std.debug.print("generate_code {} {s}\n", .{ node_index, @tagName(node) });
+        }
         // first generate the children nodes
         switch (node) {
             .op_add,
@@ -852,6 +878,17 @@ const Module = struct {
                 _ = try self.add_code(.import, 0);
             },
             .func_decl => {},
+            .table_decl => |decl| {
+                _ = try self.add_code(.new_table, 0);
+                for (decl) |entry|
+                {
+                    if (entry.key == null)
+                    {
+                        try self.generate_code (tree, entry.value, .{});
+                        _ = try self.add_code (.append_table, 0);
+                    }
+                }
+            },
             else => {
                 std.debug.print("generate_code: {s}\n", .{@tagName(node)});
                 return error.NotImplemented;
@@ -1110,6 +1147,7 @@ pub const LongOpcode = enum(u7) {
     call,
     ret,
     new_table,
+    append_table,
     import,
 };
 
@@ -1154,6 +1192,10 @@ const NodeIndex = enum(u32) {
     _,
     pub fn as_usize(self: NodeIndex) usize {
         return @intFromEnum(self);
+    }
+
+    pub fn format(self: NodeIndex, _: anytype, _: anytype, writer: anytype) !void {
+        try writer.print("N#{}", .{self.as_usize()});
     }
 };
 
@@ -2166,18 +2208,37 @@ pub const Moon_AST = struct {
         return @enumFromInt(@as(u32, @intCast(index)));
     }
 
-    pub fn dump(self: *Moon_AST, index: NodeIndex, writer: anytype) !void {
+    const DumpASTOptions = struct {
+        show_node_index: bool = false,
+    };
+
+    pub fn dump(
+        self: *Moon_AST,
+        index: NodeIndex,
+        options: DumpASTOptions,
+        writer: anytype,
+    ) !void {
         try writer.print("AST\n", .{});
-        try self.dump_internal(index, 1, writer);
+        try self.dump_internal(index, 1, options, writer);
     }
 
     const lots_of_spaces = " " ** 256;
 
-    fn dump_internal(self: *Moon_AST, nindex: NodeIndex, depth: usize, writer: anytype) !void {
+    fn dump_internal(
+        self: *Moon_AST,
+        nindex: NodeIndex,
+        depth: usize,
+        options: DumpASTOptions,
+        writer: anytype,
+    ) !void {
         const index = nindex.as_usize();
         if (index < self.nodes.items.len) {
             try writer.print("{s}", .{lots_of_spaces[0 .. depth * 2]});
             const node = self.nodes.items[index];
+            if (options.show_node_index)
+            {
+                try writer.print("{} ", .{nindex});
+            }
             try writer.print("{s}", .{@tagName(node)});
             switch (node) {
                 .nil,
@@ -2216,57 +2277,57 @@ pub const Moon_AST = struct {
                 .op_dot,
                 => |op| {
                     try writer.print("\n", .{});
-                    try self.dump_internal(op.lhs, depth + 1, writer);
-                    try self.dump_internal(op.rhs, depth + 1, writer);
+                    try self.dump_internal(op.lhs, depth + 1, options, writer);
+                    try self.dump_internal(op.rhs, depth + 1, options, writer);
                 },
                 .op_not,
                 .op_neg,
                 .op_com,
                 => |op| {
                     try writer.print("\n", .{});
-                    try self.dump_internal(op, depth + 1, writer);
+                    try self.dump_internal(op, depth + 1, options, writer);
                 },
                 .call => |call| {
                     try writer.print("\n", .{});
-                    try self.dump_internal(call.func, depth + 1, writer);
+                    try self.dump_internal(call.func, depth + 1, options, writer);
                     for (call.args) |item| {
                         try writer.print("{s}  arg\n", .{lots_of_spaces[0 .. depth * 2]});
-                        try self.dump_internal(item, depth + 2, writer);
+                        try self.dump_internal(item, depth + 2, options, writer);
                     }
                 },
                 .block => |stmts| {
                     try writer.print("\n", .{});
                     for (stmts.items) |stmt| {
-                        try self.dump_internal(stmt, depth + 1, writer);
+                        try self.dump_internal(stmt, depth + 1, options, writer);
                     }
                 },
                 .var_decl => |decl| {
                     try writer.print(" {s}\n", .{decl.name});
-                    try self.dump_internal(decl.expr, depth + 1, writer);
+                    try self.dump_internal(decl.expr, depth + 1, options, writer);
                 },
                 .const_decl => |decl| {
                     try writer.print(" {s}\n", .{decl.name});
-                    try self.dump_internal(decl.expr, depth + 1, writer);
+                    try self.dump_internal(decl.expr, depth + 1, options, writer);
                 },
                 .while_stmt => |stmt| {
                     try writer.print("\n", .{});
-                    try self.dump_internal(stmt.expr, depth + 1, writer);
-                    try self.dump_internal(stmt.block, depth + 1, writer);
+                    try self.dump_internal(stmt.expr, depth + 1, options, writer);
+                    try self.dump_internal(stmt.block, depth + 1, options, writer);
                 },
                 .if_stmt => |stmt| {
                     try writer.print("\n", .{});
                     for (stmt.conds) |cond| {
-                        try self.dump_internal(cond.expr, depth + 1, writer);
-                        try self.dump_internal(cond.block, depth + 1, writer);
+                        try self.dump_internal(cond.expr, depth + 1, options, writer);
+                        try self.dump_internal(cond.block, depth + 1, options, writer);
                     }
                     if (stmt.else_block) |block| {
-                        try self.dump_internal(block, depth + 1, writer);
+                        try self.dump_internal(block, depth + 1, options, writer);
                     }
                 },
                 .assignment => |stmt| {
                     try writer.print("\n", .{});
-                    try self.dump_internal(stmt.lhs, depth + 1, writer);
-                    try self.dump_internal(stmt.rhs, depth + 1, writer);
+                    try self.dump_internal(stmt.lhs, depth + 1, options, writer);
+                    try self.dump_internal(stmt.rhs, depth + 1, options, writer);
                 },
                 .func_decl => |func| {
                     try writer.print(" {s}\n", .{func.name});
@@ -2274,21 +2335,21 @@ pub const Moon_AST = struct {
                         try writer.print("{s}", .{lots_of_spaces[0 .. depth * 2]});
                         try writer.print("  {s}\n", .{param.name});
                     }
-                    try self.dump_internal(func.block, depth + 1, writer);
+                    try self.dump_internal(func.block, depth + 1, options, writer);
                 },
                 .return_stmt => |stmt| {
                     try writer.print("\n", .{});
-                    try self.dump_internal(stmt, depth + 1, writer);
+                    try self.dump_internal(stmt, depth + 1, options, writer);
                 },
                 .table_decl => |table| {
                     try writer.print("\n", .{});
                     for (table) |entry| {
                         if (entry.key) |key| {
                             try writer.print("{s}  key\n", .{lots_of_spaces[0 .. depth * 2]});
-                            try self.dump_internal(key, depth + 2, writer);
+                            try self.dump_internal(key, depth + 2, options, writer);
                         }
                         try writer.print("{s}  value\n", .{lots_of_spaces[0 .. depth * 2]});
-                        try self.dump_internal(entry.value, depth + 2, writer);
+                        try self.dump_internal(entry.value, depth + 2, options, writer);
                     }
                 },
                 .at_import,
@@ -3402,7 +3463,7 @@ fn test_parse(str: []const u8, result: []const u8, options: TestParseOptions) !v
 
     const writer = buffer.writer();
 
-    try tree.dump(root, writer);
+    try tree.dump(root, .{}, writer);
 
     try std.testing.expectEqualStrings(result, buffer.items);
 }
@@ -3411,11 +3472,11 @@ fn test_parse(str: []const u8, result: []const u8, options: TestParseOptions) !v
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn test_compile(str: []const u8, result: []const u8) !void {
+fn test_compile(str: []const u8, result: []const u8, options: CompileOptions) !void {
     var moon = Moon.init(std.testing.allocator);
     defer moon.deinit();
 
-    const module = try moon.compile(str);
+    const module = try moon.compile(str, options);
 
     var buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer buffer.deinit();
@@ -4093,11 +4154,29 @@ test "compile simple" {
         \\ add (37, 42)
         \\
     ,
-        "nil",
+        \\module
+        \\  code
+        \\    000000 load_global 0 ; "add"
+        \\    000001 integer 37
+        \\    000002 integer 42
+        \\    000003 call 2
+        \\    000004 drop 1
+        \\    000005 ret
+        \\    000006 load_local 0
+        \\    000007 load_local 1
+        \\    000008 add
+        \\    000009 ret
+        \\  constants
+        \\  globals
+        \\    0: "add" function 000006
+        \\  strings
+        \\
+    ,
+        .{},
     );
 }
 
-test "opcode" {
+test "opcode size and format" {
     try std.testing.expectEqual(
         @bitOffsetOf(ShortInstruction, "kind"),
         @bitOffsetOf(LongInstruction, "kind"),
@@ -4109,35 +4188,36 @@ test "opcode" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// test "compile hello world" {
-//     try test_compile(
-//         \\ const std = @import ("std");
-//         \\ std.print ("Hello, World!\n", {})
-//         \\
-//     ,
-//         \\module
-//         \\  source
-//         \\    " const std = @import (\"std\");"
-//         \\    " std.print (\"Hello, World!\\n\", {})"
-//         \\  globals
-//         \\    std
-//         \\  constants
-//         \\    0: "std"
-//         \\    1: "print"
-//         \\    2: "Hello, World!\n"
-//         \\  code
-//         \\    push_constant 0
-//         \\    call_import 1
-//         \\    store_global std
-//         \\    push 2
-//         \\    new_table
-//         \\    load_global std
-//         \\    push_constant 1 // "print"
-//         \\    load_table
-//         \\    call 2
-//         \\
-//     );
-// }
+test "compile hello world" {
+    try test_compile(
+        \\ const std = @import ("std");
+        \\ std.print ("Hello, World!\n", .{37, 42})
+        \\
+    ,
+        \\module
+        \\  globals
+        \\    std
+        \\  constants
+        \\    0: "std"
+        \\    1: "print"
+        \\    2: "Hello, World!\n"
+        \\  code
+        \\    push_constant 0
+        \\    call_import 1
+        \\    store_global std
+        \\    push 2
+        \\    new_table
+        \\    load_global std
+        \\    push_constant 1 // "print"
+        \\    load_table
+        \\    call 2
+        \\
+    ,
+        .{
+            .trace_code = true,
+        },
+    );
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
