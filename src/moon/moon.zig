@@ -102,7 +102,6 @@ pub const Moon = struct {
             .code = .empty,
             .constants = .empty,
             .globals = .empty,
-            .functions = .empty,
             .strings = .empty,
         };
         errdefer {
@@ -115,6 +114,29 @@ pub const Moon = struct {
         try module.semantic_analysis(&tree, root);
 
         try module.generate_code(&tree, root);
+        _ = try module.add_code(.ret, 0);
+
+        var giter = module.globals.iterator();
+        while (giter.next()) |*global| {
+            const value = global.value_ptr;
+            switch (value.*) {
+                .function => |*func| {
+                    if (func.need_generation) {
+                        std.debug.print("generate func {s} {}\n", .{
+                            global.key_ptr.*,
+                            func.node_index,
+                        });
+                        _ = try module.add_code(.nop, 0);
+                        func.start = module.get_code_addr();
+                        try module.generate_code(&tree, func.node_index);
+                        func.end = module.get_code_addr();
+                        _ = try module.add_code(.nop, 0);
+                        func.need_generation = false;
+                    }
+                },
+                else => {},
+            }
+        }
 
         return module;
     }
@@ -164,13 +186,79 @@ pub const Moon = struct {
     }
 
     fn dump_module(self: *Moon, module: *Module, writer: anytype) !void {
-        _ = self;
-
         try writer.print("module\n", .{});
+
         try writer.print("  code\n", .{});
-        for (module.code.items, 0..) |instruction, addr| {
-            switch (instruction) {
-                .short => |code| {
+        try self.dump_code(module, module.code.items, writer);
+
+        try writer.print("  constants\n", .{});
+        for (module.constants.items, 0..) |constant, index| {
+            try writer.print("    {}: ", .{index});
+            switch (constant) {
+                .integer => |value| try writer.print("integer: {x}", .{value}),
+                .number => |value| try writer.print("number: {d}", .{value}),
+                .string => |value| try writer.print("string: \"{}\"", .{
+                    std.zig.fmtEscapes(
+                        module.strings.items[value.offset .. value.offset + value.len],
+                    ),
+                }),
+            }
+            try writer.print("\n", .{});
+        }
+        try writer.print("  globals\n", .{});
+        var giter = module.globals.iterator();
+        while (giter.next()) |kv| {
+            const key = kv.key_ptr.*;
+            const value = kv.value_ptr.*;
+            switch (value) {
+                .constant => |c| {
+                    try writer.print("    {}: \"{}\" constant\n", .{
+                        c.index,
+                        std.zig.fmtEscapes(key),
+                    });
+                },
+                .variable => |v| {
+                    try writer.print("    {}: \"{}\" variable\n", .{
+                        v.index,
+                        std.zig.fmtEscapes(key),
+                    });
+                },
+                .function => |f| {
+                    try writer.print("    {}: \"{}\" function {x} .. {x}\n", .{
+                        f.index,
+                        std.zig.fmtEscapes(key),
+                        @intFromEnum(f.start),
+                        @intFromEnum(f.end),
+                    });
+                },
+            }
+        }
+        try writer.print("  strings\n", .{});
+
+        for (0..module.strings.items.len) |index| {
+            const start = index * 16;
+            if (start >= module.strings.items.len) break;
+
+            const end = @min(module.strings.items.len, index * 16 + 16);
+            try writer.print("    {x:0>8} \"{}\"\n", .{
+                start,
+                std.zig.fmtEscapes(module.strings.items[start..end]),
+            });
+        }
+    }
+
+    fn dump_code(
+        self: *Moon,
+        module: *Module,
+        instructions: []const Instruction,
+        writer: anytype,
+    ) !void {
+        _ = self;
+        _ = module;
+        for (instructions, 0..) |instruction, addr| {
+            switch (instruction.len()) {
+                .short => {
+                    const code = instruction.get_short();
                     switch (code.op) {
                         .constant,
                         .jmpk,
@@ -192,7 +280,8 @@ pub const Moon = struct {
                         },
                     }
                 },
-                .long => |code| {
+                .long => {
+                    const code = instruction.get_long();
                     switch (code.op) {
                         .nop,
                         .boolean,
@@ -242,39 +331,6 @@ pub const Moon = struct {
                 },
             }
         }
-        try writer.print("  constants\n", .{});
-        for (module.constants.items, 0..) |constant, index| {
-            try writer.print("    {}: ", .{index});
-            switch (constant) {
-                .integer => |value| try writer.print("integer: {x}", .{value}),
-                .number => |value| try writer.print("number: {d}", .{value}),
-                .string => |value| try writer.print("string: \"{}\"", .{
-                    std.zig.fmtEscapes(
-                        module.strings.items[value.offset .. value.offset + value.len],
-                    ),
-                }),
-            }
-            try writer.print("\n", .{});
-        }
-        try writer.print("  globals\n", .{});
-        var giter = module.globals.iterator();
-        while (giter.next()) |kv| {
-            const key = kv.key_ptr.*;
-            const value = kv.value_ptr;
-            try writer.print("    \"{}\" {}\n", .{ std.zig.fmtEscapes(key), value.index });
-        }
-        try writer.print("  strings\n", .{});
-
-        for (0..module.strings.items.len) |index| {
-            const start = index * 16;
-            if (start >= module.strings.items.len) break;
-
-            const end = @min(module.strings.items.len, index * 16 + 16);
-            try writer.print("    {x:0>8} \"{}\"\n", .{
-                start,
-                std.zig.fmtEscapes(module.strings.items[start..end]),
-            });
-        }
     }
 };
 
@@ -284,14 +340,37 @@ pub const Moon = struct {
 
 const CodeAddr = enum(u24) { _ };
 
-const Function = struct {
-    start: CodeAddr,
-    end: CodeAddr,
+const GlobalKind = enum {
+    variable,
+    constant,
+    function,
 };
 
-const Global = struct {
+const Global = union(GlobalKind) {
+    variable: GlobalVariable,
+    constant: GlobalConstant,
+    function: GlobalFunction,
+};
+
+const GlobalConstant = struct {
     index: u32,
 };
+
+const GlobalVariable = struct {
+    index: u32,
+};
+
+const GlobalFunction = struct {
+    index: u32,
+    need_generation: bool = true,
+    node_index: NodeIndex,
+    start: CodeAddr = @enumFromInt(0),
+    end: CodeAddr = @enumFromInt(0),
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const Module = struct {
     moon: *Moon,
@@ -299,7 +378,6 @@ const Module = struct {
     code: std.ArrayListUnmanaged(Instruction),
     constants: std.ArrayListUnmanaged(Constant),
     strings: std.ArrayListUnmanaged(u8),
-    functions: std.ArrayListUnmanaged(Function),
     next_global: u32 = 0,
 
     pub fn deinit(self: *Module) void {
@@ -307,7 +385,6 @@ const Module = struct {
         self.code.deinit(self.moon.allocator);
         self.constants.deinit(self.moon.allocator);
         self.strings.deinit(self.moon.allocator);
-        self.functions.deinit(self.moon.allocator);
     }
 
     pub fn semantic_analysis(
@@ -339,7 +416,13 @@ const Module = struct {
         const node = tree.nodes.items[index];
         switch (node) {
             .const_decl => |decl| {
-                try self.declare_global(decl.name);
+                try self.declare_global(decl.name, .constant, node_index);
+            },
+            .var_decl => |decl| {
+                try self.declare_global(decl.name, .variable, node_index);
+            },
+            .func_decl => |decl| {
+                try self.declare_global(decl.name, .function, decl.block);
             },
             else => {
                 std.debug.print("Statement: {s}\n", .{@tagName(node)});
@@ -347,16 +430,40 @@ const Module = struct {
         }
     }
 
-    pub fn declare_global(self: *Module, name: []const u8) MoonErrors!void {
-        try self.globals.put(self.moon.allocator, name, .{
-            .index = self.next_global,
-        });
+    pub fn declare_global(
+        self: *Module,
+        name: []const u8,
+        kind: GlobalKind,
+        node_index: NodeIndex,
+    ) MoonErrors!void {
+        switch (kind) {
+            .constant => {
+                try self.globals.put(self.moon.allocator, name, .{ .constant = .{
+                    .index = self.next_global,
+                } });
+            },
+            .variable => {
+                try self.globals.put(self.moon.allocator, name, .{ .variable = .{
+                    .index = self.next_global,
+                } });
+            },
+            .function => {
+                try self.globals.put(self.moon.allocator, name, .{ .function = .{
+                    .index = self.next_global,
+                    .node_index = node_index,
+                } });
+            },
+        }
         self.next_global += 1;
     }
 
     pub fn find_global(self: *Module, name: []const u8) ?u32 {
         if (self.globals.get(name)) |value| {
-            return value.index;
+            switch (value) {
+                .constant => |c| return c.index,
+                .variable => |c| return c.index,
+                .function => |c| return c.index,
+            }
         }
         return null;
     }
@@ -488,6 +595,10 @@ const Module = struct {
                     _ = try self.add_code(.call, num_args);
                 }
             },
+            .return_stmt => |stmt| {
+                try self.generate_code(tree, stmt);
+                _ = try self.add_code(.ret, 0);
+            },
             .identifier => |str| {
                 if (self.find_global(str)) |i| {
                     const arg: LongArg = @truncate(i);
@@ -509,6 +620,9 @@ const Module = struct {
             },
             .at_import => {
                 _ = try self.add_code(.import, 0);
+            },
+            .func_decl => |func| {
+                std.debug.print("func {s}\n", .{func.name});
             },
             else => {
                 std.debug.print("generate_code: {s}\n", .{@tagName(node)});
@@ -563,13 +677,13 @@ const Module = struct {
 
     pub fn add_short_code(self: *Module, op: ShortOpcode, arg: ShortArg) MoonErrors!CodeAddr {
         const index: u24 = @intCast(self.code.items.len);
-        try self.code.append(self.moon.allocator, .{ .short = .{ .op = op, .arg = arg } });
+        try self.code.append(self.moon.allocator, Instruction.short(op, arg));
         return @enumFromInt(index);
     }
 
     pub fn add_code(self: *Module, op: LongOpcode, arg: LongArg) MoonErrors!CodeAddr {
         const index: u24 = @intCast(self.code.items.len);
-        try self.code.append(self.moon.allocator, .{ .long = .{ .op = op, .arg = arg } });
+        try self.code.append(self.moon.allocator, Instruction.long(op, arg));
         return @enumFromInt(index);
     }
 
@@ -608,11 +722,11 @@ const Module = struct {
         const addr: usize = @bitCast(code);
         if (diff >= std.math.minInt(ShortIArg) and diff <= std.math.maxInt(ShortIArg)) {
             const arg: ShortArg = @bitCast(@as(ShortIArg, @truncate(diff)));
-            self.code.items[addr] = .{ .short = .{ .op = .jmp, .arg = arg } };
+            self.code.items[addr] = Instruction.short(.jmp, arg);
         } else {
             const kindex = try self.add_constant_i64(diff);
             const arg: ShortArg = @intCast(kindex);
-            self.code.items[addr] = .{ .short = .{ .op = .jmpk, .arg = arg } };
+            self.code.items[addr] = Instruction.short(.jmpk, arg);
         }
     }
 
@@ -671,24 +785,51 @@ const Module = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const InstructionKind = enum(u1) {
-    short,
-    long,
+pub const InstShortLong = enum(u1) { short, long };
+
+pub const Instruction = enum(u16) {
+    _,
+
+    pub fn len(self: Instruction) InstShortLong {
+        const inst = self.get_long();
+        return inst.kind;
+    }
+
+    pub fn short(op: ShortOpcode, arg: ShortArg) Instruction {
+        const inst: ShortInstruction = .{
+            .op = op,
+            .arg = arg,
+        };
+        return @enumFromInt(@as(u16, @bitCast(inst)));
+    }
+
+    pub fn long(op: LongOpcode, arg: LongArg) Instruction {
+        const inst: LongInstruction = .{
+            .op = op,
+            .arg = arg,
+        };
+        return @enumFromInt(@as(u16, @bitCast(inst)));
+    }
+
+    pub fn get_short(self: Instruction) ShortInstruction {
+        return @bitCast(@intFromEnum(self));
+    }
+
+    pub fn get_long(self: Instruction) LongInstruction {
+        return @bitCast(@intFromEnum(self));
+    }
 };
 
-pub const Instruction = union(InstructionKind) {
-    short: ShortInstruction,
-    long: LongInstruction,
-};
-
-pub const ShortInstruction = packed struct(u15) {
-    op: ShortOpcode,
+pub const ShortInstruction = packed struct(u16) {
     arg: ShortArg,
+    op: ShortOpcode,
+    kind: InstShortLong = .short,
 };
 
-pub const LongInstruction = packed struct(u15) {
-    op: LongOpcode,
+pub const LongInstruction = packed struct(u16) {
     arg: LongArg,
+    op: LongOpcode,
+    kind: InstShortLong = .long,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3693,12 +3834,26 @@ test "parse block" {
 
 test "compile simple" {
     try test_compile(
-        \\ const std = @import("std");
-        \\ const builtin = @import ("builtin");
-        \\ std.debug.print ("Hello, World!\n");
+        \\ const std = @import ("std");
+        \\
+        \\ fn add (a, b)
+        \\ {
+        \\     return 3 * a + 4 * b
+        \\ }
+        \\
+        \\ std.debug.print (add (37, 42))
+        \\
     ,
         "nil",
     );
+}
+
+test "opcode" {
+    try std.testing.expectEqual(
+        @bitOffsetOf(ShortInstruction, "kind"),
+        @bitOffsetOf(LongInstruction, "kind"),
+    );
+    try std.testing.expectEqual(2, @sizeOf(Instruction));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
