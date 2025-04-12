@@ -880,12 +880,10 @@ const Module = struct {
             .func_decl => {},
             .table_decl => |decl| {
                 _ = try self.add_code(.new_table, 0);
-                for (decl) |entry|
-                {
-                    if (entry.key == null)
-                    {
-                        try self.generate_code (tree, entry.value, .{});
-                        _ = try self.add_code (.append_table, 0);
+                for (decl) |entry| {
+                    if (entry.key == null) {
+                        try self.generate_code(tree, entry.value, .{});
+                        _ = try self.add_code(.append_table, 0);
                     }
                 }
             },
@@ -2235,8 +2233,7 @@ pub const Moon_AST = struct {
         if (index < self.nodes.items.len) {
             try writer.print("{s}", .{lots_of_spaces[0 .. depth * 2]});
             const node = self.nodes.items[index];
-            if (options.show_node_index)
-            {
+            if (options.show_node_index) {
                 try writer.print("{} ", .{nindex});
             }
             try writer.print("{s}", .{@tagName(node)});
