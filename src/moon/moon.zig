@@ -103,6 +103,7 @@ pub const Moon = struct {
             .constants = .empty,
             .globals = .empty,
             .strings = .empty,
+            .locals = .empty,
         };
         errdefer {
             module.deinit();
@@ -113,7 +114,7 @@ pub const Moon = struct {
 
         try module.semantic_analysis(&tree, root);
 
-        try module.generate_code(&tree, root);
+        try module.generate_code_block(&tree, root);
         _ = try module.add_code(.ret, 0);
 
         var giter = module.globals.iterator();
@@ -126,11 +127,9 @@ pub const Moon = struct {
                             global.key_ptr.*,
                             func.node_index,
                         });
-                        _ = try module.add_code(.nop, 0);
                         func.start = module.get_code_addr();
-                        try module.generate_code(&tree, func.node_index);
+                        try module.generate_code_block(&tree, func.node_index);
                         func.end = module.get_code_addr();
-                        _ = try module.add_code(.nop, 0);
                         func.need_generation = false;
                     }
                 },
@@ -224,11 +223,10 @@ pub const Moon = struct {
                     });
                 },
                 .function => |f| {
-                    try writer.print("    {}: \"{}\" function {x} .. {x}\n", .{
+                    try writer.print("    {}: \"{}\" function {x:0>6}\n", .{
                         f.index,
                         std.zig.fmtEscapes(key),
                         @intFromEnum(f.start),
-                        @intFromEnum(f.end),
                     });
                 },
             }
@@ -236,10 +234,10 @@ pub const Moon = struct {
         try writer.print("  strings\n", .{});
 
         for (0..module.strings.items.len) |index| {
-            const start = index * 16;
+            const start = index * 32;
             if (start >= module.strings.items.len) break;
 
-            const end = @min(module.strings.items.len, index * 16 + 16);
+            const end = @min(module.strings.items.len, index * 32 + 32);
             try writer.print("    {x:0>8} \"{}\"\n", .{
                 start,
                 std.zig.fmtEscapes(module.strings.items[start..end]),
@@ -254,7 +252,6 @@ pub const Moon = struct {
         writer: anytype,
     ) !void {
         _ = self;
-        _ = module;
         for (instructions, 0..) |instruction, addr| {
             switch (instruction.len()) {
                 .short => {
@@ -288,11 +285,9 @@ pub const Moon = struct {
                         .integer,
                         .load_local,
                         .store_local,
-                        .load_global,
-                        .store_global,
                         .call,
                         .import,
-                        .deref,
+                        .drop,
                         => {
                             try writer.print("    {x:0>6} {s} {}\n", .{
                                 addr,
@@ -300,7 +295,50 @@ pub const Moon = struct {
                                 code.arg,
                             });
                         },
-                        .drop,
+                        .load_table,
+                        .store_table,
+                        => {
+                            const constant = module.constants.items[code.arg];
+                            switch (constant) {
+                                .string => |s| {
+                                    const start = s.offset;
+                                    const end = s.offset + s.len;
+                                    const name = module.strings.items[start..end];
+                                    try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
+                                        addr,
+                                        @tagName(code.op),
+                                        code.arg,
+                                        std.zig.fmtEscapes(name),
+                                    });
+                                },
+                                else => {
+                                    try writer.print("    {x:0>6} {s} {}\n", .{
+                                        addr,
+                                        @tagName(code.op),
+                                        code.arg,
+                                    });
+                                },
+                            }
+                        },
+                        .load_global,
+                        .store_global,
+                        => {
+                            if (module.get_global_index_name(code.arg)) |name| {
+                                try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
+                                    addr,
+                                    @tagName(code.op),
+                                    code.arg,
+                                    std.zig.fmtEscapes(name),
+                                });
+                            } else {
+                                try writer.print("    {x:0>6} {s} {}\n", .{
+                                    addr,
+                                    @tagName(code.op),
+                                    code.arg,
+                                });
+                            }
+                        },
+                        .nil,
                         .add,
                         .sub,
                         .mul,
@@ -372,6 +410,20 @@ const GlobalFunction = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+const LocalKind = enum {
+    constant,
+    variable,
+};
+
+const Local = struct {
+    name: []const u8,
+    kind: LocalKind,
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const Module = struct {
     moon: *Moon,
     globals: std.StringArrayHashMapUnmanaged(Global),
@@ -379,12 +431,14 @@ const Module = struct {
     constants: std.ArrayListUnmanaged(Constant),
     strings: std.ArrayListUnmanaged(u8),
     next_global: u32 = 0,
+    locals: std.ArrayListUnmanaged(Local),
 
     pub fn deinit(self: *Module) void {
         self.globals.deinit(self.moon.allocator);
         self.code.deinit(self.moon.allocator);
         self.constants.deinit(self.moon.allocator);
         self.strings.deinit(self.moon.allocator);
+        self.locals.deinit(self.moon.allocator);
     }
 
     pub fn semantic_analysis(
@@ -396,13 +450,12 @@ const Module = struct {
         const node = tree.nodes.items[index];
         switch (node) {
             .block => |stmts| {
-                std.debug.print("Semantic: {s}\n", .{@tagName(node)});
                 for (stmts.items) |stmt| {
                     try self.semantic_statement(tree, stmt);
                 }
             },
             else => {
-                std.debug.print("No Semantic: {s}\n", .{@tagName(node)});
+                // std.debug.print("No Semantic: {s}\n", .{@tagName(node)});
             },
         }
     }
@@ -423,9 +476,12 @@ const Module = struct {
             },
             .func_decl => |decl| {
                 try self.declare_global(decl.name, .function, decl.block);
+                for (decl.params) |param| {
+                    try self.declare_local(param.name, .constant);
+                }
             },
             else => {
-                std.debug.print("Statement: {s}\n", .{@tagName(node)});
+                // std.debug.print("Statement: {s}\n", .{@tagName(node)});
             },
         }
     }
@@ -436,6 +492,14 @@ const Module = struct {
         kind: GlobalKind,
         node_index: NodeIndex,
     ) MoonErrors!void {
+        if (self.find_global(name)) |_| {
+            std.debug.print("{s} already declared\n", .{name});
+            return error.NameAlreadyDeclared;
+        }
+        if (self.find_local(name)) |_| {
+            std.debug.print("{s} already declared\n", .{name});
+            return error.NameAlreadyDeclared;
+        }
         switch (kind) {
             .constant => {
                 try self.globals.put(self.moon.allocator, name, .{ .constant = .{
@@ -468,7 +532,75 @@ const Module = struct {
         return null;
     }
 
-    pub fn generate_code(
+    pub fn declare_local(self: *Module, name: []const u8, kind: LocalKind) !void {
+        if (self.find_global(name)) |_| {
+            std.debug.print("{s} already declared\n", .{name});
+            return error.NameAlreadyDeclared;
+        }
+        if (self.find_local(name)) |_| {
+            std.debug.print("{s} already declared\n", .{name});
+            return error.NameAlreadyDeclared;
+        }
+
+        try self.locals.append(self.moon.allocator, .{
+            .name = name,
+            .kind = kind,
+        });
+
+        std.debug.print("Local {s} = {}\n", .{ name, self.locals.items.len - 1 });
+    }
+
+    pub fn find_local(self: *Module, name: []const u8) ?u32 {
+        for (self.locals.items, 0..) |local, index| {
+            if (local.name.len == name.len) {
+                if (std.mem.eql(u8, name, local.name)) {
+                    return @truncate(index);
+                }
+            }
+        }
+        return null;
+    }
+
+    pub fn find_local_variable(self: *Module, name: []const u8) ?u32 {
+        for (self.locals.items, 0..) |local, index| {
+            if (local.name.len == name.len) {
+                if (std.mem.eql(u8, name, local.name)) {
+                    if (local.kind == .variable) {
+                        return @truncate(index);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    pub fn find_local_constant(self: *Module, name: []const u8) ?u32 {
+        for (self.locals.items, 0..) |local, index| {
+            if (local.name.len == name.len) {
+                if (std.mem.eql(u8, name, local.name)) {
+                    if (local.kind == .constant) {
+                        return @truncate(index);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    pub fn get_global_index_name(self: *Module, index: usize) ?[]const u8 {
+        var iter = self.globals.iterator();
+        while (iter.next()) |kv| {
+            const value = kv.value_ptr.*;
+            switch (value) {
+                .constant => |c| if (c.index == index) return kv.key_ptr.*,
+                .variable => |c| if (c.index == index) return kv.key_ptr.*,
+                .function => |c| if (c.index == index) return kv.key_ptr.*,
+            }
+        }
+        return null;
+    }
+
+    pub fn generate_code_block(
         self: *Module,
         tree: *const Moon_AST,
         node_index: NodeIndex,
@@ -494,35 +626,106 @@ const Module = struct {
             .op_neq,
             .op_and,
             .op_or,
+            .call,
+            => {
+                try self.generate_code(tree, node_index, .{});
+                _ = try self.add_code(.drop, 1);
+            },
+            .const_decl => |decl| {
+                try self.declare_local(decl.name, .constant);
+                try self.generate_code(tree, decl.expr, .{});
+                if (self.find_global(decl.name)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.store_global, arg);
+                } else if (self.find_local(decl.name)) |_| {
+                    // const arg: LongArg = @truncate(i);
+                    // _ = try self.add_code(.store_local, arg);
+                } else {
+                    return error.UnknownVariable;
+                }
+            },
+            .var_decl => |decl| {
+                try self.declare_local(decl.name, .variable);
+                try self.generate_code(tree, decl.expr, .{});
+                if (self.find_global(decl.name)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.store_global, arg);
+                } else if (self.find_local(decl.name)) |_| {
+                    // const arg: LongArg = @truncate(i);
+                    // _ = try self.add_code(.store_local, arg);
+                } else {
+                    return error.UnknownVariable;
+                }
+            },
+            else => {
+                try self.generate_code(tree, node_index, .{});
+            },
+        }
+    }
+
+    const GenerateCodeOptions = struct {
+        assignment: bool = false,
+    };
+
+    pub fn generate_code(
+        self: *Module,
+        tree: *const Moon_AST,
+        node_index: NodeIndex,
+        options: GenerateCodeOptions,
+    ) MoonErrors!void {
+        const index = node_index.as_usize();
+        const node = tree.nodes.items[index];
+        // first generate the children nodes
+        switch (node) {
+            .op_add,
+            .op_sub,
+            .op_mul,
+            .op_div,
+            .op_mod,
+            .op_lsh,
+            .op_rsh,
+            .op_band,
+            .op_bor,
+            .op_bxor,
+            .op_lt,
+            .op_lte,
+            .op_gt,
+            .op_gte,
+            .op_eq,
+            .op_neq,
+            .op_and,
+            .op_or,
             => |op| {
-                try self.generate_code(tree, op.lhs);
-                try self.generate_code(tree, op.rhs);
+                try self.generate_code(tree, op.lhs, .{});
+                try self.generate_code(tree, op.rhs, .{});
             },
             .op_dot,
             => |op| {
                 const lhs_index = op.lhs.as_usize();
                 const lhs = tree.nodes.items[lhs_index];
                 if (lhs == .identifier) {
-                    try self.generate_code(tree, op.lhs);
+                    try self.generate_code(tree, op.lhs, .{});
                 } else {
-                    try self.generate_code(tree, op.lhs);
+                    try self.generate_code(tree, op.lhs, .{});
                 }
                 const rhs_index = op.rhs.as_usize();
                 const rhs = tree.nodes.items[rhs_index];
 
                 const i = try self.add_constant_string(rhs.identifier);
                 const arg: LongArg = @truncate(i);
-                _ = try self.add_code(.deref, arg);
+                if (options.assignment) {
+                    _ = try self.add_code(.store_table, arg);
+                } else {
+                    _ = try self.add_code(.load_table, arg);
+                }
             },
             else => {},
         }
+        // then generate the instruction
         switch (node) {
-            .boolean_true => {
-                _ = try self.add_code(.boolean, 1);
-            },
-            .boolean_false => {
-                _ = try self.add_code(.boolean, 0);
-            },
+            .nil => _ = try self.add_code(.nil, 0),
+            .boolean_true => _ = try self.add_code(.boolean, 1),
+            .boolean_false => _ = try self.add_code(.boolean, 0),
             .integer_literal => |i| {
                 if (i >= std.math.minInt(LongIArg) and i <= std.math.maxInt(LongIArg)) {
                     const value: LongArg = @bitCast(@as(LongIArg, @truncate(i)));
@@ -571,15 +774,15 @@ const Module = struct {
             .op_dot => {},
             .block => |stmts| {
                 for (stmts.items) |stmt| {
-                    try self.generate_code(tree, stmt);
+                    try self.generate_code_block(tree, stmt);
                 }
             },
             .while_stmt => |stmt| {
                 const first_jump = try self.add_short_code(.jmp, 0);
                 const start_block = self.get_code_addr();
-                try self.generate_code(tree, stmt.block);
+                try self.generate_code_block(tree, stmt.block);
                 const end_block = self.get_code_addr();
-                try self.generate_code(tree, stmt.expr);
+                try self.generate_code(tree, stmt.expr, .{});
                 try self.add_bra(start_block);
                 try self.patch_jmp(first_jump, end_block);
             },
@@ -587,43 +790,68 @@ const Module = struct {
                 if (self.is_builtin(tree, stmt.func)) {
                     try self.generate_call_builtin(tree, stmt.func, stmt.args);
                 } else {
-                    try self.generate_code(tree, stmt.func);
+                    try self.generate_code(tree, stmt.func, .{});
                     for (stmt.args) |arg| {
-                        try self.generate_code(tree, arg);
+                        try self.generate_code(tree, arg, .{});
                     }
                     const num_args: LongArg = @truncate(stmt.args.len);
                     _ = try self.add_code(.call, num_args);
                 }
             },
             .return_stmt => |stmt| {
-                try self.generate_code(tree, stmt);
+                try self.generate_code(tree, stmt, .{});
                 _ = try self.add_code(.ret, 0);
             },
             .identifier => |str| {
                 if (self.find_global(str)) |i| {
                     const arg: LongArg = @truncate(i);
-                    _ = try self.add_code(.load_global, arg);
-                } else {
-                    const i = try self.add_constant_string(str);
+                    if (options.assignment) {
+                        _ = try self.add_code(.store_global, arg);
+                    } else {
+                        _ = try self.add_code(.load_global, arg);
+                    }
+                } else if (self.find_local_variable(str)) |i| {
                     const arg: LongArg = @truncate(i);
-                    _ = try self.add_code(.load_local, arg);
+                    if (options.assignment) {
+                        _ = try self.add_code(.store_local, arg);
+                    } else {
+                        _ = try self.add_code(.load_local, arg);
+                    }
+                } else if (self.find_local_constant(str)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    if (options.assignment) {
+                        std.debug.print("{s} constant\n", .{str});
+                        return error.NotVariable;
+                    } else {
+                        _ = try self.add_code(.load_local, arg);
+                    }
+                } else {
+                    std.debug.print("{s} unknown\n", .{str});
+                    return error.UnknownVariable;
                 }
             },
-            .const_decl => |decl| {
-                try self.generate_code(tree, decl.expr);
+            .const_decl,
+            .var_decl,
+            => |decl| {
+                try self.generate_code(tree, decl.expr, .{});
                 if (self.find_global(decl.name)) |i| {
                     const arg: LongArg = @truncate(i);
                     _ = try self.add_code(.store_global, arg);
+                } else if (self.find_local(decl.name)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.store_local, arg);
                 } else {
                     return error.UnknownVariable;
                 }
             },
+            .assignment => |stmt| {
+                try self.generate_code(tree, stmt.rhs, .{});
+                try self.generate_code(tree, stmt.lhs, .{ .assignment = true });
+            },
             .at_import => {
                 _ = try self.add_code(.import, 0);
             },
-            .func_decl => |func| {
-                std.debug.print("func {s}\n", .{func.name});
-            },
+            .func_decl => {},
             else => {
                 std.debug.print("generate_code: {s}\n", .{@tagName(node)});
                 return error.NotImplemented;
@@ -850,6 +1078,7 @@ pub const LongArg = u8;
 pub const LongIArg = i8;
 
 pub const LongOpcode = enum(u7) {
+    nil,
     nop,
     drop,
     add,
@@ -870,7 +1099,8 @@ pub const LongOpcode = enum(u7) {
     neq,
     @"and",
     @"or",
-    deref,
+    load_table,
+    store_table,
     boolean,
     integer,
     load_local,
@@ -1610,6 +1840,10 @@ pub const Moon_AST = struct {
                     _ = iter.next();
                     return try self.new_node(.boolean_false);
                 },
+                .keyword_nil => {
+                    _ = iter.next();
+                    return try self.new_node(.nil);
+                },
                 .integer => {
                     _ = iter.next();
                     return try self.new_node(
@@ -1917,6 +2151,7 @@ pub const Moon_AST = struct {
             .keyword_not,
             .op_sub,
             .op_com,
+            .keyword_nil,
             .keyword_true,
             .keyword_false,
             .dot_block,
@@ -1945,6 +2180,7 @@ pub const Moon_AST = struct {
             const node = self.nodes.items[index];
             try writer.print("{s}", .{@tagName(node)});
             switch (node) {
+                .nil,
                 .boolean_true,
                 .boolean_false,
                 => {
@@ -2069,6 +2305,7 @@ pub const Moon_AST = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const AST_NodeKind = enum {
+    nil,
     boolean_true,
     boolean_false,
     integer_literal,
@@ -2110,6 +2347,7 @@ pub const AST_NodeKind = enum {
 };
 
 pub const AST_Node = union(AST_NodeKind) {
+    nil,
     boolean_true,
     boolean_false,
     integer_literal: i64,
@@ -2230,6 +2468,8 @@ pub const MoonErrors = error{
     MissingCloseParenthesis,
     TooManyConstants,
     UnknownVariable,
+    NotVariable,
+    NameAlreadyDeclared,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2949,6 +3189,7 @@ fn check_keyword(str: []const u8) Kind {
         },
         3 => {
             if (std.mem.eql(u8, "and", str)) return .keyword_and;
+            if (std.mem.eql(u8, "nil", str)) return .keyword_nil;
             if (std.mem.eql(u8, "not", str)) return .keyword_not;
             if (std.mem.eql(u8, "pub", str)) return .keyword_pub;
             if (std.mem.eql(u8, "var", str)) return .keyword_var;
@@ -3040,6 +3281,7 @@ pub const Kind = enum(u8) {
     keyword_fn,
     keyword_if,
     keyword_not,
+    keyword_nil,
     keyword_or,
     keyword_pub,
     keyword_return,
@@ -3235,7 +3477,11 @@ test "tokenize identifiers" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize keywords" {
-    try test_tokenize("if elif else not and or while break continue return @import", &[_]Token{
+    try test_tokenize(
+        \\if elif else not and or while break continue return
+        \\@import
+        \\true false nil
+    , &[_]Token{
         .{ .kind = .keyword_if, .str = "if" },
         .{ .kind = .keyword_elif, .str = "elif" },
         .{ .kind = .keyword_else, .str = "else" },
@@ -3246,7 +3492,12 @@ test "tokenize keywords" {
         .{ .kind = .keyword_break, .str = "break" },
         .{ .kind = .keyword_continue, .str = "continue" },
         .{ .kind = .keyword_return, .str = "return" },
+        .{ .kind = .eol, .str = "\n" },
         .{ .kind = .keyword_at_import, .str = "@import" },
+        .{ .kind = .eol, .str = "\n" },
+        .{ .kind = .keyword_true, .str = "true" },
+        .{ .kind = .keyword_false, .str = "false" },
+        .{ .kind = .keyword_nil, .str = "nil" },
     });
 }
 
@@ -3834,14 +4085,12 @@ test "parse block" {
 
 test "compile simple" {
     try test_compile(
-        \\ const std = @import ("std");
-        \\
         \\ fn add (a, b)
         \\ {
-        \\     return 3 * a + 4 * b
+        \\     return a + b
         \\ }
         \\
-        \\ std.debug.print (add (37, 42))
+        \\ add (37, 42)
         \\
     ,
         "nil",
@@ -3884,7 +4133,7 @@ test "opcode" {
 //         \\    new_table
 //         \\    load_global std
 //         \\    push_constant 1 // "print"
-//         \\    deref
+//         \\    load_table
 //         \\    call 2
 //         \\
 //     );
