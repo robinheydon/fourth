@@ -87,6 +87,41 @@ pub fn build(b: *std.Build) !void {
 
     ///////////////////////////////////////////////////////////////////////////////////////////
 
+    const moon_exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/moon/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // exe_mod.addImport("ng", ng_mod);
+    moon_exe_mod.addImport("moon", moon_mod);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    const moon_exe = b.addExecutable(.{
+        .name = "moon",
+        .root_module = moon_exe_mod,
+    });
+
+    b.installArtifact(moon_exe);
+
+    const moon_step = b.step("moon", "Build moon");
+    moon_step.dependOn(&moon_exe.step);
+    moon_step.dependOn(b.getInstallStep());
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    const moon_run_cmd = b.addRunArtifact(moon_exe);
+    moon_run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        moon_run_cmd.addArgs(args);
+    }
+
+    const moon_run_step = b.step("run-moon", "Run moon");
+    moon_run_step.dependOn(&moon_run_cmd.step);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
     const ng_mod_test = b.createModule(.{
         .root_source_file = b.path("src/ng/ng.zig"),
         .target = target,

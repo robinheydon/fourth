@@ -12,6 +12,10 @@ const CompileOptions = struct {
     trace_code: bool = false,
 };
 
+pub fn init(alloc: std.mem.Allocator) Moon {
+    return Moon.init(alloc);
+}
+
 pub const Moon = struct {
     allocator: std.mem.Allocator,
 
@@ -91,7 +95,7 @@ pub const Moon = struct {
     ) MoonErrors!*Module {
         var iter = tokenize(source);
 
-        var tree = self.AST();
+        var tree = self.AST(source);
         defer tree.deinit();
 
         const root = try tree.parse(&iter);
@@ -151,9 +155,10 @@ pub const Moon = struct {
         return module;
     }
 
-    pub fn AST(self: *Moon) Moon_AST {
+    pub fn AST(self: *Moon, source: []const u8) Moon_AST {
         return .{
             .moon = self,
+            .source = source,
         };
     }
 
@@ -1203,6 +1208,7 @@ const NodeIndex = enum(u32) {
 
 pub const Moon_AST = struct {
     moon: *Moon,
+    source: []const u8,
     nodes: std.ArrayListUnmanaged(AST_Node) = .empty,
     trace: bool = false,
 
@@ -1314,6 +1320,7 @@ pub const Moon_AST = struct {
                         break;
                     },
                     else => {
+                        std.debug.print("Invalid statement: {}\n", .{tk});
                         return error.InvalidStatement;
                     },
                 }
@@ -1339,7 +1346,7 @@ pub const Moon_AST = struct {
                 return error.MissingIdentifier;
             }
 
-            const name = tk.str;
+            const name = tk.get_string(self.source);
 
             if (iter.next()) |ntk| {
                 if (ntk.kind != .op_assign) {
@@ -1373,7 +1380,7 @@ pub const Moon_AST = struct {
                 return error.MissingIdentifier;
             }
 
-            const name = tk.str;
+            const name = tk.get_string(self.source);
 
             if (iter.next()) |ntk| {
                 if (ntk.kind != .op_assign) {
@@ -1487,7 +1494,7 @@ pub const Moon_AST = struct {
             }
             if (tk.kind == .identifier) {
                 _ = iter.next();
-                const name = tk.str;
+                const name = tk.get_string(self.source);
                 const params = try self.parse_parameter_list(iter);
                 const block = try self.parse_block(iter);
 
@@ -1527,7 +1534,7 @@ pub const Moon_AST = struct {
                 if (ntk.kind == .identifier) {
                     _ = iter.next();
                     try params.append(self.moon.allocator, .{
-                        .name = ntk.str,
+                        .name = ntk.get_string(self.source),
                     });
                 } else {
                     break;
@@ -1599,26 +1606,14 @@ pub const Moon_AST = struct {
             std.debug.print("parse_expr: {?}\n", .{tk});
         }
 
-        return try self.parse_logical_or(iter);
-    }
-
-    pub fn parse_logical_or(
-        self: *Moon_AST,
-        iter: *TokenIterator,
-    ) MoonErrors!NodeIndex {
-        if (self.trace) {
-            const tk = iter.peek();
-            std.debug.print("parse_logical_or: {?}\n", .{tk});
-        }
-
-        var lhs = try self.parse_logical_and(iter);
+        var lhs = try self.parse_logical_and_expr(iter);
         while (iter.peek()) |op| {
             if (self.trace) {
-                std.debug.print("parse_logical_or: {}\n", .{op});
+                std.debug.print("parse_expr: {}\n", .{op});
             }
             if (op.kind == .keyword_or) {
                 _ = iter.next();
-                const rhs = try self.parse_logical_and(iter);
+                const rhs = try self.parse_logical_and_expr(iter);
                 lhs = try self.new_node(
                     .{ .op_or = .{ .lhs = lhs, .rhs = rhs } },
                 );
@@ -1629,23 +1624,23 @@ pub const Moon_AST = struct {
         return lhs;
     }
 
-    pub fn parse_logical_and(
+    pub fn parse_logical_and_expr(
         self: *Moon_AST,
         iter: *TokenIterator,
     ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
-            std.debug.print("parse_logical_and: {?}\n", .{tk});
+            std.debug.print("parse_logical_and_expr: {?}\n", .{tk});
         }
 
-        var lhs = try self.parse_comparative(iter);
+        var lhs = try self.parse_compare_expr(iter);
         while (iter.peek()) |op| {
             if (self.trace) {
-                std.debug.print("parse_logical_and: {}\n", .{op});
+                std.debug.print("parse_logical_and_expr: {}\n", .{op});
             }
             if (op.kind == .keyword_and) {
                 _ = iter.next();
-                const rhs = try self.parse_comparative(iter);
+                const rhs = try self.parse_compare_expr(iter);
                 lhs = try self.new_node(
                     .{ .op_and = .{ .lhs = lhs, .rhs = rhs } },
                 );
@@ -1656,58 +1651,58 @@ pub const Moon_AST = struct {
         return lhs;
     }
 
-    pub fn parse_comparative(
+    pub fn parse_compare_expr(
         self: *Moon_AST,
         iter: *TokenIterator,
     ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
-            std.debug.print("parse_comparative: {?}\n", .{tk});
+            std.debug.print("parse_compare_expr: {?}\n", .{tk});
         }
-        var lhs = try self.parse_addition(iter);
+        var lhs = try self.parse_bitwise_expr(iter);
         if (iter.peek()) |op| {
             if (self.trace) {
-                std.debug.print("parse_comparative: {}\n", .{op});
+                std.debug.print("parse_compae_expr: {}\n", .{op});
             }
             switch (op.kind) {
                 .op_lt => {
                     _ = iter.next();
-                    const rhs = try self.parse_addition(iter);
+                    const rhs = try self.parse_bitwise_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_lt = .{ .lhs = lhs, .rhs = rhs } },
                     );
                 },
                 .op_lte => {
                     _ = iter.next();
-                    const rhs = try self.parse_addition(iter);
+                    const rhs = try self.parse_bitwise_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_lte = .{ .lhs = lhs, .rhs = rhs } },
                     );
                 },
                 .op_gt => {
                     _ = iter.next();
-                    const rhs = try self.parse_addition(iter);
+                    const rhs = try self.parse_bitwise_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_gt = .{ .lhs = lhs, .rhs = rhs } },
                     );
                 },
                 .op_gte => {
                     _ = iter.next();
-                    const rhs = try self.parse_addition(iter);
+                    const rhs = try self.parse_bitwise_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_gte = .{ .lhs = lhs, .rhs = rhs } },
                     );
                 },
                 .op_neq => {
                     _ = iter.next();
-                    const rhs = try self.parse_addition(iter);
+                    const rhs = try self.parse_bitwise_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_neq = .{ .lhs = lhs, .rhs = rhs } },
                     );
                 },
                 .op_eq => {
                     _ = iter.next();
-                    const rhs = try self.parse_addition(iter);
+                    const rhs = try self.parse_bitwise_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_eq = .{ .lhs = lhs, .rhs = rhs } },
                     );
@@ -1718,45 +1713,38 @@ pub const Moon_AST = struct {
         return lhs;
     }
 
-    pub fn parse_addition(
+    pub fn parse_bitwise_expr(
         self: *Moon_AST,
         iter: *TokenIterator,
     ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
-            std.debug.print("parse_addition: {?}\n", .{tk});
+            std.debug.print("parse_bitwise_expr: {?}\n", .{tk});
         }
 
-        var lhs = try self.parse_multiplication(iter);
+        var lhs = try self.parse_bitshift_expr(iter);
         while (iter.peek()) |op| {
             if (self.trace) {
-                std.debug.print("parse_addition: {}\n", .{op});
+                std.debug.print("parse_bitwise_expr: {}\n", .{op});
             }
             switch (op.kind) {
-                .op_add => {
-                    _ = iter.next();
-                    const rhs = try self.parse_multiplication(iter);
-                    lhs = try self.new_node(
-                        .{ .op_add = .{ .lhs = lhs, .rhs = rhs } },
-                    );
-                },
-                .op_sub => {
-                    _ = iter.next();
-                    const rhs = try self.parse_multiplication(iter);
-                    lhs = try self.new_node(
-                        .{ .op_sub = .{ .lhs = lhs, .rhs = rhs } },
-                    );
-                },
                 .op_bor => {
                     _ = iter.next();
-                    const rhs = try self.parse_multiplication(iter);
+                    const rhs = try self.parse_bitshift_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_bor = .{ .lhs = lhs, .rhs = rhs } },
                     );
                 },
+                .op_band => {
+                    _ = iter.next();
+                    const rhs = try self.parse_bitshift_expr(iter);
+                    lhs = try self.new_node(
+                        .{ .op_band = .{ .lhs = lhs, .rhs = rhs } },
+                    );
+                },
                 .op_bxor => {
                     _ = iter.next();
-                    const rhs = try self.parse_multiplication(iter);
+                    const rhs = try self.parse_bitshift_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_bxor = .{ .lhs = lhs, .rhs = rhs } },
                     );
@@ -1767,61 +1755,33 @@ pub const Moon_AST = struct {
         return lhs;
     }
 
-    pub fn parse_multiplication(
+    pub fn parse_bitshift_expr(
         self: *Moon_AST,
         iter: *TokenIterator,
     ) MoonErrors!NodeIndex {
         if (self.trace) {
             const tk = iter.peek();
-            std.debug.print("parse_multiplication: {?}\n", .{tk});
+            std.debug.print("parse_bitshift_expr: {?}\n", .{tk});
         }
 
-        var lhs = try self.parse_unary(iter);
+        var lhs = try self.parse_addition_expr(iter);
         while (iter.peek()) |op| {
             if (self.trace) {
-                std.debug.print("parse_multiplication: {}\n", .{op});
+                std.debug.print("parse_bitshift_expr: {}\n", .{op});
             }
             switch (op.kind) {
-                .op_mul => {
-                    _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
-                    lhs = try self.new_node(
-                        .{ .op_mul = .{ .lhs = lhs, .rhs = rhs } },
-                    );
-                },
-                .op_div => {
-                    _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
-                    lhs = try self.new_node(
-                        .{ .op_div = .{ .lhs = lhs, .rhs = rhs } },
-                    );
-                },
-                .op_mod => {
-                    _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
-                    lhs = try self.new_node(
-                        .{ .op_mod = .{ .lhs = lhs, .rhs = rhs } },
-                    );
-                },
                 .op_lsh => {
                     _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
+                    const rhs = try self.parse_addition_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_lsh = .{ .lhs = lhs, .rhs = rhs } },
                     );
                 },
                 .op_rsh => {
                     _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
+                    const rhs = try self.parse_addition_expr(iter);
                     lhs = try self.new_node(
                         .{ .op_rsh = .{ .lhs = lhs, .rhs = rhs } },
-                    );
-                },
-                .op_band => {
-                    _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
-                    lhs = try self.new_node(
-                        .{ .op_band = .{ .lhs = lhs, .rhs = rhs } },
                     );
                 },
                 else => break,
@@ -1830,30 +1790,107 @@ pub const Moon_AST = struct {
         return lhs;
     }
 
-    pub fn parse_unary(self: *Moon_AST, iter: *TokenIterator) MoonErrors!NodeIndex {
+    pub fn parse_addition_expr(
+        self: *Moon_AST,
+        iter: *TokenIterator,
+    ) MoonErrors!NodeIndex {
+        if (self.trace) {
+            const tk = iter.peek();
+            std.debug.print("parse_addition_expr: {?}\n", .{tk});
+        }
+
+        var lhs = try self.parse_multiply_expr(iter);
+        while (iter.peek()) |op| {
+            if (self.trace) {
+                std.debug.print("parse_addition_expr: {}\n", .{op});
+            }
+            switch (op.kind) {
+                .op_add => {
+                    _ = iter.next();
+                    const rhs = try self.parse_multiply_expr(iter);
+                    lhs = try self.new_node(
+                        .{ .op_add = .{ .lhs = lhs, .rhs = rhs } },
+                    );
+                },
+                .op_sub => {
+                    _ = iter.next();
+                    const rhs = try self.parse_multiply_expr(iter);
+                    lhs = try self.new_node(
+                        .{ .op_sub = .{ .lhs = lhs, .rhs = rhs } },
+                    );
+                },
+                else => break,
+            }
+        }
+        return lhs;
+    }
+
+    pub fn parse_multiply_expr(
+        self: *Moon_AST,
+        iter: *TokenIterator,
+    ) MoonErrors!NodeIndex {
+        if (self.trace) {
+            const tk = iter.peek();
+            std.debug.print("parse_multiply_expr: {?}\n", .{tk});
+        }
+
+        var lhs = try self.parse_unary_expr(iter);
+        while (iter.peek()) |op| {
+            if (self.trace) {
+                std.debug.print("parse_multiply_expr: {}\n", .{op});
+            }
+            switch (op.kind) {
+                .op_mul => {
+                    _ = iter.next();
+                    const rhs = try self.parse_unary_expr(iter);
+                    lhs = try self.new_node(
+                        .{ .op_mul = .{ .lhs = lhs, .rhs = rhs } },
+                    );
+                },
+                .op_div => {
+                    _ = iter.next();
+                    const rhs = try self.parse_unary_expr(iter);
+                    lhs = try self.new_node(
+                        .{ .op_div = .{ .lhs = lhs, .rhs = rhs } },
+                    );
+                },
+                .op_mod => {
+                    _ = iter.next();
+                    const rhs = try self.parse_unary_expr(iter);
+                    lhs = try self.new_node(
+                        .{ .op_mod = .{ .lhs = lhs, .rhs = rhs } },
+                    );
+                },
+                else => break,
+            }
+        }
+        return lhs;
+    }
+
+    pub fn parse_unary_expr(self: *Moon_AST, iter: *TokenIterator) MoonErrors!NodeIndex {
         if (iter.peek()) |tk| {
             if (self.trace) {
-                std.debug.print("parse_atom: {}\n", .{tk});
+                std.debug.print("parse_unary_expr: {}\n", .{tk});
             }
 
             switch (tk.kind) {
                 .keyword_not => {
                     _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
+                    const rhs = try self.parse_unary_expr(iter);
                     return try self.new_node(
                         .{ .op_not = rhs },
                     );
                 },
                 .op_sub => {
                     _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
+                    const rhs = try self.parse_unary_expr(iter);
                     return try self.new_node(
                         .{ .op_neg = rhs },
                     );
                 },
                 .op_com => {
                     _ = iter.next();
-                    const rhs = try self.parse_unary(iter);
+                    const rhs = try self.parse_unary_expr(iter);
                     return try self.new_node(
                         .{ .op_com = rhs },
                     );
@@ -1886,8 +1923,16 @@ pub const Moon_AST = struct {
                 },
                 .integer => {
                     _ = iter.next();
+                    const str = tk.get_string(self.source);
                     return try self.new_node(
-                        .{ .integer_literal = try std.fmt.parseInt(i64, tk.str, 0) },
+                        .{ .integer_literal = try std.fmt.parseInt(i64, str, 0) },
+                    );
+                },
+                .number => {
+                    _ = iter.next();
+                    const str = tk.get_string(self.source);
+                    return try self.new_node(
+                        .{ .number_literal = try std.fmt.parseFloat(f64, str) },
                     );
                 },
                 .open_round => {
@@ -1911,7 +1956,7 @@ pub const Moon_AST = struct {
                 .string_literal => {
                     _ = iter.next();
                     return try self.new_node(
-                        .{ .string = tk.str },
+                        .{ .string = tk.get_string(self.source) },
                     );
                 },
                 .dot_block => {
@@ -1935,7 +1980,7 @@ pub const Moon_AST = struct {
             }
             _ = iter.next();
             var lhs = try self.new_node(
-                .{ .identifier = tk.str },
+                .{ .identifier = tk.get_string(self.source) },
             );
 
             while (iter.peek()) |ntk| {
@@ -1949,7 +1994,7 @@ pub const Moon_AST = struct {
                             if (itk.kind == .identifier) {
                                 _ = iter.next();
                                 const rhs = try self.new_node(
-                                    .{ .identifier = itk.str },
+                                    .{ .identifier = itk.get_string(self.source) },
                                 );
                                 lhs = try self.new_node(.{ .op_dot = .{
                                     .lhs = lhs,
@@ -2039,7 +2084,7 @@ pub const Moon_AST = struct {
                     if (ctk.kind == .identifier) {
                         _ = iter.next();
                         const first = try self.new_node(.{
-                            .identifier = ctk.str,
+                            .identifier = ctk.get_string(self.source),
                         });
 
                         iter.skip_whitespace();
@@ -2181,9 +2226,10 @@ pub const Moon_AST = struct {
         return args.toOwnedSlice(self.moon.allocator);
     }
 
-    pub fn is_expression(kind: Kind) bool {
+    pub fn is_expression(kind: TokenKind) bool {
         switch (kind) {
             .integer,
+            .number,
             .op_neg,
             .open_round,
             .identifier,
@@ -2246,6 +2292,9 @@ pub const Moon_AST = struct {
                 },
                 .integer_literal => |i| {
                     try writer.print(" {}\n", .{i});
+                },
+                .number_literal => |n| {
+                    try writer.print(" {d}\n", .{n});
                 },
                 .identifier => |str| {
                     try writer.print(" {s}\n", .{str});
@@ -2367,6 +2416,7 @@ pub const AST_NodeKind = enum {
     boolean_true,
     boolean_false,
     integer_literal,
+    number_literal,
     identifier,
     string,
     op_add,
@@ -2409,6 +2459,7 @@ pub const AST_Node = union(AST_NodeKind) {
     boolean_true,
     boolean_false,
     integer_literal: i64,
+    number_literal: f64,
     identifier: []const u8,
     string: []const u8,
     op_add: AST_BinaryOp,
@@ -2638,6 +2689,7 @@ pub const TokenIterator = struct {
         builtin,
         literal_identifier,
         literal_identifier_escaped,
+        comment,
     };
 
     pub fn peek(self: *TokenIterator) ?Token {
@@ -2803,7 +2855,8 @@ pub const TokenIterator = struct {
                         self.index += 1;
                         return .{
                             .kind = .invalid_character,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -2813,7 +2866,8 @@ pub const TokenIterator = struct {
                     const str = self.source[start..self.index];
                     return .{
                         .kind = check_keyword(str),
-                        .str = str,
+                        .index = start,
+                        .len = self.index - start,
                     };
                 }
                 const ch = self.source[self.index];
@@ -2826,7 +2880,8 @@ pub const TokenIterator = struct {
                         const str = self.source[start..self.index];
                         return .{
                             .kind = check_keyword(str),
-                            .str = str,
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -2834,7 +2889,8 @@ pub const TokenIterator = struct {
             .integer => {
                 if (self.index >= self.source.len) return .{
                     .kind = .integer,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -2848,14 +2904,16 @@ pub const TokenIterator = struct {
                     },
                     else => return .{
                         .kind = .integer,
-                        .str = self.source[start..self.index],
+                        .index = start,
+                        .len = self.index - start,
                     },
                 }
             },
             .number => {
                 if (self.index >= self.source.len) return .{
                     .kind = .number,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -2865,14 +2923,16 @@ pub const TokenIterator = struct {
                     },
                     else => return .{
                         .kind = .number,
-                        .str = self.source[start..self.index],
+                        .index = start,
+                        .len = self.index - start,
                     },
                 }
             },
             .zero => {
                 if (self.index >= self.source.len) return .{
                     .kind = .integer,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -2880,10 +2940,15 @@ pub const TokenIterator = struct {
                         self.index += 1;
                         continue :next_token .hex_digits;
                     },
+                    '.' => {
+                        self.index += 1;
+                        continue :next_token .number;
+                    },
                     else => {
                         return .{
                             .kind = .integer,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -2891,7 +2956,8 @@ pub const TokenIterator = struct {
             .hex_digits => {
                 if (self.index >= self.source.len) return .{
                     .kind = .integer,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -2902,7 +2968,8 @@ pub const TokenIterator = struct {
                     else => {
                         return .{
                             .kind = .integer,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -2910,43 +2977,86 @@ pub const TokenIterator = struct {
             .plus => {
                 return .{
                     .kind = .op_add,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .minus => {
                 return .{
                     .kind = .op_sub,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .star => {
                 return .{
                     .kind = .op_mul,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .slash => {
+                if (self.index >= self.source.len) return .{
+                    .kind = .op_div,
+                    .index = start,
+                    .len = self.index - start,
+                };
+                const ch = self.source[self.index];
+                switch (ch) {
+                    '/' => {
+                        self.index += 1;
+                        continue :next_token .comment;
+                    },
+                    else => {
+                        return .{
+                            .kind = .op_div,
+                            .index = start,
+                            .len = self.index - start,
+                        };
+                    },
+                }
                 return .{
                     .kind = .op_div,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
+            },
+            .comment => {
+                if (self.index >= self.source.len) {
+                    start = self.index;
+                    continue :next_token .whitespace;
+                }
+                const ch = self.source[self.index];
+                switch (ch) {
+                    '\n' => {
+                        self.index += 1;
+                        continue :next_token .whitespace;
+                    },
+                    else => {
+                        self.index += 1;
+                        continue :next_token .comment;
+                    },
+                }
             },
             .percent => {
                 return .{
                     .kind = .op_mod,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .tilde => {
                 return .{
                     .kind = .op_com,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .less_than => {
                 if (self.index >= self.source.len) return .{
                     .kind = .op_lt,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -2954,20 +3064,23 @@ pub const TokenIterator = struct {
                         self.index += 1;
                         return .{
                             .kind = .op_lte,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                     '<' => {
                         self.index += 1;
                         return .{
                             .kind = .op_lsh,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                     else => {
                         return .{
                             .kind = .op_lt,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -2975,7 +3088,8 @@ pub const TokenIterator = struct {
             .greater_than => {
                 if (self.index >= self.source.len) return .{
                     .kind = .op_gt,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -2983,20 +3097,23 @@ pub const TokenIterator = struct {
                         self.index += 1;
                         return .{
                             .kind = .op_gte,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                     '>' => {
                         self.index += 1;
                         return .{
                             .kind = .op_rsh,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                     else => {
                         return .{
                             .kind = .op_gt,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -3004,7 +3121,8 @@ pub const TokenIterator = struct {
             .equals => {
                 if (self.index >= self.source.len) return .{
                     .kind = .op_eq,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -3012,13 +3130,15 @@ pub const TokenIterator = struct {
                         self.index += 1;
                         return .{
                             .kind = .op_eq,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                     else => {
                         return .{
                             .kind = .op_assign,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -3026,7 +3146,8 @@ pub const TokenIterator = struct {
             .bang => {
                 if (self.index >= self.source.len) return .{
                     .kind = .invalid_character,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -3034,13 +3155,15 @@ pub const TokenIterator = struct {
                         self.index += 1;
                         return .{
                             .kind = .op_neq,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                     else => {
                         return .{
                             .kind = .invalid_character,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -3048,49 +3171,57 @@ pub const TokenIterator = struct {
             .open_round => {
                 return .{
                     .kind = .open_round,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .close_round => {
                 return .{
                     .kind = .close_round,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .open_block => {
                 return .{
                     .kind = .open_block,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .close_block => {
                 return .{
                     .kind = .close_block,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .ampersand => {
                 return .{
                     .kind = .op_band,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .bar => {
                 return .{
                     .kind = .op_bor,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .hat => {
                 return .{
                     .kind = .op_bxor,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .string_literal => {
                 if (self.index >= self.source.len) return .{
                     .kind = .string_literal,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 if (ch == '\\') {
@@ -3100,7 +3231,8 @@ pub const TokenIterator = struct {
                     self.index += 1;
                     return .{
                         .kind = .string_literal,
-                        .str = self.source[start + 1 .. self.index - 1],
+                        .index = start + 1,
+                        .len = self.index - start - 2,
                     };
                 } else {
                     self.index += 1;
@@ -3110,11 +3242,12 @@ pub const TokenIterator = struct {
             .string_escaped => {
                 if (self.index >= self.source.len) return .{
                     .kind = .string_literal,
-                    .str = self.source[start..self.index],
+                    .index = start + 1,
+                    .len = self.index - start - 1,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
-                    'n', 'r', 't', '\"' => {
+                    'n', 'r', 't', '\"', '\\', 'x' => {
                         self.index += 1;
                         continue :next_token .string_literal;
                     },
@@ -3126,19 +3259,22 @@ pub const TokenIterator = struct {
             .semicolon => {
                 return .{
                     .kind = .eos,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .comma => {
                 return .{
                     .kind = .comma,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .dot => {
                 if (self.index >= self.source.len) return .{
                     .kind = .dot,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -3146,13 +3282,19 @@ pub const TokenIterator = struct {
                         self.index += 1;
                         return .{
                             .kind = .dot_block,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
+                    },
+                    '0'...'9' => {
+                        self.index += 1;
+                        continue :next_token .number;
                     },
                     else => {
                         return .{
                             .kind = .dot,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -3160,13 +3302,15 @@ pub const TokenIterator = struct {
             .cr => {
                 return .{
                     .kind = .eol,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
             },
             .builtin => {
                 if (self.index >= self.source.len) return .{
                     .kind = .identifier,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
@@ -3184,7 +3328,8 @@ pub const TokenIterator = struct {
                     else => {
                         return .{
                             .kind = .identifier,
-                            .str = self.source[start..self.index],
+                            .index = start,
+                            .len = self.index - start,
                         };
                     },
                 }
@@ -3192,7 +3337,8 @@ pub const TokenIterator = struct {
             .literal_identifier => {
                 if (self.index >= self.source.len) return .{
                     .kind = .identifier,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 if (ch == '\\') {
@@ -3202,7 +3348,8 @@ pub const TokenIterator = struct {
                     self.index += 1;
                     return .{
                         .kind = .identifier,
-                        .str = self.source[start .. self.index - 1],
+                        .index = start,
+                        .len = self.index - start - 1,
                     };
                 } else {
                     self.index += 1;
@@ -3212,11 +3359,12 @@ pub const TokenIterator = struct {
             .literal_identifier_escaped => {
                 if (self.index >= self.source.len) return .{
                     .kind = .identifier,
-                    .str = self.source[start..self.index],
+                    .index = start,
+                    .len = self.index - start,
                 };
                 const ch = self.source[self.index];
                 switch (ch) {
-                    'n', 'r', 't', '\"' => {
+                    'n', 'r', 't', '\"', '\\', 'x' => {
                         self.index += 1;
                         continue :next_token .literal_identifier;
                     },
@@ -3229,7 +3377,8 @@ pub const TokenIterator = struct {
         self.index += 1;
         return .{
             .kind = .invalid_character,
-            .str = self.source[start..self.index],
+            .index = start,
+            .len = self.index - start,
         };
     }
 };
@@ -3238,7 +3387,7 @@ pub const TokenIterator = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn check_keyword(str: []const u8) Kind {
+fn check_keyword(str: []const u8) TokenKind {
     switch (str.len) {
         2 => {
             if (std.mem.eql(u8, "fn", str)) return .keyword_fn;
@@ -3281,14 +3430,18 @@ fn check_keyword(str: []const u8) Kind {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const Token = struct {
-    kind: Kind,
-    str: []const u8,
+pub const Token = packed struct {
+    kind: TokenKind,
+    index: usize,
+    len: usize,
+
+    pub fn get_string(self: Token, source: []const u8) []const u8 {
+        return source[self.index .. self.index + self.len];
+    }
 
     pub fn format(self: Token, _: anytype, _: anytype, writer: anytype) !void {
-        try writer.print("{s} \"{}\"", .{
+        try writer.print("{s}", .{
             @tagName(self.kind),
-            std.zig.fmtEscapes(self.str),
         });
     }
 };
@@ -3297,7 +3450,7 @@ pub const Token = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const Kind = enum(u8) {
+pub const TokenKind = enum(u8) {
     invalid_character,
     identifier,
     integer,
@@ -3418,15 +3571,28 @@ test "push pop" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn test_tokenize(str: []const u8, tokens: []const Token) !void {
+const TestTokenizeOptions = struct {
+    trace: bool = false,
+};
+
+fn test_tokenize(
+    str: []const u8,
+    kinds: []const TokenKind,
+    options: TestTokenizeOptions,
+) !void {
     var iter = tokenize(str);
     var index: usize = 0;
     while (iter.next()) |tk| {
-        try std.testing.expectEqual(tokens[index].kind, tk.kind);
-        try std.testing.expectEqualStrings(tokens[index].str, tk.str);
+        try std.testing.expectEqual(kinds[index], tk.kind);
+        if (options.trace) {
+            std.debug.print("{s} \"{}\"\n", .{
+                @tagName(tk.kind),
+                std.zig.fmtEscapes(tk.get_string(str)),
+            });
+        }
         index += 1;
     }
-    try std.testing.expectEqual(index, tokens.len);
+    try std.testing.expectEqual(index, kinds.len);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3438,14 +3604,14 @@ const TestParseOptions = struct {
     trace_parse: bool = false,
 };
 
-fn test_parse(str: []const u8, result: []const u8, options: TestParseOptions) !void {
+fn test_parse(source: []const u8, result: []const u8, options: TestParseOptions) !void {
     var moon = Moon.init(std.testing.allocator);
     defer moon.deinit();
 
-    var iter = tokenize(str);
+    var iter = tokenize(source);
     iter.trace = options.trace_tokenize;
 
-    var tree = moon.AST();
+    var tree = moon.AST(source);
     defer tree.deinit();
 
     tree.trace = options.trace_parse;
@@ -3490,29 +3656,29 @@ fn test_compile(str: []const u8, result: []const u8, options: CompileOptions) !v
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize symbols" {
-    try test_tokenize("= + - * / % << >> & | ^ ~ == != <= >= < > , . .{", &[_]Token{
-        .{ .kind = .op_assign, .str = "=" },
-        .{ .kind = .op_add, .str = "+" },
-        .{ .kind = .op_sub, .str = "-" },
-        .{ .kind = .op_mul, .str = "*" },
-        .{ .kind = .op_div, .str = "/" },
-        .{ .kind = .op_mod, .str = "%" },
-        .{ .kind = .op_lsh, .str = "<<" },
-        .{ .kind = .op_rsh, .str = ">>" },
-        .{ .kind = .op_band, .str = "&" },
-        .{ .kind = .op_bor, .str = "|" },
-        .{ .kind = .op_bxor, .str = "^" },
-        .{ .kind = .op_com, .str = "~" },
-        .{ .kind = .op_eq, .str = "==" },
-        .{ .kind = .op_neq, .str = "!=" },
-        .{ .kind = .op_lte, .str = "<=" },
-        .{ .kind = .op_gte, .str = ">=" },
-        .{ .kind = .op_lt, .str = "<" },
-        .{ .kind = .op_gt, .str = ">" },
-        .{ .kind = .comma, .str = "," },
-        .{ .kind = .dot, .str = "." },
-        .{ .kind = .dot_block, .str = ".{" },
-    });
+    try test_tokenize("= + - * / % << >> & | ^ ~ == != <= >= < > , . .{", &[_]TokenKind{
+        .op_assign,
+        .op_add,
+        .op_sub,
+        .op_mul,
+        .op_div,
+        .op_mod,
+        .op_lsh,
+        .op_rsh,
+        .op_band,
+        .op_bor,
+        .op_bxor,
+        .op_com,
+        .op_eq,
+        .op_neq,
+        .op_lte,
+        .op_gte,
+        .op_lt,
+        .op_gt,
+        .comma,
+        .dot,
+        .dot_block,
+    }, .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3520,14 +3686,35 @@ test "tokenize symbols" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize identifiers" {
-    try test_tokenize("a b a_ _b _ a98", &[_]Token{
-        .{ .kind = .identifier, .str = "a" },
-        .{ .kind = .identifier, .str = "b" },
-        .{ .kind = .identifier, .str = "a_" },
-        .{ .kind = .identifier, .str = "_b" },
-        .{ .kind = .identifier, .str = "_" },
-        .{ .kind = .identifier, .str = "a98" },
-    });
+    try test_tokenize("a b a_ _b _ a98 @\"while\" .", &[_]TokenKind{
+        .identifier,
+        .identifier,
+        .identifier,
+        .identifier,
+        .identifier,
+        .identifier,
+        .identifier,
+        .dot,
+    }, .{});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "tokenize numbers and integers" {
+    try test_tokenize("0 1 0x12 3. .3 0. 0.0 1.0 3.14 .", &[_]TokenKind{
+        .integer,
+        .integer,
+        .integer,
+        .number,
+        .number,
+        .number,
+        .number,
+        .number,
+        .number,
+        .dot,
+    }, .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3539,24 +3726,24 @@ test "tokenize keywords" {
         \\if elif else not and or while break continue return
         \\@import
         \\true false nil
-    , &[_]Token{
-        .{ .kind = .keyword_if, .str = "if" },
-        .{ .kind = .keyword_elif, .str = "elif" },
-        .{ .kind = .keyword_else, .str = "else" },
-        .{ .kind = .keyword_not, .str = "not" },
-        .{ .kind = .keyword_and, .str = "and" },
-        .{ .kind = .keyword_or, .str = "or" },
-        .{ .kind = .keyword_while, .str = "while" },
-        .{ .kind = .keyword_break, .str = "break" },
-        .{ .kind = .keyword_continue, .str = "continue" },
-        .{ .kind = .keyword_return, .str = "return" },
-        .{ .kind = .eol, .str = "\n" },
-        .{ .kind = .keyword_at_import, .str = "@import" },
-        .{ .kind = .eol, .str = "\n" },
-        .{ .kind = .keyword_true, .str = "true" },
-        .{ .kind = .keyword_false, .str = "false" },
-        .{ .kind = .keyword_nil, .str = "nil" },
-    });
+    , &[_]TokenKind{
+        .keyword_if,
+        .keyword_elif,
+        .keyword_else,
+        .keyword_not,
+        .keyword_and,
+        .keyword_or,
+        .keyword_while,
+        .keyword_break,
+        .keyword_continue,
+        .keyword_return,
+        .eol,
+        .keyword_at_import,
+        .eol,
+        .keyword_true,
+        .keyword_false,
+        .keyword_nil,
+    }, .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3564,9 +3751,9 @@ test "tokenize keywords" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize non-keywords" {
-    try test_tokenize("@\"if\"", &[_]Token{
-        .{ .kind = .identifier, .str = "if" },
-    });
+    try test_tokenize("@\"if\"", &[_]TokenKind{
+        .identifier,
+    }, .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3574,12 +3761,12 @@ test "tokenize non-keywords" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize call" {
-    try test_tokenize("print (\"Hello, World!\n\")", &[_]Token{
-        .{ .kind = .identifier, .str = "print" },
-        .{ .kind = .open_round, .str = "(" },
-        .{ .kind = .string_literal, .str = "Hello, World!\n" },
-        .{ .kind = .close_round, .str = ")" },
-    });
+    try test_tokenize("print (\"Hello, World!\n\")", &[_]TokenKind{
+        .identifier,
+        .open_round,
+        .string_literal,
+        .close_round,
+    }, .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3587,24 +3774,24 @@ test "tokenize call" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize variables" {
-    try test_tokenize("const a = 37\nvar b = 42; var c = a + b", &[_]Token{
-        .{ .kind = .keyword_const, .str = "const" },
-        .{ .kind = .identifier, .str = "a" },
-        .{ .kind = .op_assign, .str = "=" },
-        .{ .kind = .integer, .str = "37" },
-        .{ .kind = .eol, .str = "\n" },
-        .{ .kind = .keyword_var, .str = "var" },
-        .{ .kind = .identifier, .str = "b" },
-        .{ .kind = .op_assign, .str = "=" },
-        .{ .kind = .integer, .str = "42" },
-        .{ .kind = .eos, .str = ";" },
-        .{ .kind = .keyword_var, .str = "var" },
-        .{ .kind = .identifier, .str = "c" },
-        .{ .kind = .op_assign, .str = "=" },
-        .{ .kind = .identifier, .str = "a" },
-        .{ .kind = .op_add, .str = "+" },
-        .{ .kind = .identifier, .str = "b" },
-    });
+    try test_tokenize("const a = 37\nvar b = 42; var c = a + b", &[_]TokenKind{
+        .keyword_const,
+        .identifier,
+        .op_assign,
+        .integer,
+        .eol,
+        .keyword_var,
+        .identifier,
+        .op_assign,
+        .integer,
+        .eos,
+        .keyword_var,
+        .identifier,
+        .op_assign,
+        .identifier,
+        .op_add,
+        .identifier,
+    }, .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3612,27 +3799,44 @@ test "tokenize variables" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 test "tokenize function def" {
-    try test_tokenize("pub fn add (a, b) { const c = a + b; return c }", &[_]Token{
-        .{ .kind = .keyword_pub, .str = "pub" },
-        .{ .kind = .keyword_fn, .str = "fn" },
-        .{ .kind = .identifier, .str = "add" },
-        .{ .kind = .open_round, .str = "(" },
-        .{ .kind = .identifier, .str = "a" },
-        .{ .kind = .comma, .str = "," },
-        .{ .kind = .identifier, .str = "b" },
-        .{ .kind = .close_round, .str = ")" },
-        .{ .kind = .open_block, .str = "{" },
-        .{ .kind = .keyword_const, .str = "const" },
-        .{ .kind = .identifier, .str = "c" },
-        .{ .kind = .op_assign, .str = "=" },
-        .{ .kind = .identifier, .str = "a" },
-        .{ .kind = .op_add, .str = "+" },
-        .{ .kind = .identifier, .str = "b" },
-        .{ .kind = .eos, .str = ";" },
-        .{ .kind = .keyword_return, .str = "return" },
-        .{ .kind = .identifier, .str = "c" },
-        .{ .kind = .close_block, .str = "}" },
-    });
+    try test_tokenize("pub fn add (a, b) { const c = a + b; return c }", &[_]TokenKind{
+        .keyword_pub,
+        .keyword_fn,
+        .identifier,
+        .open_round,
+        .identifier,
+        .comma,
+        .identifier,
+        .close_round,
+        .open_block,
+        .keyword_const,
+        .identifier,
+        .op_assign,
+        .identifier,
+        .op_add,
+        .identifier,
+        .eos,
+        .keyword_return,
+        .identifier,
+        .close_block,
+    }, .{});
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "tokenize comments" {
+    try test_tokenize(
+        \\1// one
+        \\   // empty
+        \\+//plus
+        \\2// two
+    , &[_]TokenKind{
+        .integer,
+        .op_add,
+        .integer,
+    }, .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3675,19 +3879,19 @@ test "parse mul add" {
 
 test "parse mul add brackets" {
     try test_parse(
-        \\ 37 + 42 * (12 - 2) / 3
+        \\ 3.7 + 4.2 * (.12 - 2.) / 3
         \\
     ,
         \\AST
         \\  block
         \\    op_add
-        \\      integer_literal 37
+        \\      number_literal 3.7
         \\      op_div
         \\        op_mul
-        \\          integer_literal 42
+        \\          number_literal 4.2
         \\          op_sub
-        \\            integer_literal 12
-        \\            integer_literal 2
+        \\            number_literal 0.12
+        \\            number_literal 2
         \\        integer_literal 3
         \\
     , .{});
@@ -3699,20 +3903,34 @@ test "parse mul add brackets" {
 
 test "parse operator precedence" {
     try test_parse(
-        \\ (0x30 << 3) >> 2 & 0xFF | 0x10
+        \\ 1 < 2 & 3 >> 4 + 5 * 6
+        \\ 1 * 2 + 3 << 4 | 5 > 6
         \\
     ,
         \\AST
         \\  block
-        \\    op_bor
+        \\    op_lt
+        \\      integer_literal 1
         \\      op_band
+        \\        integer_literal 2
         \\        op_rsh
-        \\          op_lsh
-        \\            integer_literal 48
+        \\          integer_literal 3
+        \\          op_add
+        \\            integer_literal 4
+        \\            op_mul
+        \\              integer_literal 5
+        \\              integer_literal 6
+        \\    op_gt
+        \\      op_bor
+        \\        op_lsh
+        \\          op_add
+        \\            op_mul
+        \\              integer_literal 1
+        \\              integer_literal 2
         \\            integer_literal 3
-        \\          integer_literal 2
-        \\        integer_literal 255
-        \\      integer_literal 16
+        \\          integer_literal 4
+        \\        integer_literal 5
+        \\      integer_literal 6
         \\
     , .{});
 }
@@ -4192,27 +4410,31 @@ test "compile hello world" {
         \\
     ,
         \\module
-        \\  globals
-        \\    std
-        \\  constants
-        \\    0: "std"
-        \\    1: "print"
-        \\    2: "Hello, World!\n"
         \\  code
-        \\    push_constant 0
-        \\    call_import 1
-        \\    store_global std
-        \\    push 2
-        \\    new_table
-        \\    load_global std
-        \\    push_constant 1 // "print"
-        \\    load_table
-        \\    call 2
+        \\    000000 import 0
+        \\    000001 store_global 0 ; "std"
+        \\    000002 load_global 0 ; "std"
+        \\    000003 load_table 1 ; "print"
+        \\    000004 constant 2
+        \\    000005 new_table
+        \\    000006 integer 37
+        \\    000007 append_table
+        \\    000008 integer 42
+        \\    000009 append_table
+        \\    00000a call 2
+        \\    00000b drop 1
+        \\    00000c ret
+        \\  constants
+        \\    0: string: "std"
+        \\    1: string: "print"
+        \\    2: string: "Hello, World!\n"
+        \\  globals
+        \\    0: "std" constant
+        \\  strings
+        \\    00000000 "stdprintHello, World!\n"
         \\
     ,
-        .{
-            .trace_code = true,
-        },
+        .{},
     );
 }
 
