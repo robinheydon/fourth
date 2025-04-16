@@ -16,6 +16,7 @@ const gl = ng.gl;
 const state = @import("state.zig");
 const com = @import("com.zig");
 const names = @import("names.zig");
+const places = @import("places.zig");
 
 var allocator: std.mem.Allocator = undefined;
 
@@ -581,6 +582,7 @@ fn init_world() void {
     ng.register_component("Random", com.Random);
     ng.register_component("Single", com.Single);
     ng.register_component("Partner", com.Partner);
+    ng.register_component("Place", com.Place);
 
     ng.register_system(
         .{
@@ -778,6 +780,17 @@ fn init_world() void {
         });
 
         p.set(com.Random{ .rand = r128 });
+    }
+
+    for (0..10) |_|
+    {
+        const p = ng.new();
+        const name = ng.rand_u32 ();
+        p.set (com.Place{ .name = name });
+        log.debug ("{} Place {s}", .{
+            p,
+            places.get_place_name (name),
+        });
     }
 }
 
