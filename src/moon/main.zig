@@ -72,8 +72,6 @@ pub fn main() !void {
         }
 
         if (true) {
-            // _ = try module.add_constant_string(buffer.items);
-
             var iter = moon.tokenize(buffer.items);
             var ast = m.AST(buffer.items);
             defer ast.deinit();
@@ -85,6 +83,9 @@ pub fn main() !void {
                 };
 
             try module.semantic_analysis(&ast, root);
+
+            try module.generate_module_code_block(&ast, root);
+
             try m.dump_module(module, writer);
         }
     }
