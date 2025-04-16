@@ -664,9 +664,6 @@ const Module = struct {
                 _ = try self.add_code(.drop, 1);
             },
             .const_decl => |decl| {
-                if (!self.global_scope) {
-                    try self.declare_local(decl.name, .constant);
-                }
                 try self.generate_code(tree, decl.expr, .{});
                 if (self.find_global(decl.name)) |i| {
                     const arg: LongArg = @truncate(i);
@@ -679,9 +676,6 @@ const Module = struct {
                 }
             },
             .var_decl => |decl| {
-                if (!self.global_scope) {
-                    try self.declare_local(decl.name, .variable);
-                }
                 try self.generate_code(tree, decl.expr, .{});
                 if (self.find_global(decl.name)) |i| {
                     const arg: LongArg = @truncate(i);
@@ -706,10 +700,9 @@ const Module = struct {
         const index = node_index.as_usize();
         const node = tree.nodes.items[index];
         if (self.trace) {
-            std.debug.print("generate_code_block {} {s}{s}\n", .{
+            std.debug.print("generate_code_block {} {s}\n", .{
                 node_index,
                 @tagName(node),
-                if (self.global_scope) " global_scope" else "",
             });
         }
         switch (node) {
@@ -737,9 +730,7 @@ const Module = struct {
                 _ = try self.add_code(.drop, 1);
             },
             .const_decl => |decl| {
-                if (!self.global_scope) {
-                    try self.declare_local(decl.name, .constant);
-                }
+                try self.declare_local(decl.name, .constant);
                 try self.generate_code(tree, decl.expr, .{});
                 if (self.find_global(decl.name)) |i| {
                     const arg: LongArg = @truncate(i);
@@ -752,9 +743,7 @@ const Module = struct {
                 }
             },
             .var_decl => |decl| {
-                if (!self.global_scope) {
-                    try self.declare_local(decl.name, .variable);
-                }
+                try self.declare_local(decl.name, .variable);
                 try self.generate_code(tree, decl.expr, .{});
                 if (self.find_global(decl.name)) |i| {
                     const arg: LongArg = @truncate(i);
