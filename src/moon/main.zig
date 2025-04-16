@@ -14,16 +14,24 @@ pub fn main() !void {
     var m = moon.init(allocator);
     defer m.deinit();
 
+    var module = try m.create_module();
+    defer {
+        module.deinit();
+        allocator.destroy(module);
+    }
+
+    module.trace = true;
+
     var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit ();
+    defer buffer.deinit();
 
     while (true) {
         try writer.print("moon> ", .{});
 
-        buffer.shrinkRetainingCapacity (0);
+        buffer.shrinkRetainingCapacity(0);
 
         reader.streamUntilDelimiter(
-            buffer.writer (),
+            buffer.writer(),
             '\n',
             std.math.maxInt(u32),
         ) catch |err| {
@@ -39,9 +47,43 @@ pub fn main() !void {
             }
         };
 
-        try writer.print("{} \"{}\"\n", .{
-            buffer.items.len,
-            std.zig.fmtEscapes(buffer.items),
-        });
+        if (true) {
+            var token_iter = moon.tokenize(buffer.items);
+            while (token_iter.next()) |tk| {
+                std.debug.print("{s} \"{}\"\n", .{
+                    @tagName(tk.kind),
+                    std.zig.fmtEscapes(tk.get_string(buffer.items)),
+                });
+            }
+        }
+
+        if (true) {
+            var iter = moon.tokenize(buffer.items);
+            var ast = m.AST(buffer.items);
+            defer ast.deinit();
+
+            const root = ast.parse(&iter) catch |err|
+                {
+                    try writer.print("Syntax error: {s}\n", .{@errorName(err)});
+                    continue;
+                };
+
+            try ast.dump(root, .{}, writer);
+        }
+
+        if (true) {
+            var iter = moon.tokenize(buffer.items);
+            var ast = m.AST(buffer.items);
+            defer ast.deinit();
+
+            const root = ast.parse(&iter) catch |err|
+                {
+                    try writer.print("Syntax error: {s}\n", .{@errorName(err)});
+                    continue;
+                };
+
+            try module.semantic_analysis(&ast, root);
+            try m.dump_module(module, writer);
+        }
     }
 }

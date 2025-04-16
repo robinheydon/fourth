@@ -88,6 +88,20 @@ pub const Moon = struct {
         };
     }
 
+    pub fn create_module(self: *Moon) MoonErrors!*Module {
+        const module = try self.allocator.create(Module);
+        module.* = .{
+            .moon = self,
+            .code = .empty,
+            .constants = .empty,
+            .globals = .empty,
+            .strings = .empty,
+            .locals = .empty,
+            .trace = false,
+        };
+        return module;
+    }
+
     fn generate_module(
         self: *Moon,
         source: []const u8,
@@ -101,7 +115,7 @@ pub const Moon = struct {
         const root = try tree.parse(&iter);
 
         if (options.trace_code) {
-            var buffer = std.ArrayList(u8).init(std.testing.allocator);
+            var buffer = std.ArrayList(u8).init(self.allocator);
             defer buffer.deinit();
 
             const writer = buffer.writer();
@@ -111,20 +125,13 @@ pub const Moon = struct {
             std.debug.print("{s}\n", .{buffer.items});
         }
 
-        var module = try self.allocator.create(Module);
-        module.* = .{
-            .moon = self,
-            .code = .empty,
-            .constants = .empty,
-            .globals = .empty,
-            .strings = .empty,
-            .locals = .empty,
-            .trace = options.trace_code,
-        };
+        var module = try self.create_module();
         errdefer {
             module.deinit();
             self.allocator.destroy(module);
         }
+
+        module.trace = options.trace_code;
 
         // _ = try module.add_constant_string(source);
 
@@ -200,7 +207,7 @@ pub const Moon = struct {
         }
     }
 
-    fn dump_module(self: *Moon, module: *Module, writer: anytype) !void {
+    pub fn dump_module(self: *Moon, module: *Module, writer: anytype) !void {
         try writer.print("module\n", .{});
 
         try writer.print("  code\n", .{});
