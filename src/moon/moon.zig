@@ -327,7 +327,7 @@ pub const Moon = struct {
                     });
 
                     try writer.print(" = ", .{});
-                    try module.write_value(c.value, writer);
+                    try self.write_value(c.value, writer);
                     try writer.print("\n", .{});
                 },
                 .variable => |v| {
@@ -337,7 +337,7 @@ pub const Moon = struct {
                     });
 
                     try writer.print(" = ", .{});
-                    try module.write_value(v.value, writer);
+                    try self.write_value(v.value, writer);
                     try writer.print("\n", .{});
                 },
                 .function => |f| {
@@ -376,9 +376,28 @@ pub const Moon = struct {
     }
 
     pub fn dump_stack(self: *Moon, writer: anytype) !void {
-        try writer.print("Stack:\n", .{});
+        try writer.print("Stack: ", .{});
         for (self.stack.items, 0..) |item, index| {
-            try writer.print("  {}: {}\n", .{ index, item });
+            if (index > 0) {
+                try writer.print(", ", .{});
+            }
+            try self.write_value(item, writer);
+        }
+        try writer.print("\n", .{});
+    }
+
+    pub fn write_value(self: *Moon, value: Value, writer: anytype) !void {
+        _ = self;
+        switch (value) {
+            .integer => |i| {
+                try writer.print("{d}", .{i});
+            },
+            .number => |n| {
+                try writer.print("{d}", .{n});
+            },
+            else => {
+                try writer.print("type {s}", .{@tagName(value)});
+            },
         }
     }
 };
@@ -1301,11 +1320,6 @@ const Module = struct {
                 }
             },
         }
-    }
-
-    pub fn write_value(self: *Module, value: Value, writer: anytype) !void {
-        _ = self;
-        try writer.print("{s}", .{@tagName(value)});
     }
 };
 
