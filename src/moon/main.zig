@@ -72,6 +72,8 @@ pub fn main() !void {
         }
 
         if (true) {
+            // _ = try module.add_constant_string(buffer.items);
+
             var iter = moon.tokenize(buffer.items);
             var ast = m.AST(buffer.items);
             defer ast.deinit();

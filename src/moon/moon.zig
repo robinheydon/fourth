@@ -133,13 +133,11 @@ pub const Moon = struct {
 
         module.trace = options.trace_code;
 
-        // _ = try module.add_constant_string(source);
+        _ = try module.add_constant_string(source);
 
         try module.semantic_analysis(&tree, root);
 
-        module.global_scope = true;
-        try module.generate_code_block(&tree, root);
-        module.global_scope = false;
+        try module.generate_module_code_block(&tree, root);
 
         _ = try module.add_code(.ret, 0);
 
@@ -455,11 +453,14 @@ const Module = struct {
     constants: std.ArrayListUnmanaged(Constant),
     strings: std.ArrayListUnmanaged(u8),
     next_global: u32 = 0,
-    global_scope: bool = false,
     locals: std.ArrayListUnmanaged(Local),
     trace: bool = false,
 
     pub fn deinit(self: *Module) void {
+        var globals = self.globals.iterator ();
+        while (globals.next ()) |global| {
+            self.moon.allocator.free (global.key_ptr.*);
+        }
         self.globals.deinit(self.moon.allocator);
         self.code.deinit(self.moon.allocator);
         self.constants.deinit(self.moon.allocator);
@@ -526,19 +527,20 @@ const Module = struct {
             std.debug.print("{s} already declared (declare global / local)\n", .{name});
             return error.NameAlreadyDeclared;
         }
+        const name_copy = try self.moon.allocator.dupe (u8, name);
         switch (kind) {
             .constant => {
-                try self.globals.put(self.moon.allocator, name, .{ .constant = .{
+                try self.globals.put(self.moon.allocator, name_copy, .{ .constant = .{
                     .index = self.next_global,
                 } });
             },
             .variable => {
-                try self.globals.put(self.moon.allocator, name, .{ .variable = .{
+                try self.globals.put(self.moon.allocator, name_copy, .{ .variable = .{
                     .index = self.next_global,
                 } });
             },
             .function => {
-                try self.globals.put(self.moon.allocator, name, .{ .function = .{
+                try self.globals.put(self.moon.allocator, name_copy, .{ .function = .{
                     .index = self.next_global,
                     .node_index = node_index,
                 } });
@@ -624,6 +626,78 @@ const Module = struct {
         return null;
     }
 
+    pub fn generate_module_code_block(
+        self: *Module,
+        tree: *const Moon_AST,
+        node_index: NodeIndex,
+    ) MoonErrors!void {
+        const index = node_index.as_usize();
+        const node = tree.nodes.items[index];
+        if (self.trace) {
+            std.debug.print("generate_module_code_block {} {s}\n", .{
+                node_index,
+                @tagName(node),
+            });
+        }
+        switch (node) {
+            .op_add,
+            .op_sub,
+            .op_mul,
+            .op_div,
+            .op_mod,
+            .op_lsh,
+            .op_rsh,
+            .op_band,
+            .op_bor,
+            .op_bxor,
+            .op_lt,
+            .op_lte,
+            .op_gt,
+            .op_gte,
+            .op_eq,
+            .op_neq,
+            .op_and,
+            .op_or,
+            .call,
+            => {
+                try self.generate_code(tree, node_index, .{});
+                _ = try self.add_code(.drop, 1);
+            },
+            .const_decl => |decl| {
+                if (!self.global_scope) {
+                    try self.declare_local(decl.name, .constant);
+                }
+                try self.generate_code(tree, decl.expr, .{});
+                if (self.find_global(decl.name)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.store_global, arg);
+                } else if (self.find_local(decl.name)) |_| {
+                    // const arg: LongArg = @truncate(i);
+                    // _ = try self.add_code(.store_local, arg);
+                } else {
+                    return error.UnknownVariable;
+                }
+            },
+            .var_decl => |decl| {
+                if (!self.global_scope) {
+                    try self.declare_local(decl.name, .variable);
+                }
+                try self.generate_code(tree, decl.expr, .{});
+                if (self.find_global(decl.name)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.store_global, arg);
+                } else if (self.find_local(decl.name)) |_| {
+                    // const arg: LongArg = @truncate(i);
+                    // _ = try self.add_code(.store_local, arg);
+                } else {
+                    return error.UnknownVariable;
+                }
+            },
+            else => {
+                try self.generate_code(tree, node_index, .{});
+            },
+        }
+    }
     pub fn generate_code_block(
         self: *Module,
         tree: *const Moon_AST,
