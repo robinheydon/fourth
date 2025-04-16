@@ -45,8 +45,8 @@ pub const Moon = struct {
     pub fn op(self: *Moon, operation: Operation) MoonErrors!void {
         switch (operation) {
             .add => {
-                if (self.stack.pop()) |rhs| {
-                    if (self.stack.pop()) |lhs| {
+                if (self.stack.pop()) |lhs| {
+                    if (self.stack.pop()) |rhs| {
                         const res = try self.add(lhs, rhs);
                         try self.stack.append(self.allocator, res);
                         return;
@@ -133,11 +133,9 @@ pub const Moon = struct {
 
         module.trace = options.trace_code;
 
-        _ = try module.add_constant_string(source);
-
         try module.semantic_analysis(&tree, root);
 
-        try module.generate_module_code_block(&tree, root);
+        try module.generate_module_code(&tree, root);
 
         _ = try module.add_code(.ret, 0);
 
@@ -167,23 +165,114 @@ pub const Moon = struct {
         };
     }
 
-    pub fn add(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
-        _ = self;
-        switch (lhs) {
-            .integer => |l| {
-                switch (rhs) {
-                    .integer => |r| {
-                        return .{ .integer = l + r };
-                    },
-                    else => {},
-                }
-            },
-            else => {},
+    pub fn execute(self: *Moon, module: *Module, addr: u32) MoonErrors!void {
+        var ip = addr;
+        const writer = std.io.getStdErr().writer();
+        try writer.print("Execute {x:0>6}\n", .{addr});
+        try self.dump_stack(writer);
+        while (ip < module.code.items.len) {
+            const instr = module.code.items[ip];
+            std.debug.print("{x:0>6} {x}\n", .{ addr, instr });
+            try module.dump_instruction(addr, instr, writer);
+            ip +%= try self.execute_instruction(module, instr);
+            try self.dump_stack(writer);
         }
-        return error.TypeMismatch;
+        try writer.print("Execute {x:0>6}\n", .{addr});
     }
 
-    pub fn dump(self: *Moon, value: Value, writer: anytype) !void {
+    pub fn execute_instruction(
+        self: *Moon,
+        module: *Module,
+        instr: Instruction,
+    ) MoonErrors!u32 {
+        switch (instr.len()) {
+            .short => {
+                const code = instr.get_short();
+                switch (code.op) {
+                    .constant => {
+                        const constant = module.constants.items[code.arg];
+
+                        switch (constant) {
+                            .integer => |i| {
+                                try self.push(.{ .integer = i });
+                            },
+                            .number => |n| {
+                                try self.push(.{ .number = n });
+                            },
+                            .string => |s| {
+                                _ = s;
+                                return error.NotImplemented;
+                            },
+                        }
+                    },
+                    else => {
+                        return error.InvalidInstruction;
+                    },
+                }
+            },
+            .long => {
+                const code = instr.get_long();
+                switch (code.op) {
+                    .integer => {
+                        try self.push(.{ .integer = code.arg });
+                    },
+                    .add => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try lhs.add(rhs);
+                        try self.push(result);
+                    },
+                    .sub => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try lhs.sub(rhs);
+                        try self.push(result);
+                    },
+                    .mul => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try lhs.mul(rhs);
+                        try self.push(result);
+                    },
+                    .div => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try lhs.div(rhs);
+                        try self.push(result);
+                    },
+                    .mod => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try lhs.mod(rhs);
+                        try self.push(result);
+                    },
+                    else => {
+                        return error.InvalidInstruction;
+                    },
+                }
+            },
+        }
+        return 1;
+    }
+
+    pub fn clear_stack(self: *Moon) void {
+        while (self.stack.items.len > 0) {
+            _ = self.stack.pop();
+        }
+    }
+
+    pub fn push(self: *Moon, value: Value) MoonErrors!void {
+        try self.stack.append(self.allocator, value);
+    }
+
+    pub fn pop(self: *Moon) MoonErrors!Value {
+        if (self.stack.pop()) |value| {
+            return value;
+        }
+        return error.StackUnderflow;
+    }
+
+    pub fn dump(self: *Moon, value: Value, writer: anytype) MoonErrors!void {
         switch (value) {
             .nil => try writer.writeAll("nil"),
             .integer => |i| try writer.print("{}", .{i}),
@@ -215,7 +304,7 @@ pub const Moon = struct {
         for (module.constants.items, 0..) |constant, index| {
             try writer.print("    {}: ", .{index});
             switch (constant) {
-                .integer => |value| try writer.print("integer: {x}", .{value}),
+                .integer => |value| try writer.print("integer: {d}", .{value}),
                 .number => |value| try writer.print("number: {d}", .{value}),
                 .string => |value| try writer.print("string: \"{}\"", .{
                     std.zig.fmtEscapes(
@@ -232,16 +321,24 @@ pub const Moon = struct {
             const value = kv.value_ptr.*;
             switch (value) {
                 .constant => |c| {
-                    try writer.print("    {}: \"{}\" constant\n", .{
+                    try writer.print("    {}: \"{}\" constant", .{
                         c.index,
                         std.zig.fmtEscapes(key),
                     });
+
+                    try writer.print(" = ", .{});
+                    try module.write_value(c.value, writer);
+                    try writer.print("\n", .{});
                 },
                 .variable => |v| {
-                    try writer.print("    {}: \"{}\" variable\n", .{
+                    try writer.print("    {}: \"{}\" variable", .{
                         v.index,
                         std.zig.fmtEscapes(key),
                     });
+
+                    try writer.print(" = ", .{});
+                    try module.write_value(v.value, writer);
+                    try writer.print("\n", .{});
                 },
                 .function => |f| {
                     try writer.print("    {}: \"{}\" function {x:0>6}\n", .{
@@ -274,122 +371,14 @@ pub const Moon = struct {
     ) !void {
         _ = self;
         for (instructions, 0..) |instruction, addr| {
-            switch (instruction.len()) {
-                .short => {
-                    const code = instruction.get_short();
-                    switch (code.op) {
-                        .constant,
-                        .jmpk,
-                        .brak,
-                        => {
-                            const name = @tagName(code.op);
-                            try writer.print("    {x:0>6} {s} {}\n", .{
-                                addr,
-                                name,
-                                code.arg,
-                            });
-                        },
-                        .jmp,
-                        .bra,
-                        => {
-                            const name = @tagName(code.op);
-                            const iarg: ShortIArg = @bitCast(code.arg);
-                            try writer.print("    {x:0>6} {s} {}\n", .{ addr, name, iarg });
-                        },
-                    }
-                },
-                .long => {
-                    const code = instruction.get_long();
-                    switch (code.op) {
-                        .nop,
-                        .boolean,
-                        .integer,
-                        .load_local,
-                        .store_local,
-                        .call,
-                        .import,
-                        .drop,
-                        => {
-                            try writer.print("    {x:0>6} {s} {}\n", .{
-                                addr,
-                                @tagName(code.op),
-                                code.arg,
-                            });
-                        },
-                        .load_table,
-                        .store_table,
-                        => {
-                            const constant = module.constants.items[code.arg];
-                            switch (constant) {
-                                .string => |s| {
-                                    const start = s.offset;
-                                    const end = s.offset + s.len;
-                                    const name = module.strings.items[start..end];
-                                    try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
-                                        addr,
-                                        @tagName(code.op),
-                                        code.arg,
-                                        std.zig.fmtEscapes(name),
-                                    });
-                                },
-                                else => {
-                                    try writer.print("    {x:0>6} {s} {}\n", .{
-                                        addr,
-                                        @tagName(code.op),
-                                        code.arg,
-                                    });
-                                },
-                            }
-                        },
-                        .load_global,
-                        .store_global,
-                        => {
-                            if (module.get_global_index_name(code.arg)) |name| {
-                                try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
-                                    addr,
-                                    @tagName(code.op),
-                                    code.arg,
-                                    std.zig.fmtEscapes(name),
-                                });
-                            } else {
-                                try writer.print("    {x:0>6} {s} {}\n", .{
-                                    addr,
-                                    @tagName(code.op),
-                                    code.arg,
-                                });
-                            }
-                        },
-                        .nil,
-                        .add,
-                        .sub,
-                        .mul,
-                        .div,
-                        .mod,
-                        .lsh,
-                        .rsh,
-                        .band,
-                        .bor,
-                        .bxor,
-                        .lt,
-                        .gt,
-                        .lte,
-                        .gte,
-                        .eq,
-                        .neq,
-                        .@"and",
-                        .@"or",
-                        .ret,
-                        .new_table,
-                        .append_table,
-                        => {
-                            try writer.print("    {x:0>6} {s}\n", .{
-                                addr,
-                                @tagName(code.op),
-                            });
-                        },
-                    }
-                },
-            }
+            try module.dump_instruction(addr, instruction, writer);
+        }
+    }
+
+    pub fn dump_stack(self: *Moon, writer: anytype) !void {
+        try writer.print("Stack:\n", .{});
+        for (self.stack.items, 0..) |item, index| {
+            try writer.print("  {}: {}\n", .{ index, item });
         }
     }
 };
@@ -414,10 +403,12 @@ const Global = union(GlobalKind) {
 
 const GlobalConstant = struct {
     index: u32,
+    value: Value,
 };
 
 const GlobalVariable = struct {
     index: u32,
+    value: Value,
 };
 
 const GlobalFunction = struct {
@@ -457,9 +448,9 @@ const Module = struct {
     trace: bool = false,
 
     pub fn deinit(self: *Module) void {
-        var globals = self.globals.iterator ();
-        while (globals.next ()) |global| {
-            self.moon.allocator.free (global.key_ptr.*);
+        var globals = self.globals.iterator();
+        while (globals.next()) |global| {
+            self.moon.allocator.free(global.key_ptr.*);
         }
         self.globals.deinit(self.moon.allocator);
         self.code.deinit(self.moon.allocator);
@@ -527,16 +518,18 @@ const Module = struct {
             std.debug.print("{s} already declared (declare global / local)\n", .{name});
             return error.NameAlreadyDeclared;
         }
-        const name_copy = try self.moon.allocator.dupe (u8, name);
+        const name_copy = try self.moon.allocator.dupe(u8, name);
         switch (kind) {
             .constant => {
                 try self.globals.put(self.moon.allocator, name_copy, .{ .constant = .{
                     .index = self.next_global,
+                    .value = .{ .nil = {} },
                 } });
             },
             .variable => {
                 try self.globals.put(self.moon.allocator, name_copy, .{ .variable = .{
                     .index = self.next_global,
+                    .value = .{ .nil = {} },
                 } });
             },
             .function => {
@@ -626,6 +619,32 @@ const Module = struct {
         return null;
     }
 
+    pub fn generate_module_code(
+        self: *Module,
+        tree: *const Moon_AST,
+        node_index: NodeIndex,
+    ) MoonErrors!void {
+        const index = node_index.as_usize();
+        const node = tree.nodes.items[index];
+        if (self.trace) {
+            std.debug.print("generate_module_code {} {s}\n", .{
+                node_index,
+                @tagName(node),
+            });
+        }
+
+        switch (node) {
+            .block => |stmts| {
+                for (stmts.items) |stmt| {
+                    try self.generate_module_code_block(tree, stmt);
+                }
+            },
+            else => {
+                return error.BlockExpected;
+            },
+        }
+    }
+
     pub fn generate_module_code_block(
         self: *Module,
         tree: *const Moon_AST,
@@ -661,7 +680,6 @@ const Module = struct {
             .call,
             => {
                 try self.generate_code(tree, node_index, .{});
-                _ = try self.add_code(.drop, 1);
             },
             .const_decl => |decl| {
                 try self.generate_code(tree, decl.expr, .{});
@@ -831,7 +849,14 @@ const Module = struct {
                 if (i >= std.math.minInt(LongIArg) and i <= std.math.maxInt(LongIArg)) {
                     const value: LongArg = @bitCast(@as(LongIArg, @truncate(i)));
                     _ = try self.add_code(.integer, value);
+                } else {
+                    const ci = try self.add_constant_i64(i);
+                    _ = try self.add_short_code(.constant, ci);
                 }
+            },
+            .number_literal => |n| {
+                const ci = try self.add_constant_f64(n);
+                _ = try self.add_short_code(.constant, ci);
             },
             .string => |str| {
                 if (string_is_simple(str)) {
@@ -926,6 +951,8 @@ const Module = struct {
                     } else {
                         _ = try self.add_code(.load_local, arg);
                     }
+                } else if (std.mem.eql(u8, "_", str)) {
+                    _ = try self.add_code(.drop, 1);
                 } else {
                     std.debug.print("{s} unknown\n", .{str});
                     return error.UnknownVariable;
@@ -1068,16 +1095,26 @@ const Module = struct {
         }
     }
 
-    pub fn add_constant_i64(self: *Module, value: i64) MoonErrors!u8 {
-        const index: u8 = @intCast(self.constants.items.len);
+    pub fn add_constant_i64(self: *Module, value: i64) MoonErrors!LongArg {
+        for (self.constants.items, 0..) |item, i| {
+            if (item == .integer and item.integer == value) {
+                return @intCast(i);
+            }
+        }
+        const index: LongArg = @intCast(self.constants.items.len);
         try self.constants.append(self.moon.allocator, .{
             .integer = value,
         });
         return index;
     }
 
-    pub fn add_constant_f64(self: *Module, value: f64) MoonErrors!u8 {
-        const index: u8 = @intCast(self.constants.items.len);
+    pub fn add_constant_f64(self: *Module, value: f64) MoonErrors!LongArg {
+        for (self.constants.items, 0..) |item, i| {
+            if (item == .number and item.number == value) {
+                return @intCast(i);
+            }
+        }
+        const index: LongArg = @intCast(self.constants.items.len);
         try self.constants.append(self.moon.allocator, .{
             .number = value,
         });
@@ -1116,6 +1153,159 @@ const Module = struct {
             });
         }
         return index;
+    }
+
+    fn dump_instruction(
+        module: *Module,
+        addr: usize,
+        instruction: Instruction,
+        writer: anytype,
+    ) !void {
+        switch (instruction.len()) {
+            .short => {
+                const code = instruction.get_short();
+                switch (code.op) {
+                    .constant => {
+                        const constant = module.constants.items[code.arg];
+                        switch (constant) {
+                            .string => |s| {
+                                const start = s.offset;
+                                const end = s.offset + s.len;
+                                const name = module.strings.items[start..end];
+                                try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
+                                    addr,
+                                    @tagName(code.op),
+                                    code.arg,
+                                    std.zig.fmtEscapes(name),
+                                });
+                            },
+                            else => {
+                                try writer.print("    {x:0>6} {s} {} ; {s}\n", .{
+                                    addr,
+                                    @tagName(code.op),
+                                    code.arg,
+                                    @tagName(constant),
+                                });
+                            },
+                        }
+                    },
+                    .jmpk,
+                    .brak,
+                    => {
+                        const name = @tagName(code.op);
+                        try writer.print("    {x:0>6} {s} {}\n", .{
+                            addr,
+                            name,
+                            code.arg,
+                        });
+                    },
+                    .jmp,
+                    .bra,
+                    => {
+                        const name = @tagName(code.op);
+                        const iarg: ShortIArg = @bitCast(code.arg);
+                        try writer.print("    {x:0>6} {s} {}\n", .{ addr, name, iarg });
+                    },
+                }
+            },
+            .long => {
+                const code = instruction.get_long();
+                switch (code.op) {
+                    .nop,
+                    .boolean,
+                    .integer,
+                    .load_local,
+                    .store_local,
+                    .call,
+                    .drop,
+                    => {
+                        try writer.print("    {x:0>6} {s} {}\n", .{
+                            addr,
+                            @tagName(code.op),
+                            code.arg,
+                        });
+                    },
+                    .import,
+                    .load_table,
+                    .store_table,
+                    => {
+                        const constant = module.constants.items[code.arg];
+                        switch (constant) {
+                            .string => |s| {
+                                const start = s.offset;
+                                const end = s.offset + s.len;
+                                const name = module.strings.items[start..end];
+                                try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
+                                    addr,
+                                    @tagName(code.op),
+                                    code.arg,
+                                    std.zig.fmtEscapes(name),
+                                });
+                            },
+                            else => {
+                                try writer.print("    {x:0>6} {s} {} ; {s}\n", .{
+                                    addr,
+                                    @tagName(code.op),
+                                    code.arg,
+                                    @tagName(constant),
+                                });
+                            },
+                        }
+                    },
+                    .load_global,
+                    .store_global,
+                    => {
+                        if (module.get_global_index_name(code.arg)) |name| {
+                            try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
+                                addr,
+                                @tagName(code.op),
+                                code.arg,
+                                std.zig.fmtEscapes(name),
+                            });
+                        } else {
+                            try writer.print("    {x:0>6} {s} {}\n", .{
+                                addr,
+                                @tagName(code.op),
+                                code.arg,
+                            });
+                        }
+                    },
+                    .nil,
+                    .add,
+                    .sub,
+                    .mul,
+                    .div,
+                    .mod,
+                    .lsh,
+                    .rsh,
+                    .band,
+                    .bor,
+                    .bxor,
+                    .lt,
+                    .gt,
+                    .lte,
+                    .gte,
+                    .eq,
+                    .neq,
+                    .@"and",
+                    .@"or",
+                    .ret,
+                    .new_table,
+                    .append_table,
+                    => {
+                        try writer.print("    {x:0>6} {s}\n", .{
+                            addr,
+                            @tagName(code.op),
+                        });
+                    },
+                }
+            },
+        }
+    }
+
+    pub fn write_value(self: *Module, value: Value, writer: anytype) !void {
+        _ = self;
+        try writer.print("{s}", .{@tagName(value)});
     }
 };
 
@@ -2621,34 +2811,55 @@ pub const TableEntry = struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const MoonErrors = error{
-    NotImplemented,
-    NotInteger,
-    OutOfMemory,
-    StackUnderflow,
-    Overflow,
+    AccessDenied,
+    BlockExpected,
+    BrokenPipe,
+    ConnectionResetByPeer,
+    DeviceBusy,
+    DiskQuota,
+    FileTooBig,
+    InputOutput,
+    InvalidArgument,
+    InvalidBuiltin,
     InvalidCharacter,
-    TypeMismatch,
+    InvalidConstantDeclaration,
     InvalidExpression,
     InvalidExpressionAtom,
-    InvalidStatement,
-    InvalidVariableDeclaration,
-    InvalidConstantDeclaration,
     InvalidFunctionDeclaration,
-    InvalidParameterList,
-    InvalidBuiltin,
+    InvalidInstruction,
     InvalidNumberOfArgs,
     InvalidParameter,
-    MissingStatements,
-    MissingIdentifier,
+    InvalidParameterList,
+    InvalidStatement,
+    InvalidVariableDeclaration,
+    LockViolation,
+    MessageTooBig,
     MissingAssignment,
-    MissingOpenBlock,
     MissingCloseBlock,
-    MissingOpenParenthesis,
     MissingCloseParenthesis,
-    TooManyConstants,
-    UnknownVariable,
-    NotVariable,
+    MissingIdentifier,
+    MissingOpenBlock,
+    MissingOpenParenthesis,
+    MissingStatements,
     NameAlreadyDeclared,
+    NoDevice,
+    NoSpaceLeft,
+    NotImplemented,
+    NotInteger,
+    NotOpenForWriting,
+    NotVariable,
+    OperationAborted,
+    OutOfMemory,
+    Overflow,
+    PermissionDenied,
+    ProcessNotFound,
+    StackUnderflow,
+    SystemResources,
+    TooManyConstants,
+    TypeMismatch,
+    Unexpected,
+    UnknownVariable,
+    WouldBlock,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2675,6 +2886,116 @@ pub const Value = union(ValueKind) {
     string: StringIndex,
     function: FunctionIndex,
     module: ModuleIndex,
+
+    pub fn add(lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l + r };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l + r };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            else => return error.TypeMismatch,
+        }
+    }
+
+    pub fn sub(lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l - r };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l - r };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            else => return error.TypeMismatch,
+        }
+    }
+
+    pub fn mul(lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l * r };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l * r };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            else => return error.TypeMismatch,
+        }
+    }
+
+    pub fn div(lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = @divFloor(l, r) };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l / r };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            else => return error.TypeMismatch,
+        }
+    }
+
+    pub fn mod(lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = @mod(l, r) };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = @mod(l, r) };
+                    },
+                    else => return error.TypeMismatch,
+                }
+            },
+            else => return error.TypeMismatch,
+        }
+    }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -4436,7 +4757,7 @@ test "compile simple" {
         \\     return a + b
         \\ }
         \\
-        \\ add (37, 42)
+        \\ _ = add (37, 42)
         \\
     ,
         \\module
@@ -4481,25 +4802,24 @@ test "compile hello world" {
     ,
         \\module
         \\  code
-        \\    000000 import 0
+        \\    000000 import 0 ; "std"
         \\    000001 store_global 0 ; "std"
         \\    000002 load_global 0 ; "std"
         \\    000003 load_table 1 ; "print"
-        \\    000004 constant 2
+        \\    000004 constant 2 ; "Hello, World!\n"
         \\    000005 new_table
         \\    000006 integer 37
         \\    000007 append_table
         \\    000008 integer 42
         \\    000009 append_table
         \\    00000a call 2
-        \\    00000b drop 1
-        \\    00000c ret
+        \\    00000b ret
         \\  constants
         \\    0: string: "std"
         \\    1: string: "print"
         \\    2: string: "Hello, World!\n"
         \\  globals
-        \\    0: "std" constant
+        \\    0: "std" constant = nil
         \\  strings
         \\    00000000 "stdprintHello, World!\n"
         \\

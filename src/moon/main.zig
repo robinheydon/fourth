@@ -72,6 +72,9 @@ pub fn main() !void {
         }
 
         if (true) {
+            module.code.clearRetainingCapacity();
+            m.clear_stack();
+
             var iter = moon.tokenize(buffer.items);
             var ast = m.AST(buffer.items);
             defer ast.deinit();
@@ -82,11 +85,25 @@ pub fn main() !void {
                     continue;
                 };
 
-            try module.semantic_analysis(&ast, root);
+            module.semantic_analysis(&ast, root) catch |err|
+                {
+                    try writer.print("Semantic error: {s}\n", .{@errorName(err)});
+                    continue;
+                };
 
-            try module.generate_module_code_block(&ast, root);
+            module.generate_module_code(&ast, root) catch |err|
+                {
+                    try writer.print("Code generation error: {s}\n", .{@errorName(err)});
+                    continue;
+                };
 
             try m.dump_module(module, writer);
+
+            m.execute(module, 0) catch |err|
+                {
+                    try writer.print("Execute error: {s}\n", .{@errorName(err)});
+                    continue;
+                };
         }
     }
 }
