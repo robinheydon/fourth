@@ -20,7 +20,7 @@ pub fn main() !void {
         allocator.destroy(module);
     }
 
-    module.trace = true;
+    module.trace = false;
 
     var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();
@@ -47,7 +47,23 @@ pub fn main() !void {
             }
         };
 
-        if (true) {
+        if (std.mem.eql(u8, buffer.items, ".trace")) {
+            module.trace = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, buffer.items, ".exec")) {
+            m.trace_execute = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, buffer.items, ".dump")) {
+            try m.dump(writer);
+            try m.dump_module(module, writer);
+            continue;
+        }
+
+        if (module.trace) {
             var token_iter = moon.tokenize(buffer.items);
             while (token_iter.next()) |tk| {
                 std.debug.print("{s} \"{}\"\n", .{
@@ -57,7 +73,7 @@ pub fn main() !void {
             }
         }
 
-        if (true) {
+        if (module.trace) {
             var iter = moon.tokenize(buffer.items);
             var ast = m.AST(buffer.items);
             defer ast.deinit();
@@ -97,13 +113,26 @@ pub fn main() !void {
                     continue;
                 };
 
-            try m.dump_module(module, writer);
+            if (module.trace) {
+                try m.dump_module(module, writer);
+            }
 
             m.execute(module, 0) catch |err|
                 {
                     try writer.print("Execute error: {s}\n", .{@errorName(err)});
                     continue;
                 };
+
+            const value = m.pop() catch |err|
+                {
+                    if (err == error.StackUnderflow) {} else {
+                        try writer.print("Stack error: {s}\n", .{@errorName(err)});
+                    }
+                    continue;
+                };
+
+            try m.write_value(value, writer);
+            try writer.print("\n", .{});
         }
     }
 }

@@ -782,14 +782,13 @@ fn init_world() void {
         p.set(com.Random{ .rand = r128 });
     }
 
-    for (0..10) |_|
-    {
+    for (0..10) |_| {
         const p = ng.new();
-        const name = ng.rand_u32 ();
-        p.set (com.Place{ .name = name });
-        log.debug ("{} Place {s}", .{
+        const name = ng.rand_u32();
+        p.set(com.Place{ .name = name });
+        log.debug("{} Place {s}", .{
             p,
-            places.get_place_name (name),
+            places.get_place_name(name),
         });
     }
 }

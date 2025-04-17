@@ -20,8 +20,11 @@ pub const Moon = struct {
     allocator: std.mem.Allocator,
 
     modules: std.ArrayListUnmanaged(*Module) = .empty,
+    strings: std.ArrayListUnmanaged(u8) = .empty,
 
     stack: std.ArrayListUnmanaged(Value) = .empty,
+
+    trace_execute: bool = false,
 
     pub fn init(alloc: std.mem.Allocator) Moon {
         return .{
@@ -36,6 +39,7 @@ pub const Moon = struct {
         }
         self.modules.deinit(self.allocator);
         self.stack.deinit(self.allocator);
+        self.strings.deinit(self.allocator);
     }
 
     pub fn push_integer(self: *Moon, value: i64) MoonErrors!void {
@@ -48,6 +52,46 @@ pub const Moon = struct {
                 if (self.stack.pop()) |lhs| {
                     if (self.stack.pop()) |rhs| {
                         const res = try self.add(lhs, rhs);
+                        try self.stack.append(self.allocator, res);
+                        return;
+                    }
+                }
+                return error.StackUnderflow;
+            },
+            .sub => {
+                if (self.stack.pop()) |lhs| {
+                    if (self.stack.pop()) |rhs| {
+                        const res = try self.sub(lhs, rhs);
+                        try self.stack.append(self.allocator, res);
+                        return;
+                    }
+                }
+                return error.StackUnderflow;
+            },
+            .mul => {
+                if (self.stack.pop()) |lhs| {
+                    if (self.stack.pop()) |rhs| {
+                        const res = try self.mul(lhs, rhs);
+                        try self.stack.append(self.allocator, res);
+                        return;
+                    }
+                }
+                return error.StackUnderflow;
+            },
+            .div => {
+                if (self.stack.pop()) |lhs| {
+                    if (self.stack.pop()) |rhs| {
+                        const res = try self.div(lhs, rhs);
+                        try self.stack.append(self.allocator, res);
+                        return;
+                    }
+                }
+                return error.StackUnderflow;
+            },
+            .mod => {
+                if (self.stack.pop()) |lhs| {
+                    if (self.stack.pop()) |rhs| {
+                        const res = try self.mod(lhs, rhs);
                         try self.stack.append(self.allocator, res);
                         return;
                     }
@@ -95,7 +139,6 @@ pub const Moon = struct {
             .code = .empty,
             .constants = .empty,
             .globals = .empty,
-            .strings = .empty,
             .locals = .empty,
             .trace = false,
         };
@@ -139,16 +182,15 @@ pub const Moon = struct {
 
         _ = try module.add_code(.ret, 0);
 
-        var giter = module.globals.iterator();
-        while (giter.next()) |*global| {
-            const value = global.value_ptr;
-            switch (value.*) {
-                .function => |*func| {
-                    if (func.need_generation) {
-                        func.start = module.get_code_addr();
-                        try module.generate_code_block(&tree, func.node_index);
-                        func.end = module.get_code_addr();
-                        func.need_generation = false;
+        for (module.globals.items) |*global| {
+            switch (global.kind) {
+                .function => {
+                    if (global.func.need_generation) {
+                        const start_addr = module.get_code_addr();
+                        try module.generate_code_block(&tree, global.func.node_index);
+                        global.func.need_generation = false;
+
+                        global.value = .{ .function = start_addr };
                     }
                 },
                 else => {},
@@ -168,16 +210,24 @@ pub const Moon = struct {
     pub fn execute(self: *Moon, module: *Module, addr: u32) MoonErrors!void {
         var ip = addr;
         const writer = std.io.getStdErr().writer();
-        try writer.print("Execute {x:0>6}\n", .{addr});
-        try self.dump_stack(writer);
-        while (ip < module.code.items.len) {
-            const instr = module.code.items[ip];
-            std.debug.print("{x:0>6} {x}\n", .{ addr, instr });
-            try module.dump_instruction(addr, instr, writer);
-            ip +%= try self.execute_instruction(module, instr);
+        if (self.trace_execute) {
+            try writer.print("Execute {x:0>6}\n", .{addr});
             try self.dump_stack(writer);
         }
-        try writer.print("Execute {x:0>6}\n", .{addr});
+        while (ip < module.code.items.len) {
+            const instr = module.code.items[ip];
+            if (self.trace_execute) {
+                std.debug.print("{x:0>6} {x}\n", .{ addr, instr });
+                try module.dump_instruction(addr, instr, writer);
+            }
+            ip +%= try self.execute_instruction(module, instr);
+            if (self.trace_execute) {
+                try self.dump_stack(writer);
+            }
+        }
+        if (self.trace_execute) {
+            try writer.print("Execute {x:0>6}\n", .{addr});
+        }
     }
 
     pub fn execute_instruction(
@@ -191,62 +241,207 @@ pub const Moon = struct {
                 switch (code.op) {
                     .constant => {
                         const constant = module.constants.items[code.arg];
-
+                        try self.push(constant);
+                    },
+                    .jmp => {
+                        return code.arg;
+                    },
+                    .jmpk => {
+                        const constant = module.constants.items[code.arg];
                         switch (constant) {
                             .integer => |i| {
-                                try self.push(.{ .integer = i });
+                                return @bitCast(@as(i32, @intCast(i)));
                             },
-                            .number => |n| {
-                                try self.push(.{ .number = n });
-                            },
-                            .string => |s| {
-                                _ = s;
-                                return error.NotImplemented;
+                            else => {
+                                return error.InvalidInstruction;
                             },
                         }
                     },
-                    else => {
-                        return error.InvalidInstruction;
+                    .bra => {
+                        const truthy = try self.pop();
+                        if (truthy.is_true()) {
+                            return code.arg;
+                        }
+                    },
+                    .brak => {
+                        const constant = module.constants.items[code.arg];
+                        const truthy = try self.pop();
+                        if (truthy.is_true()) {
+                            switch (constant) {
+                                .integer => |i| {
+                                    return @bitCast(@as(i32, @intCast(i)));
+                                },
+                                else => {
+                                    return error.InvalidInstruction;
+                                },
+                            }
+                        }
                     },
                 }
             },
             .long => {
                 const code = instr.get_long();
                 switch (code.op) {
+                    .nop => {},
+                    .nil => {
+                        try self.push(.{ .nil = {} });
+                    },
+                    .boolean_true => {
+                        try self.push(.{ .boolean = true });
+                    },
+                    .boolean_false => {
+                        try self.push(.{ .boolean = false });
+                    },
                     .integer => {
-                        try self.push(.{ .integer = code.arg });
+                        try self.push(.{ .literal_integer = code.arg });
                     },
                     .add => {
                         const rhs = try self.pop();
                         const lhs = try self.pop();
-                        const result = try lhs.add(rhs);
+                        const result = try self.add(lhs, rhs);
                         try self.push(result);
                     },
                     .sub => {
                         const rhs = try self.pop();
                         const lhs = try self.pop();
-                        const result = try lhs.sub(rhs);
+                        const result = try self.sub(lhs, rhs);
                         try self.push(result);
                     },
                     .mul => {
                         const rhs = try self.pop();
                         const lhs = try self.pop();
-                        const result = try lhs.mul(rhs);
+                        const result = try self.mul(lhs, rhs);
                         try self.push(result);
                     },
                     .div => {
                         const rhs = try self.pop();
                         const lhs = try self.pop();
-                        const result = try lhs.div(rhs);
+                        const result = try self.div(lhs, rhs);
                         try self.push(result);
                     },
                     .mod => {
                         const rhs = try self.pop();
                         const lhs = try self.pop();
-                        const result = try lhs.mod(rhs);
+                        const result = try self.mod(lhs, rhs);
                         try self.push(result);
                     },
-                    else => {
+                    .lsh => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.lsh(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .rsh => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.rsh(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .band => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.band(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .bor => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.bor(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .bxor => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.bxor(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .lt => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.lt(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .gt => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.gt(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .lte => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.lte(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .gte => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.gte(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .eq => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.eq(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .neq => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.neq(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .@"and" => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.@"and"(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .@"or" => {
+                        const rhs = try self.pop();
+                        const lhs = try self.pop();
+                        const result = try self.@"or"(lhs, rhs);
+                        try self.push(result);
+                    },
+                    .drop => {
+                        const num = code.arg;
+                        for (0..num) |_| {
+                            _ = try self.pop();
+                        }
+                    },
+                    .load_table => {
+                        return error.InvalidInstruction;
+                    },
+                    .store_table => {
+                        return error.InvalidInstruction;
+                    },
+                    .load_local => {
+                        return error.InvalidInstruction;
+                    },
+                    .store_local => {
+                        return error.InvalidInstruction;
+                    },
+                    .load_global => {
+                        const global = module.globals.items[code.arg];
+                        try self.push(global.value);
+                    },
+                    .store_global => {
+                        const value = try self.pop();
+                        module.globals.items[code.arg].value = value;
+                    },
+                    .call => {
+                        return error.InvalidInstruction;
+                    },
+                    .ret => {
+                        return error.InvalidInstruction;
+                    },
+                    .new_table => {
+                        return error.InvalidInstruction;
+                    },
+                    .append_table => {
+                        return error.InvalidInstruction;
+                    },
+                    .import => {
                         return error.InvalidInstruction;
                     },
                 }
@@ -272,29 +467,951 @@ pub const Moon = struct {
         return error.StackUnderflow;
     }
 
-    pub fn dump(self: *Moon, value: Value, writer: anytype) MoonErrors!void {
+    pub fn raise_type_mismatch(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        _ = self;
+        std.debug.print("Type mismatch: {s} {s}\n", .{
+            @tagName(lhs),
+            @tagName(rhs),
+        });
+        return error.TypeMismatch;
+    }
+
+    pub fn add(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = l + r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs)
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l + r };
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = l + r };
+                    },
+                    .number => |r| {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .number = fl + r };
+                    },
+                    .literal_number => |r| {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .literal_number = fl + r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs)
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l + r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .number = l + fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l + r };
+                    },
+                    .literal_number => |r| {
+                        return .{ .literal_number = l + r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .literal_number = l + fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn sub(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = l - r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l - r };
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = l - r };
+                    },
+                    .number => |r| {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .number = fl - r };
+                    },
+                    .literal_number => |r| {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .literal_number = fl - r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs)
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l - r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .number = l - fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l - r };
+                    },
+                    .literal_number => |r| {
+                        return .{ .literal_number = l - r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .literal_number = l - fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn mul(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = l * r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l * r };
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = l * r };
+                    },
+                    .number => |r| {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .number = fl * r };
+                    },
+                    .literal_number => |r| {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .literal_number = fl * r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs)
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l * r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .number = l * fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l * r };
+                    },
+                    .literal_number => |r| {
+                        return .{ .literal_number = l * r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .literal_number = l * fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn div(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                const fl : f64 = @floatFromInt (l);
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .number = fl / fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                const fl : f64 = @floatFromInt (l);
+                switch (rhs) {
+                    .integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .number = fl / fr };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .literal_number = fl / fr };
+                    },
+                    .number => |r| {
+                        return .{ .number = fl / r };
+                    },
+                    .literal_number => |r| {
+                        return .{ .literal_number = fl / r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs)
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l / r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .number = l / fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l / r };
+                    },
+                    .literal_number => |r| {
+                        return .{ .literal_number = l / r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .literal_number = l / fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn mod(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = @mod(l, r) };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = @mod(l, r) };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = @mod (l, r)};
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = @mod (l, r)};
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = @mod (l, r)};
+                    },
+                    .number => |r| {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .number = fl % r };
+                    },
+                    .literal_number => |r| {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .literal_number = fl / r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs)
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l % r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .number = l % fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .number => |r| {
+                        return .{ .number = l % r };
+                    },
+                    .literal_number => |r| {
+                        return .{ .literal_number = l % r };
+                    },
+                    .literal_integer => |r| {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .literal_number = l % fr };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn lsh(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = l << @intCast(r) };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l << @intCast(r) };
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = l << @intCast(r) };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn rsh(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = l >> @intCast(r) };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l >> @intCast(r) };
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = l >> @intCast(r) };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn band(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = l & r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l & r };
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = l & r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn bor(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = l | r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l | r };
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = l | r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn bxor(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .integer = l ^ r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer => |r| {
+                        return .{ .integer = l ^ r };
+                    },
+                    .literal_integer => |r| {
+                        return .{ .literal_integer = l ^ r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn lt(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l < r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l < r };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r|
+                    {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .boolean = fl < r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l < fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l < r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l < fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l < r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn gt(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l > r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l > r };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r|
+                    {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .boolean = fl > r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l > fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l > r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l > fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l > r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn lte(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l <= r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l <= r };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r|
+                    {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .boolean = fl <= r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l <= fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l <= r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l <= fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l <= r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn gte(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l >= r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l >= r };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r|
+                    {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .boolean = fl >= r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l >= fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l >= r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l >= fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l >= r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn eq(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l == r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l == r };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r|
+                    {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .boolean = fl == r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l == fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l == r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l == fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l == r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn neq(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l != r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_integer => |l| {
+                switch (rhs) {
+                    .integer,
+                    .literal_integer,
+                    => |r| {
+                        return .{ .boolean = l != r };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r|
+                    {
+                        const fl : f64 = @floatFromInt (l);
+                        return .{ .boolean = fl != r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l != fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l != r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            .literal_number => |l| {
+                switch (rhs) {
+                    .literal_integer => |r|
+                    {
+                        const fr : f64 = @floatFromInt (r);
+                        return .{ .boolean = l != fr };
+                    },
+                    .number,
+                    .literal_number,
+                    => |r| {
+                        return .{ .boolean = l != r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn @"and"(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .boolean => |l| {
+                switch (rhs) {
+                    .boolean => |r| {
+                        return .{ .boolean = l and r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn @"or"(self: *Moon, lhs: Value, rhs: Value) MoonErrors!Value {
+        switch (lhs) {
+            .boolean => |l| {
+                switch (rhs) {
+                    .boolean => |r| {
+                        return .{ .boolean = l or r };
+                    },
+                    else => return self.raise_type_mismatch(lhs, rhs),
+                }
+            },
+            else => return self.raise_type_mismatch(lhs, rhs),
+        }
+    }
+
+    pub fn get_string(self: Moon, str: String) []const u8 {
+        return self.strings.items[str.offset .. str.offset + str.len];
+    }
+
+    pub fn intern_string(self: *Moon, str: []const u8) MoonErrors!String {
+        const len: u32 = @intCast(str.len);
+        if (std.mem.indexOf(u8, self.strings.items, str)) |uoffset| {
+            const offset: u32 = @intCast(uoffset);
+            return .{
+                .offset = offset,
+                .len = len,
+            };
+        }
+
+        const offset: u32 = @intCast(self.strings.items.len);
+        try self.strings.appendSlice(self.allocator, str);
+        return .{
+            .offset = offset,
+            .len = len,
+        };
+    }
+
+    pub fn write_value(self: *Moon, value: Value, writer: anytype) MoonErrors!void {
         switch (value) {
-            .nil => try writer.writeAll("nil"),
-            .integer => |i| try writer.print("{}", .{i}),
-            .number => |n| try writer.print("{d}", .{n}),
+            .nil => try writer.print("nil", .{}),
+            .boolean => |b| try writer.print("{}", .{b}),
+            .integer,
+            .literal_integer,
+            => |i| try writer.print("{d}", .{i}),
+            .number,
+            .literal_number,
+            => |n| try writer.print("{d}", .{n}),
             .string => |s| {
-                // const str = self.get_string (s);
-                // try writer.print ("\"{}\"", .{std.zig.fmtEscapes (str)});
-                try writer.print("string#{}", .{s});
+                const str = self.strings.items[s.offset .. s.offset + s.len];
+                try writer.print("\"{}\"", .{std.zig.fmtEscapes(str)});
             },
             .function => |f| {
                 const index = @intFromEnum(f);
-                try writer.print("func#{}", .{index});
+                try writer.print("{x:0>6}", .{index});
             },
             .module => |m| {
                 const index = @intFromEnum(m);
-                const module = self.modules.items[index];
-                try self.dump_module(module, writer);
+                try writer.print("module#{}", .{index});
             },
         }
     }
 
-    pub fn dump_module(self: *Moon, module: *Module, writer: anytype) !void {
+    pub fn dump(self: *Moon, writer: anytype) MoonErrors!void {
+        try writer.print("moon\n", .{});
+        try writer.print("  strings\n", .{});
+        for (0..self.strings.items.len) |index| {
+            const start = index * 32;
+            if (start >= self.strings.items.len) break;
+
+            const end = @min(self.strings.items.len, index * 32 + 32);
+            try writer.print("    {x:0>8} \"{}\"\n", .{
+                start,
+                std.zig.fmtEscapes(self.strings.items[start..end]),
+            });
+        }
+    }
+
+    pub fn dump_module(self: *Moon, module: *Module, writer: anytype) MoonErrors!void {
         try writer.print("module\n", .{});
 
         try writer.print("  code\n", .{});
@@ -303,63 +1420,20 @@ pub const Moon = struct {
         try writer.print("  constants\n", .{});
         for (module.constants.items, 0..) |constant, index| {
             try writer.print("    {}: ", .{index});
-            switch (constant) {
-                .integer => |value| try writer.print("integer: {d}", .{value}),
-                .number => |value| try writer.print("number: {d}", .{value}),
-                .string => |value| try writer.print("string: \"{}\"", .{
-                    std.zig.fmtEscapes(
-                        module.strings.items[value.offset .. value.offset + value.len],
-                    ),
-                }),
-            }
+            try self.write_value(constant, writer);
             try writer.print("\n", .{});
         }
         try writer.print("  globals\n", .{});
-        var giter = module.globals.iterator();
-        while (giter.next()) |kv| {
-            const key = kv.key_ptr.*;
-            const value = kv.value_ptr.*;
-            switch (value) {
-                .constant => |c| {
-                    try writer.print("    {}: \"{}\" constant", .{
-                        c.index,
-                        std.zig.fmtEscapes(key),
-                    });
-
-                    try writer.print(" = ", .{});
-                    try self.write_value(c.value, writer);
-                    try writer.print("\n", .{});
-                },
-                .variable => |v| {
-                    try writer.print("    {}: \"{}\" variable", .{
-                        v.index,
-                        std.zig.fmtEscapes(key),
-                    });
-
-                    try writer.print(" = ", .{});
-                    try self.write_value(v.value, writer);
-                    try writer.print("\n", .{});
-                },
-                .function => |f| {
-                    try writer.print("    {}: \"{}\" function {x:0>6}\n", .{
-                        f.index,
-                        std.zig.fmtEscapes(key),
-                        @intFromEnum(f.start),
-                    });
-                },
-            }
-        }
-        try writer.print("  strings\n", .{});
-
-        for (0..module.strings.items.len) |index| {
-            const start = index * 32;
-            if (start >= module.strings.items.len) break;
-
-            const end = @min(module.strings.items.len, index * 32 + 32);
-            try writer.print("    {x:0>8} \"{}\"\n", .{
-                start,
-                std.zig.fmtEscapes(module.strings.items[start..end]),
+        for (module.globals.items, 0..) |global, index| {
+            const name = self.get_string(global.name);
+            try writer.print("    {}: \"{}\" {s}", .{
+                index,
+                std.zig.fmtEscapes(name),
+                @tagName(global.kind),
             });
+            try writer.print(" = ", .{});
+            try self.write_value(global.value, writer);
+            try writer.print("\n", .{});
         }
     }
 
@@ -377,28 +1451,14 @@ pub const Moon = struct {
 
     pub fn dump_stack(self: *Moon, writer: anytype) !void {
         try writer.print("Stack: ", .{});
-        for (self.stack.items, 0..) |item, index| {
+        for (self.stack.items, 0..) |value, index| {
             if (index > 0) {
                 try writer.print(", ", .{});
             }
-            try self.write_value(item, writer);
+            try self.write_value(value, writer);
+            try writer.print (":{s}", .{ @tagName (value) });
         }
         try writer.print("\n", .{});
-    }
-
-    pub fn write_value(self: *Moon, value: Value, writer: anytype) !void {
-        _ = self;
-        switch (value) {
-            .integer => |i| {
-                try writer.print("{d}", .{i});
-            },
-            .number => |n| {
-                try writer.print("{d}", .{n});
-            },
-            else => {
-                try writer.print("type {s}", .{@tagName(value)});
-            },
-        }
     }
 };
 
@@ -414,26 +1474,16 @@ const GlobalKind = enum {
     function,
 };
 
-const Global = union(GlobalKind) {
-    variable: GlobalVariable,
-    constant: GlobalConstant,
-    function: GlobalFunction,
-};
-
-const GlobalConstant = struct {
-    index: u32,
+const Global = struct {
+    kind: GlobalKind,
+    name: String,
     value: Value,
-};
-
-const GlobalVariable = struct {
-    index: u32,
-    value: Value,
+    func: GlobalFunction,
 };
 
 const GlobalFunction = struct {
-    index: u32,
-    need_generation: bool = true,
     node_index: NodeIndex,
+    need_generation: bool = true,
     start: CodeAddr = @enumFromInt(0),
     end: CodeAddr = @enumFromInt(0),
 };
@@ -458,23 +1508,16 @@ const Local = struct {
 
 const Module = struct {
     moon: *Moon,
-    globals: std.StringArrayHashMapUnmanaged(Global),
+    globals: std.ArrayListUnmanaged(Global),
     code: std.ArrayListUnmanaged(Instruction),
-    constants: std.ArrayListUnmanaged(Constant),
-    strings: std.ArrayListUnmanaged(u8),
-    next_global: u32 = 0,
+    constants: std.ArrayListUnmanaged(Value),
     locals: std.ArrayListUnmanaged(Local),
     trace: bool = false,
 
     pub fn deinit(self: *Module) void {
-        var globals = self.globals.iterator();
-        while (globals.next()) |global| {
-            self.moon.allocator.free(global.key_ptr.*);
-        }
         self.globals.deinit(self.moon.allocator);
         self.code.deinit(self.moon.allocator);
         self.constants.deinit(self.moon.allocator);
-        self.strings.deinit(self.moon.allocator);
         self.locals.deinit(self.moon.allocator);
     }
 
@@ -537,37 +1580,19 @@ const Module = struct {
             std.debug.print("{s} already declared (declare global / local)\n", .{name});
             return error.NameAlreadyDeclared;
         }
-        const name_copy = try self.moon.allocator.dupe(u8, name);
-        switch (kind) {
-            .constant => {
-                try self.globals.put(self.moon.allocator, name_copy, .{ .constant = .{
-                    .index = self.next_global,
-                    .value = .{ .nil = {} },
-                } });
-            },
-            .variable => {
-                try self.globals.put(self.moon.allocator, name_copy, .{ .variable = .{
-                    .index = self.next_global,
-                    .value = .{ .nil = {} },
-                } });
-            },
-            .function => {
-                try self.globals.put(self.moon.allocator, name_copy, .{ .function = .{
-                    .index = self.next_global,
-                    .node_index = node_index,
-                } });
-            },
-        }
-        self.next_global += 1;
+        const name_string = try self.moon.intern_string(name);
+        try self.globals.append(self.moon.allocator, .{
+            .name = name_string,
+            .kind = kind,
+            .value = .{ .nil = {} },
+            .func = .{ .node_index = node_index },
+        });
     }
 
     pub fn find_global(self: *Module, name: []const u8) ?u32 {
-        if (self.globals.get(name)) |value| {
-            switch (value) {
-                .constant => |c| return c.index,
-                .variable => |c| return c.index,
-                .function => |c| return c.index,
-            }
+        const name_string = self.moon.intern_string(name) catch return null;
+        for (self.globals.items, 0..) |global, index| {
+            if (global.name == name_string) return @intCast(index);
         }
         return null;
     }
@@ -626,16 +1651,8 @@ const Module = struct {
     }
 
     pub fn get_global_index_name(self: *Module, index: usize) ?[]const u8 {
-        var iter = self.globals.iterator();
-        while (iter.next()) |kv| {
-            const value = kv.value_ptr.*;
-            switch (value) {
-                .constant => |c| if (c.index == index) return kv.key_ptr.*,
-                .variable => |c| if (c.index == index) return kv.key_ptr.*,
-                .function => |c| if (c.index == index) return kv.key_ptr.*,
-            }
-        }
-        return null;
+        const global = self.globals.items[index];
+        return self.moon.get_string(global.name);
     }
 
     pub fn generate_module_code(
@@ -862,8 +1879,8 @@ const Module = struct {
         // then generate the instruction
         switch (node) {
             .nil => _ = try self.add_code(.nil, 0),
-            .boolean_true => _ = try self.add_code(.boolean, 1),
-            .boolean_false => _ = try self.add_code(.boolean, 0),
+            .boolean_true => _ = try self.add_code(.boolean_true, 0),
+            .boolean_false => _ = try self.add_code(.boolean_false, 0),
             .integer_literal => |i| {
                 if (i >= std.math.minInt(LongIArg) and i <= std.math.maxInt(LongIArg)) {
                     const value: LongArg = @bitCast(@as(LongIArg, @truncate(i)));
@@ -1122,7 +2139,7 @@ const Module = struct {
         }
         const index: LongArg = @intCast(self.constants.items.len);
         try self.constants.append(self.moon.allocator, .{
-            .integer = value,
+            .literal_integer = value,
         });
         return index;
     }
@@ -1135,47 +2152,22 @@ const Module = struct {
         }
         const index: LongArg = @intCast(self.constants.items.len);
         try self.constants.append(self.moon.allocator, .{
-            .number = value,
+            .literal_number = value,
         });
         return index;
     }
 
     pub fn add_constant_string(self: *Module, value: []const u8) MoonErrors!u32 {
+        const str = try self.moon.intern_string(value);
         const index: u32 = @intCast(self.constants.items.len);
-        const len: u32 = @intCast(value.len);
-        if (std.mem.indexOf(u8, self.strings.items, value)) |uoffset| {
-            const offset: u32 = @intCast(uoffset);
-            for (self.constants.items, 0..) |item, i| {
-                switch (item) {
-                    .string => |str| {
-                        if (str.offset == offset and str.len == len) {
-                            return @intCast(i);
-                        }
-                    },
-                    else => {},
-                }
-            }
-            try self.constants.append(self.moon.allocator, .{
-                .string = .{
-                    .offset = offset,
-                    .len = len,
-                },
-            });
-        } else {
-            const offset: u32 = @intCast(self.strings.items.len);
-            try self.strings.appendSlice(self.moon.allocator, value);
-            try self.constants.append(self.moon.allocator, .{
-                .string = .{
-                    .offset = offset,
-                    .len = len,
-                },
-            });
-        }
+        try self.constants.append(self.moon.allocator, .{
+            .string = str,
+        });
         return index;
     }
 
     fn dump_instruction(
-        module: *Module,
+        self: *Module,
         addr: usize,
         instruction: Instruction,
         writer: anytype,
@@ -1185,12 +2177,12 @@ const Module = struct {
                 const code = instruction.get_short();
                 switch (code.op) {
                     .constant => {
-                        const constant = module.constants.items[code.arg];
+                        const constant = self.constants.items[code.arg];
                         switch (constant) {
                             .string => |s| {
                                 const start = s.offset;
                                 const end = s.offset + s.len;
-                                const name = module.strings.items[start..end];
+                                const name = self.moon.strings.items[start..end];
                                 try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
                                     addr,
                                     @tagName(code.op),
@@ -1230,8 +2222,6 @@ const Module = struct {
             .long => {
                 const code = instruction.get_long();
                 switch (code.op) {
-                    .nop,
-                    .boolean,
                     .integer,
                     .load_local,
                     .store_local,
@@ -1248,12 +2238,12 @@ const Module = struct {
                     .load_table,
                     .store_table,
                     => {
-                        const constant = module.constants.items[code.arg];
+                        const constant = self.constants.items[code.arg];
                         switch (constant) {
                             .string => |s| {
                                 const start = s.offset;
                                 const end = s.offset + s.len;
-                                const name = module.strings.items[start..end];
+                                const name = self.moon.strings.items[start..end];
                                 try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
                                     addr,
                                     @tagName(code.op),
@@ -1274,7 +2264,7 @@ const Module = struct {
                     .load_global,
                     .store_global,
                     => {
-                        if (module.get_global_index_name(code.arg)) |name| {
+                        if (self.get_global_index_name(code.arg)) |name| {
                             try writer.print("    {x:0>6} {s} {} ; \"{}\"\n", .{
                                 addr,
                                 @tagName(code.op),
@@ -1289,7 +2279,10 @@ const Module = struct {
                             });
                         }
                     },
+                    .nop,
                     .nil,
+                    .boolean_true,
+                    .boolean_false,
                     .add,
                     .sub,
                     .mul,
@@ -1415,7 +2408,8 @@ pub const LongOpcode = enum(u7) {
     @"or",
     load_table,
     store_table,
-    boolean,
+    boolean_true,
+    boolean_false,
     integer,
     load_local,
     store_local,
@@ -1426,39 +2420,6 @@ pub const LongOpcode = enum(u7) {
     new_table,
     append_table,
     import,
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub const ConstantKind = enum {
-    integer,
-    number,
-    string,
-};
-
-pub const Constant = union(ConstantKind) {
-    integer: i64,
-    number: f64,
-    string: ConstantString,
-};
-
-//     pub fn format(self: Constant, _: anytype, _: anytype, writer: anytype) !void {
-//         switch (self) {
-//             .integer => |value| try writer.print("integer: {x}", .{value}),
-//             .number => |value| try writer.print("number: {d}", .{value}),
-//             .string => |value| try writer.print("string: \"{}\" ({d}:{d})", .{
-//                 std.zig.fmtEscapes(
-//                 value.offset,
-//                 value.len,
-//             }),
-//         }
-//     }
-
-pub const ConstantString = packed struct {
-    offset: u32,
-    len: u32,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2882,8 +3843,11 @@ pub const MoonErrors = error{
 
 pub const ValueKind = enum {
     nil,
+    boolean,
     integer,
+    literal_integer,
     number,
+    literal_number,
     string,
     function,
     module,
@@ -2895,120 +3859,20 @@ pub const ValueKind = enum {
 
 pub const Value = union(ValueKind) {
     nil,
+    boolean: bool,
     integer: i64,
+    literal_integer: i64,
     number: f64,
-    string: StringIndex,
-    function: FunctionIndex,
+    literal_number: f64,
+    string: String,
+    function: CodeAddr,
     module: ModuleIndex,
 
-    pub fn add(lhs: Value, rhs: Value) MoonErrors!Value {
-        switch (lhs) {
-            .integer => |l| {
-                switch (rhs) {
-                    .integer => |r| {
-                        return .{ .integer = l + r };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            .number => |l| {
-                switch (rhs) {
-                    .number => |r| {
-                        return .{ .number = l + r };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            else => return error.TypeMismatch,
+    pub fn is_true(self: Value) bool {
+        if (self == .boolean) {
+            return self.boolean;
         }
-    }
-
-    pub fn sub(lhs: Value, rhs: Value) MoonErrors!Value {
-        switch (lhs) {
-            .integer => |l| {
-                switch (rhs) {
-                    .integer => |r| {
-                        return .{ .integer = l - r };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            .number => |l| {
-                switch (rhs) {
-                    .number => |r| {
-                        return .{ .number = l - r };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            else => return error.TypeMismatch,
-        }
-    }
-
-    pub fn mul(lhs: Value, rhs: Value) MoonErrors!Value {
-        switch (lhs) {
-            .integer => |l| {
-                switch (rhs) {
-                    .integer => |r| {
-                        return .{ .integer = l * r };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            .number => |l| {
-                switch (rhs) {
-                    .number => |r| {
-                        return .{ .number = l * r };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            else => return error.TypeMismatch,
-        }
-    }
-
-    pub fn div(lhs: Value, rhs: Value) MoonErrors!Value {
-        switch (lhs) {
-            .integer => |l| {
-                switch (rhs) {
-                    .integer => |r| {
-                        return .{ .integer = @divFloor(l, r) };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            .number => |l| {
-                switch (rhs) {
-                    .number => |r| {
-                        return .{ .number = l / r };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            else => return error.TypeMismatch,
-        }
-    }
-
-    pub fn mod(lhs: Value, rhs: Value) MoonErrors!Value {
-        switch (lhs) {
-            .integer => |l| {
-                switch (rhs) {
-                    .integer => |r| {
-                        return .{ .integer = @mod(l, r) };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            .number => |l| {
-                switch (rhs) {
-                    .number => |r| {
-                        return .{ .number = @mod(l, r) };
-                    },
-                    else => return error.TypeMismatch,
-                }
-            },
-            else => return error.TypeMismatch,
-        }
+        return false;
     }
 };
 
@@ -3018,19 +3882,20 @@ pub const Value = union(ValueKind) {
 
 pub const Operation = enum {
     add,
+    sub,
+    mul,
+    div,
+    mod,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const StringIndex = enum(u32) { _ };
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-pub const FunctionIndex = enum(u32) { _ };
+pub const String = packed struct {
+    offset: u32,
+    len: u32,
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -4051,7 +4916,10 @@ fn test_compile(str: []const u8, result: []const u8, options: CompileOptions) !v
 
     const writer = buffer.writer();
 
-    try moon.dump(module, writer);
+    // try moon.dump_module(module, writer);
+    const index = @intFromEnum(module.module);
+    const real_module = moon.modules.items[index];
+    try moon.dump_module(real_module, writer);
 
     try std.testing.expectEqualStrings(result, buffer.items);
 }
@@ -4788,8 +5656,7 @@ test "compile simple" {
         \\    000009 ret
         \\  constants
         \\  globals
-        \\    0: "add" function 000006
-        \\  strings
+        \\    0: "add" function = 000006
         \\
     ,
         .{},
@@ -4829,13 +5696,11 @@ test "compile hello world" {
         \\    00000a call 2
         \\    00000b ret
         \\  constants
-        \\    0: string: "std"
-        \\    1: string: "print"
-        \\    2: string: "Hello, World!\n"
+        \\    0: "std"
+        \\    1: "print"
+        \\    2: "Hello, World!\n"
         \\  globals
         \\    0: "std" constant = nil
-        \\  strings
-        \\    00000000 "stdprintHello, World!\n"
         \\
     ,
         .{},
