@@ -122,3 +122,38 @@ unop ::= `not` | `-` | `~`
     `not` logical not
     `-` unary negative
     `~` binary negative
+
+## Modules
+
+A module is a single unit of code and data. Each module has zero or more
+global variables and zero or more functions. The concept of a global
+variable is only global within a module. Any other module defined in the
+system cannot access the state of any other module without first having
+imported that module.
+
+### API
+
+```zig
+var mod = m.create_module ();
+mod.create_constant ("pi", .{ .number = 3.1415926 });
+mod.create_constant ("days", .{ .integer = 7 });
+mod.create_variable ("counter", .{ .integer = 0 });
+mod.set ("counter", .{ .integer = 1 });
+var counter_value = mod.get ("counter");
+var counter = mod.get_integer ("counter") orelse 0;
+mod.create_cfunction ("add", add);
+```
+
+## Functions
+
+A function is a single block of code and its associated static values.
+All computation is performed using the execution stack. Functions are
+associated with a single module and can directly load and store values
+into the module's global variables.
+
+Any constants used by the function are stored with this function. This
+logically means that each function is separate, but also means that if
+lots of functions in a module uses a lot of the same static values, then
+this data will be duplicated. This does allow for more static values to
+be used across a large module, at the expense of some duplication. It
+also means that each function is self contained.

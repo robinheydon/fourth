@@ -88,7 +88,6 @@ pub fn main() !void {
         }
 
         if (true) {
-            module.code.clearRetainingCapacity();
             m.clear_stack();
 
             var iter = moon.tokenize(buffer.items);
@@ -107,7 +106,7 @@ pub fn main() !void {
                     continue;
                 };
 
-            module.generate_module_code(&ast, root) catch |err|
+            const module_func = module.generate_module_function(&ast, root) catch |err|
                 {
                     try writer.print("Code generation error: {s}\n", .{@errorName(err)});
                     continue;
@@ -117,7 +116,7 @@ pub fn main() !void {
                 try m.dump_module(module, writer);
             }
 
-            m.execute(module, 0) catch |err|
+            module.execute(module_func) catch |err|
                 {
                     try writer.print("Execute error: {s}\n", .{@errorName(err)});
                     continue;
