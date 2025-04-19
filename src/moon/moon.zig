@@ -25,6 +25,8 @@ const StringContext = struct {
     }
 };
 
+const CFunction = *const fn (self: *Moon) callconv(.c) void;
+
 pub const Moon = struct {
     allocator: std.mem.Allocator,
 
@@ -73,8 +75,11 @@ pub const Moon = struct {
     }
 
     pub fn add_std_module(self: *Moon) MoonErrors!void {
-        const table = try self.new_table();
-        self.table_put_named_function(table, "print", moon_print);
+        const module = try self.create_module();
+        try module.set_name(try self.intern_string("std"));
+        const module_index = try self.add_module(module);
+        std.debug.print("std = {}\n", .{module_index});
+        try module.add_global_cfunction(try self.intern_string("print"), moon_print);
     }
 
     pub fn push_integer(self: *Moon, value: i64) MoonErrors!void {
@@ -152,6 +157,7 @@ pub const Moon = struct {
         options: CompileOptions,
     ) MoonErrors!Value {
         const module = try self.generate_module(source, options);
+        module.is_stdin = true;
 
         const index = self.add_module(module);
 
@@ -171,6 +177,8 @@ pub const Moon = struct {
         const module = try self.allocator.create(Module);
         module.* = .{
             .moon = self,
+            .name = .null_string,
+            .path = .null_string,
             .globals = .empty,
             .trace = false,
         };
@@ -1152,7 +1160,8 @@ pub const Moon = struct {
         }
     }
 
-    pub fn get_string(self: Moon, str: String) []const u8 {
+    pub fn get_string(self: Moon, string: String) []const u8 {
+        const str: StringInternal = @bitCast(@intFromEnum(string));
         return self.strings.items[str.offset .. str.offset + str.len];
     }
 
@@ -1160,18 +1169,20 @@ pub const Moon = struct {
         const len: u32 = @intCast(str.len);
         if (std.mem.indexOf(u8, self.strings.items, str)) |uoffset| {
             const offset: u32 = @intCast(uoffset);
-            return .{
+            const istr: StringInternal = .{
                 .offset = offset,
                 .len = len,
             };
+            return @enumFromInt(@as(u64, @bitCast(istr)));
         }
 
         const offset: u32 = @intCast(self.strings.items.len);
         try self.strings.appendSlice(self.allocator, str);
-        return .{
+        const istr: StringInternal = .{
             .offset = offset,
             .len = len,
         };
+        return @enumFromInt(@as(u64, @bitCast(istr)));
     }
 
     pub fn execute(
@@ -1182,8 +1193,9 @@ pub const Moon = struct {
         var ip: isize = 0;
         const writer = std.io.getStdErr().writer();
         if (self.trace_execute) {
-            try writer.print("Execute {x:0>6}\n", .{@as(usize, @intCast(ip))});
+            try writer.print("Function : ", .{});
             try self.dump_stack(writer);
+            try writer.print("\n", .{});
         }
         while (ip < func.code.items.len) {
             counter += 1;
@@ -1393,6 +1405,7 @@ pub const Moon = struct {
                             func.module.globals.items[code.arg].value = value;
                         },
                         .call => {
+                            try writer.print("\n", .{});
                             const diff = code.arg;
                             const args: ShortIArg = @intCast(diff);
                             const func_value = try self.get_relative(-args - 1);
@@ -1425,29 +1438,24 @@ pub const Moon = struct {
                 },
             }
             if (self.trace_execute) {
+                try writer.print(" => ", .{});
                 try self.dump_stack(writer);
+                try writer.print("\n", .{});
             }
         }
     }
 
     pub fn import(self: *Moon) MoonErrors!void {
         const value = try self.pop();
-        const str = try self.as_string(value);
-        if (std.mem.eql(u8, str, "std")) {
-            try self.new_table();
-        } else {
-            return error.ModuleUnknown;
+        const str = value.as_string() orelse .null_string;
+        for (self.modules.items, 0..) |module, index| {
+            if (module.name == str) {
+                try self.push(module_value(@enumFromInt(index)));
+                return;
+            }
         }
-    }
 
-    pub fn as_string(self: *Moon, value: Value) MoonErrors![]const u8 {
-        switch (value) {
-            .string => |s| {
-                return self.strings.items[s.offset .. s.offset + s.len];
-            },
-            else => {},
-        }
-        return error.TypeError;
+        return error.ModuleUnknown;
     }
 
     pub fn new_table(self: *Moon) MoonErrors!void {
@@ -1478,12 +1486,15 @@ pub const Moon = struct {
             .literal_number,
             => |n| try writer.print("{d}", .{n}),
             .string => |s| {
-                const str = self.strings.items[s.offset .. s.offset + s.len];
+                const str = self.get_string(s);
                 try writer.print("\"{}\"", .{std.zig.fmtEscapes(str)});
             },
             .function => |f| {
                 const index = @intFromEnum(f);
                 try writer.print("function#{}", .{index});
+            },
+            .cfunction => {
+                try writer.print("cfunction:", .{});
             },
             .module => |m| {
                 const index = @intFromEnum(m);
@@ -1509,6 +1520,29 @@ pub const Moon = struct {
                 std.zig.fmtEscapes(self.strings.items[start..end]),
             });
         }
+        try writer.print("  tables\n", .{});
+        for (self.tables.items, 0..) |table, index| {
+            try writer.print("    #{}:", .{index});
+            try self.dump_table(table, writer);
+            try writer.print("\n", .{});
+        }
+        try writer.print("  modules\n", .{});
+        for (self.modules.items, 0..) |module, index| {
+            try writer.print("    {}:", .{index});
+            if (module.name != .null_string) {
+                const name = self.get_string(module.name);
+                try writer.print(" \"{}\"", .{std.zig.fmtEscapes(name)});
+            } else if (module.is_stdin) {
+                try writer.print(" stdin", .{});
+            }
+            try writer.print("\n", .{});
+        }
+    }
+
+    pub fn dump_table(self: *Moon, table: *Table, writer: anytype) MoonErrors!void {
+        _ = self;
+
+        try writer.print(" ({},{})", .{ table.hash.count(), table.array.items.len });
     }
 
     pub fn dump_module(self: *Moon, module: *Module, writer: anytype) MoonErrors!void {
@@ -1546,14 +1580,12 @@ pub const Moon = struct {
     }
 
     pub fn dump_stack(self: *Moon, writer: anytype) !void {
-        try writer.print("Stack: ", .{});
         for (self.stack.items[self.tos..], 0..) |value, index| {
             if (index > 0) {
                 try writer.print(", ", .{});
             }
             try self.write_value(value, writer);
         }
-        try writer.print("\n", .{});
     }
 };
 
@@ -1689,7 +1721,7 @@ const LocalKind = enum {
 };
 
 const Local = struct {
-    name: []const u8,
+    name: String,
     kind: LocalKind,
 };
 
@@ -1699,6 +1731,9 @@ const Local = struct {
 
 const Module = struct {
     moon: *Moon,
+    name: String,
+    path: String,
+    is_stdin: bool = false,
     functions: std.ArrayListUnmanaged(*Function) = .empty,
     globals: std.ArrayListUnmanaged(Global),
     trace: bool = false,
@@ -1712,6 +1747,14 @@ const Module = struct {
         self.functions.deinit(self.moon.allocator);
 
         self.globals.deinit(self.moon.allocator);
+    }
+
+    pub fn set_name(self: *Module, name: String) !void {
+        self.name = name;
+    }
+
+    pub fn set_path(self: *Module, path: String) !void {
+        self.path = path;
     }
 
     pub fn semantic_analysis(
@@ -1753,7 +1796,8 @@ const Module = struct {
                 func.num_params = @intCast(decl.params.len);
                 func.block = decl.block;
                 for (decl.params) |param| {
-                    try func.declare_local(param.name, .constant);
+                    const name = try self.moon.intern_string(param.name);
+                    try func.declare_local(name, .constant);
                 }
                 const gi = try self.declare_global(decl.name, .function);
                 self.globals.items[gi].value = .{ .function = func_index };
@@ -1772,6 +1816,24 @@ const Module = struct {
         return func;
     }
 
+    pub fn add_global_cfunction(
+        self: *Module,
+        name: String,
+        func: CFunction,
+    ) MoonErrors!void {
+        if (self.find_global(name)) |_| {
+            std.debug.print("{s} already declared (declare global / global)\n", .{
+                self.moon.get_string(name),
+            });
+            return error.NameAlreadyDeclared;
+        }
+        try self.globals.append(self.moon.allocator, .{
+            .name = name,
+            .kind = .constant,
+            .value = cfunction_value(func),
+        });
+    }
+
     pub fn add_function(self: *Module, func: *Function) MoonErrors!FunctionIndex {
         const index: FunctionIndex = @enumFromInt(self.functions.items.len);
         try self.functions.append(self.moon.allocator, func);
@@ -1780,27 +1842,28 @@ const Module = struct {
 
     pub fn declare_global(
         self: *Module,
-        name: []const u8,
+        name_string: []const u8,
         kind: GlobalKind,
     ) MoonErrors!u32 {
+        const name = try self.moon.intern_string(name_string);
         if (self.find_global(name)) |_| {
-            std.debug.print("{s} already declared (declare global / global)\n", .{name});
+            std.debug.print("{s} already declared (declare global / global)\n", .{
+                name_string,
+            });
             return error.NameAlreadyDeclared;
         }
-        const name_string = try self.moon.intern_string(name);
         const index = self.globals.items.len;
         try self.globals.append(self.moon.allocator, .{
-            .name = name_string,
+            .name = name,
             .kind = kind,
             .value = .{ .nil = {} },
         });
         return @intCast(index);
     }
 
-    pub fn find_global(self: *Module, name: []const u8) ?u32 {
-        const name_string = self.moon.intern_string(name) catch return null;
+    pub fn find_global(self: *Module, name: String) ?u32 {
         for (self.globals.items, 0..) |global, index| {
-            if (global.name == name_string) return @intCast(index);
+            if (global.name == name) return @intCast(index);
         }
         return null;
     }
@@ -1914,7 +1977,8 @@ const Module = struct {
             },
             .const_decl => |decl| {
                 try func.generate_code(tree, decl.expr, .{});
-                if (self.find_global(decl.name)) |i| {
+                const name = try self.moon.intern_string(decl.name);
+                if (self.find_global(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     _ = try func.add_code(.store_global, arg);
                 } else {
@@ -1923,7 +1987,8 @@ const Module = struct {
             },
             .var_decl => |decl| {
                 try func.generate_code(tree, decl.expr, .{});
-                if (self.find_global(decl.name)) |i| {
+                const name = try self.moon.intern_string(decl.name);
+                if (self.find_global(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     _ = try func.add_code(.store_global, arg);
                 } else {
@@ -2116,21 +2181,22 @@ pub const Function = struct {
                 _ = try self.add_code(.ret, 0);
             },
             .identifier => |str| {
-                if (self.module.find_global(str)) |i| {
+                const name = try self.module.moon.intern_string(str);
+                if (self.module.find_global(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     if (options.assignment) {
                         _ = try self.add_code(.store_global, arg);
                     } else {
                         _ = try self.add_code(.load_global, arg);
                     }
-                } else if (self.find_local_variable(str)) |i| {
+                } else if (self.find_local_variable(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     if (options.assignment) {
                         _ = try self.add_code(.store_local, arg);
                     } else {
                         _ = try self.add_code(.load_local, arg);
                     }
-                } else if (self.find_local_constant(str)) |i| {
+                } else if (self.find_local_constant(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     if (options.assignment) {
                         std.debug.print("{s} constant\n", .{str});
@@ -2149,10 +2215,11 @@ pub const Function = struct {
             .var_decl,
             => |decl| {
                 try self.generate_code(tree, decl.expr, .{});
-                if (self.module.find_global(decl.name)) |i| {
+                const name = try self.module.moon.intern_string(decl.name);
+                if (self.module.find_global(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     _ = try self.add_code(.store_global, arg);
-                } else if (self.find_local(decl.name)) |i| {
+                } else if (self.find_local(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     _ = try self.add_code(.store_local, arg);
                 } else {
@@ -2219,27 +2286,29 @@ pub const Function = struct {
                 _ = try self.add_code(.drop, 1);
             },
             .const_decl => |decl| {
-                try self.declare_local(decl.name, .constant);
+                const name = try self.module.moon.intern_string(decl.name);
+                try self.declare_local(name, .constant);
                 try self.generate_code(tree, decl.expr, .{});
-                if (self.module.find_global(decl.name)) |i| {
+                if (self.module.find_global(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     _ = try self.add_code(.store_global, arg);
-                } else if (self.find_local(decl.name)) |_| {
-                    // const arg: LongArg = @truncate(i);
-                    // _ = try self.add_code(.store_local, arg);
+                } else if (self.find_local(name)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.store_local, arg);
                 } else {
                     return error.UnknownVariable;
                 }
             },
             .var_decl => |decl| {
-                try self.declare_local(decl.name, .variable);
+                const name = try self.module.moon.intern_string(decl.name);
+                try self.declare_local(name, .variable);
                 try self.generate_code(tree, decl.expr, .{});
-                if (self.module.find_global(decl.name)) |i| {
+                if (self.module.find_global(name)) |i| {
                     const arg: LongArg = @truncate(i);
                     _ = try self.add_code(.store_global, arg);
-                } else if (self.find_local(decl.name)) |_| {
-                    // const arg: LongArg = @truncate(i);
-                    // _ = try self.add_code(.store_local, arg);
+                } else if (self.find_local(name)) |i| {
+                    const arg: LongArg = @truncate(i);
+                    _ = try self.add_code(.store_local, arg);
                 } else {
                     return error.UnknownVariable;
                 }
@@ -2267,13 +2336,17 @@ pub const Function = struct {
         }
     }
 
-    pub fn declare_local(self: *Function, name: []const u8, kind: LocalKind) !void {
+    pub fn declare_local(self: *Function, name: String, kind: LocalKind) !void {
         if (self.module.find_global(name)) |_| {
-            std.debug.print("{s} already declared (declare_local / global)\n", .{name});
+            std.debug.print("{s} already declared (declare_local / global)\n", .{
+                self.module.moon.get_string(name),
+            });
             return error.NameAlreadyDeclared;
         }
         if (self.find_local(name)) |_| {
-            std.debug.print("{s} already declared (declare_local / local)\n", .{name});
+            std.debug.print("{s} already declared (declare_local / local)\n", .{
+                self.module.moon.get_string(name),
+            });
             return error.NameAlreadyDeclared;
         }
 
@@ -2283,10 +2356,19 @@ pub const Function = struct {
         });
     }
 
-    pub fn find_local(self: *Function, name: []const u8) ?u32 {
+    pub fn find_local(self: *Function, name: String) ?u32 {
         for (self.locals.items, 0..) |local, index| {
-            if (local.name.len == name.len) {
-                if (std.mem.eql(u8, name, local.name)) {
+            if (local.name == name) {
+                return @truncate(index);
+            }
+        }
+        return null;
+    }
+
+    pub fn find_local_variable(self: *Function, name: String) ?u32 {
+        for (self.locals.items, 0..) |local, index| {
+            if (local.name == name) {
+                if (local.kind == .variable) {
                     return @truncate(index);
                 }
             }
@@ -2294,26 +2376,11 @@ pub const Function = struct {
         return null;
     }
 
-    pub fn find_local_variable(self: *Function, name: []const u8) ?u32 {
+    pub fn find_local_constant(self: *Function, name: String) ?u32 {
         for (self.locals.items, 0..) |local, index| {
-            if (local.name.len == name.len) {
-                if (std.mem.eql(u8, name, local.name)) {
-                    if (local.kind == .variable) {
-                        return @truncate(index);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    pub fn find_local_constant(self: *Function, name: []const u8) ?u32 {
-        for (self.locals.items, 0..) |local, index| {
-            if (local.name.len == name.len) {
-                if (std.mem.eql(u8, name, local.name)) {
-                    if (local.kind == .constant) {
-                        return @truncate(index);
-                    }
+            if (local.name == name) {
+                if (local.kind == .constant) {
+                    return @truncate(index);
                 }
             }
         }
@@ -2425,6 +2492,7 @@ pub const Function = struct {
     ) !void {
         for (self.code.items, 0..) |instruction, addr| {
             try self.dump_instruction(addr, instruction, indent, writer);
+            try writer.print("\n", .{});
         }
     }
 
@@ -2444,10 +2512,8 @@ pub const Function = struct {
                         const constant = self.constants.items[code.arg];
                         switch (constant) {
                             .string => |s| {
-                                const start = s.offset;
-                                const end = s.offset + s.len;
-                                const name = self.module.moon.strings.items[start..end];
-                                try writer.print("{x:0>6} {s} {} ; \"{}\"\n", .{
+                                const name = self.module.moon.get_string(s);
+                                try writer.print("{x:0>6} {s} {} ; \"{}\"", .{
                                     addr,
                                     @tagName(code.op),
                                     code.arg,
@@ -2455,7 +2521,7 @@ pub const Function = struct {
                                 });
                             },
                             else => {
-                                try writer.print("{x:0>6} {s} {} ; {s}\n", .{
+                                try writer.print("{x:0>6} {s} {} ; {s}", .{
                                     addr,
                                     @tagName(code.op),
                                     code.arg,
@@ -2468,7 +2534,7 @@ pub const Function = struct {
                     .brak,
                     => {
                         const name = @tagName(code.op);
-                        try writer.print("{x:0>6} {s} {}\n", .{
+                        try writer.print("{x:0>6} {s} {}", .{
                             addr,
                             name,
                             code.arg,
@@ -2479,7 +2545,7 @@ pub const Function = struct {
                     => {
                         const name = @tagName(code.op);
                         const iarg: ShortIArg = @bitCast(code.arg);
-                        try writer.print("{x:0>6} {s} {}\n", .{ addr, name, iarg });
+                        try writer.print("{x:0>6} {s} {}", .{ addr, name, iarg });
                     },
                 }
             },
@@ -2492,7 +2558,7 @@ pub const Function = struct {
                     .call,
                     .drop,
                     => {
-                        try writer.print("{x:0>6} {s} {}\n", .{
+                        try writer.print("{x:0>6} {s} {}", .{
                             addr,
                             @tagName(code.op),
                             code.arg,
@@ -2504,10 +2570,8 @@ pub const Function = struct {
                         const constant = self.constants.items[code.arg];
                         switch (constant) {
                             .string => |s| {
-                                const start = s.offset;
-                                const end = s.offset + s.len;
-                                const name = self.module.moon.strings.items[start..end];
-                                try writer.print("{x:0>6} {s} {} ; \"{}\"\n", .{
+                                const name = self.module.moon.get_string(s);
+                                try writer.print("{x:0>6} {s} {} ; \"{}\"", .{
                                     addr,
                                     @tagName(code.op),
                                     code.arg,
@@ -2515,7 +2579,7 @@ pub const Function = struct {
                                 });
                             },
                             else => {
-                                try writer.print("{x:0>6} {s} {} ; {s}\n", .{
+                                try writer.print("{x:0>6} {s} {} ; {s}", .{
                                     addr,
                                     @tagName(code.op),
                                     code.arg,
@@ -2528,14 +2592,14 @@ pub const Function = struct {
                     .store_global,
                     => {
                         if (self.module.get_global_index_name(code.arg)) |name| {
-                            try writer.print("{x:0>6} {s} {} ; \"{}\"\n", .{
+                            try writer.print("{x:0>6} {s} {} ; \"{}\"", .{
                                 addr,
                                 @tagName(code.op),
                                 code.arg,
                                 std.zig.fmtEscapes(name),
                             });
                         } else {
-                            try writer.print("{x:0>6} {s} {}\n", .{
+                            try writer.print("{x:0>6} {s} {}", .{
                                 addr,
                                 @tagName(code.op),
                                 code.arg,
@@ -2569,7 +2633,7 @@ pub const Function = struct {
                     .new_table,
                     .append_table,
                     => {
-                        try writer.print("{x:0>6} {s}\n", .{
+                        try writer.print("{x:0>6} {s}", .{
                             addr,
                             @tagName(code.op),
                         });
@@ -4046,6 +4110,7 @@ pub const ValueKind = enum {
     literal_number,
     string,
     function,
+    cfunction,
     module,
     table,
 };
@@ -4063,6 +4128,7 @@ pub const Value = union(ValueKind) {
     literal_number: f64,
     string: String,
     function: FunctionIndex,
+    cfunction: CFunction,
     module: ModuleIndex,
     table: TableIndex,
 
@@ -4072,7 +4138,26 @@ pub const Value = union(ValueKind) {
         }
         return false;
     }
+
+    pub fn as_string(self: Value) ?String {
+        switch (self) {
+            .string => |s| return s,
+            else => return null,
+        }
+    }
 };
+
+pub fn string_value(string: String) Value {
+    return .{ .string = string };
+}
+
+pub fn cfunction_value(func: CFunction) Value {
+    return .{ .cfunction = func };
+}
+
+pub fn module_value(index: ModuleIndex) Value {
+    return .{ .module = index };
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -4090,9 +4175,14 @@ pub const Operation = enum {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const String = packed struct {
+pub const StringInternal = packed struct {
     offset: u32,
     len: u32,
+};
+
+pub const String = enum(u64) {
+    null_string = 0,
+    _,
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -5130,6 +5220,8 @@ fn test_compile(str: []const u8, result: []const u8, options: CompileOptions) !v
     var moon = Moon.init(std.testing.allocator);
     defer moon.deinit();
 
+    try moon.add_std_module();
+
     moon.trace_execute = true;
 
     const module = try moon.compile(str, options);
@@ -5878,7 +5970,11 @@ test "compile simple" {
     ,
         \\moon
         \\  strings
-        \\    00000000 "abaddc"
+        \\    00000000 "stdprintabaddc"
+        \\  tables
+        \\  modules
+        \\    0: "std"
+        \\    1: stdin
         \\module
         \\  globals
         \\    0: "add" function = function#0
@@ -5905,13 +6001,14 @@ test "compile simple" {
 test "compile hello world" {
     try test_compile(
         \\ const std = @import ("std")
+        \\ std.print ("Hello, World!\n")
         \\
     ,
         \\moon
         \\  strings
         \\    00000000 "std"
         \\  tables
-        \\    0: {}
+        \\    #0: (0,0)
         \\module
         \\  globals
         \\    0: "std" constant = table#0
@@ -5927,8 +6024,9 @@ test "compile hello world" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn moon_print(self: *Moon) !void {
+fn moon_print(self: *Moon) callconv(.C) void {
     _ = self;
+    std.debug.print("moon.std.print\n", .{});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
