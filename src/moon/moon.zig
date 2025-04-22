@@ -25,7 +25,7 @@ const StringContext = struct {
     }
 };
 
-const CFunction = *const fn (self: *Moon) callconv(.c) void;
+const CFunction = *const fn (self: *Moon) callconv(.c) bool;
 
 pub const Moon = struct {
     allocator: std.mem.Allocator,
@@ -75,15 +75,19 @@ pub const Moon = struct {
     }
 
     pub fn add_std_module(self: *Moon) MoonErrors!void {
-        const module = try self.create_module();
-        try module.set_name(try self.intern_string("std"));
-        const module_index = try self.add_module(module);
-        std.debug.print("std = {}\n", .{module_index});
-        try module.add_global_cfunction(try self.intern_string("print"), moon_print);
+        const module = try self.create_module_named("std");
+        _ = try self.add_module(module);
+
+        try module.add_global_cfunction(try self.intern_string("print"), moon_std_print);
+        try module.add_global_cfunction(try self.intern_string("sqrt"), moon_std_sqrt);
     }
 
     pub fn push_integer(self: *Moon, value: i64) MoonErrors!void {
         try self.stack.append(self.allocator, .{ .integer = value });
+    }
+
+    pub fn push_number(self: *Moon, value: f64) MoonErrors!void {
+        try self.stack.append(self.allocator, .{ .number = value });
     }
 
     pub fn op(self: *Moon, operation: Operation) MoonErrors!void {
@@ -151,6 +155,35 @@ pub const Moon = struct {
         return error.StackUnderflow;
     }
 
+    pub fn get_value_at(self: *const Moon, index: usize) ?Value {
+        const stack_index = self.tos + index;
+        if (stack_index < self.stack.items.len) {
+            return self.stack.items[stack_index];
+        }
+        return null;
+    }
+
+    pub fn to_number(self: *const Moon, index: usize) ?f64 {
+        if (self.get_value_at(index)) |value| {
+            switch (value) {
+                .integer, .literal_integer => |i| return @floatFromInt(i),
+                .number, .literal_number => |n| return n,
+                else => return null,
+            }
+        }
+        return null;
+    }
+
+    pub fn to_string(self: *const Moon, index: usize) ?[]const u8 {
+        if (self.get_value_at(index)) |value| {
+            switch (value) {
+                .string => |str| return self.get_string(str),
+                else => return null,
+            }
+        }
+        return null;
+    }
+
     pub fn compile(
         self: *Moon,
         source: []const u8,
@@ -171,6 +204,13 @@ pub const Moon = struct {
         return .{
             .module = @enumFromInt(index),
         };
+    }
+
+    pub fn create_module_named(self: *Moon, name: []const u8) MoonErrors!*Module {
+        const name_string = try self.intern_string(name);
+        const module = try self.create_module();
+        module.set_name(name_string);
+        return module;
     }
 
     pub fn create_module(self: *Moon) MoonErrors!*Module {
@@ -1193,9 +1233,9 @@ pub const Moon = struct {
         var ip: isize = 0;
         const writer = std.io.getStdErr().writer();
         if (self.trace_execute) {
-            try writer.print("Function : ", .{});
+            try writer.print("Function : [", .{});
             try self.dump_stack(writer);
-            try writer.print("\n", .{});
+            try writer.print("]\n", .{});
         }
         while (ip < func.code.items.len) {
             counter += 1;
@@ -1381,10 +1421,13 @@ pub const Moon = struct {
                                 _ = try self.pop();
                             }
                         },
-                        .load_table => {
-                            return error.InvalidInstruction;
+                        .load_table_k => {
+                            const lhs = try self.pop();
+                            const rhs = func.constants.items[code.arg];
+                            const value = self.table_get(lhs, rhs);
+                            try self.push(value);
                         },
-                        .store_table => {
+                        .store_table_k => {
                             return error.InvalidInstruction;
                         },
                         .load_local => {
@@ -1409,17 +1452,29 @@ pub const Moon = struct {
                             const diff = code.arg;
                             const args: ShortIArg = @intCast(diff);
                             const func_value = try self.get_relative(-args - 1);
-                            if (func_value == .function) {
-                                const function_index = @intFromEnum(func_value.function);
-                                const function = func.module.functions.items[function_index];
-                                const old_tos = self.tos;
-                                self.tos = self.stack.items.len - code.arg;
-                                try self.execute(function);
-                                self.stack.items[self.tos - 1] = try self.pop();
-                                self.stack.items.len = self.tos;
-                                self.tos = old_tos;
-                            } else {
-                                return error.InvalidFunction;
+                            switch (func_value) {
+                                .function => |fi| {
+                                    const func_index = @intFromEnum(fi);
+                                    const callee = func.module.functions.items[func_index];
+                                    const old_tos = self.tos;
+                                    self.tos = self.stack.items.len - code.arg;
+                                    try self.execute(callee);
+                                    self.stack.items[self.tos - 1] = try self.pop();
+                                    self.stack.items.len = self.tos;
+                                    self.tos = old_tos;
+                                },
+                                .cfunction => |cf| {
+                                    const old_tos = self.tos;
+                                    self.tos = self.stack.items.len - code.arg;
+                                    if (cf(self)) {
+                                        self.stack.items[self.tos - 1] = try self.pop();
+                                    } else {
+                                        self.stack.items[self.tos - 1] = .nil;
+                                    }
+                                    self.stack.items.len = self.tos;
+                                    self.tos = old_tos;
+                                },
+                                else => return error.InvalidFunction,
                             }
                         },
                         .ret => {
@@ -1438,9 +1493,9 @@ pub const Moon = struct {
                 },
             }
             if (self.trace_execute) {
-                try writer.print(" => ", .{});
+                try writer.print(" => [", .{});
                 try self.dump_stack(writer);
-                try writer.print("\n", .{});
+                try writer.print("]\n", .{});
             }
         }
     }
@@ -1450,7 +1505,7 @@ pub const Moon = struct {
         const str = value.as_string() orelse .null_string;
         for (self.modules.items, 0..) |module, index| {
             if (module.name == str) {
-                try self.push(module_value(@enumFromInt(index)));
+                try self.push(value_from_module(@enumFromInt(index)));
                 return;
             }
         }
@@ -1473,6 +1528,31 @@ pub const Moon = struct {
         const index = self.tables.items.len;
         try self.tables.append(self.allocator, table);
         return @enumFromInt(index);
+    }
+
+    pub fn table_get(self: *Moon, table: Value, index: Value) Value {
+        if (table.is_module()) {
+            return self.module_get(table, index);
+        } else if (!table.is_table()) {
+            return .nil;
+        }
+
+        return .nil;
+    }
+
+    pub fn module_get(self: *Moon, module_value: Value, key: Value) Value {
+        if (module_value.as_module()) |module_index| {
+            const mi: usize = @intFromEnum(module_index);
+            const module = self.modules.items[mi];
+            if (key.as_string()) |name| {
+                if (module.get_global_value(name)) |value| {
+                    return value;
+                }
+            }
+            return .nil;
+        } else {
+            return .nil;
+        }
     }
 
     pub fn write_value(self: *Moon, value: Value, writer: anytype) MoonErrors!void {
@@ -1509,16 +1589,18 @@ pub const Moon = struct {
 
     pub fn dump(self: *Moon, writer: anytype) MoonErrors!void {
         try writer.print("moon\n", .{});
-        try writer.print("  strings\n", .{});
-        for (0..self.strings.items.len) |index| {
-            const start = index * 32;
-            if (start >= self.strings.items.len) break;
+        if (false) {
+            try writer.print("  strings\n", .{});
+            for (0..self.strings.items.len) |index| {
+                const start = index * 32;
+                if (start >= self.strings.items.len) break;
 
-            const end = @min(self.strings.items.len, index * 32 + 32);
-            try writer.print("    {x:0>8} \"{}\"\n", .{
-                start,
-                std.zig.fmtEscapes(self.strings.items[start..end]),
-            });
+                const end = @min(self.strings.items.len, index * 32 + 32);
+                try writer.print("    {x:0>8} \"{}\"\n", .{
+                    start,
+                    std.zig.fmtEscapes(self.strings.items[start..end]),
+                });
+            }
         }
         try writer.print("  tables\n", .{});
         for (self.tables.items, 0..) |table, index| {
@@ -1586,6 +1668,16 @@ pub const Moon = struct {
             }
             try self.write_value(value, writer);
         }
+    }
+
+    pub fn debug_stack(self: *Moon, label: []const u8) void {
+        var buffer = std.ArrayList(u8).init(self.allocator);
+        defer buffer.deinit();
+        const writer = buffer.writer();
+        writer.print("debug_stack (\"{}\") => [", .{std.zig.fmtEscapes(label)}) catch {};
+        self.dump_stack(writer) catch {};
+        writer.print("]\n", .{}) catch {};
+        std.debug.print("{s}", .{buffer.items});
     }
 };
 
@@ -1679,8 +1771,8 @@ pub const LongOpcode = enum(u7) {
     neq,
     @"and",
     @"or",
-    load_table,
-    store_table,
+    load_table_k,
+    store_table_k,
     boolean_true,
     boolean_false,
     integer,
@@ -1749,11 +1841,11 @@ const Module = struct {
         self.globals.deinit(self.moon.allocator);
     }
 
-    pub fn set_name(self: *Module, name: String) !void {
+    pub fn set_name(self: *Module, name: String) void {
         self.name = name;
     }
 
-    pub fn set_path(self: *Module, path: String) !void {
+    pub fn set_path(self: *Module, path: String) void {
         self.path = path;
     }
 
@@ -1830,7 +1922,7 @@ const Module = struct {
         try self.globals.append(self.moon.allocator, .{
             .name = name,
             .kind = .constant,
-            .value = cfunction_value(func),
+            .value = value_from_cfunction(func),
         });
     }
 
@@ -1864,6 +1956,13 @@ const Module = struct {
     pub fn find_global(self: *Module, name: String) ?u32 {
         for (self.globals.items, 0..) |global, index| {
             if (global.name == name) return @intCast(index);
+        }
+        return null;
+    }
+
+    pub fn get_global_value(self: *Module, name: String) ?Value {
+        for (self.globals.items) |global| {
+            if (global.name == name) return global.value;
         }
         return null;
     }
@@ -2020,7 +2119,7 @@ pub const Function = struct {
     num_params: u8 = 0,
     block: NodeIndex = .none,
     need_generation: bool = true,
-    trace: bool = true,
+    trace: bool = false,
 
     fn deinit(self: *Function) void {
         self.code.deinit(self.module.moon.allocator);
@@ -2082,9 +2181,9 @@ pub const Function = struct {
                 const i = try self.add_constant_string(rhs.identifier);
                 const arg: LongArg = @truncate(i);
                 if (options.assignment) {
-                    _ = try self.add_code(.store_table, arg);
+                    _ = try self.add_code(.store_table_k, arg);
                 } else {
-                    _ = try self.add_code(.load_table, arg);
+                    _ = try self.add_code(.load_table_k, arg);
                 }
             },
             else => {},
@@ -2513,7 +2612,7 @@ pub const Function = struct {
                         switch (constant) {
                             .string => |s| {
                                 const name = self.module.moon.get_string(s);
-                                try writer.print("{x:0>6} {s} {} ; \"{}\"", .{
+                                try writer.print("{x:0>6} {s} constants.{} ; \"{}\"", .{
                                     addr,
                                     @tagName(code.op),
                                     code.arg,
@@ -2521,7 +2620,7 @@ pub const Function = struct {
                                 });
                             },
                             else => {
-                                try writer.print("{x:0>6} {s} {} ; {s}", .{
+                                try writer.print("{x:0>6} {s} constants.{} ; {s}", .{
                                     addr,
                                     @tagName(code.op),
                                     code.arg,
@@ -2564,14 +2663,14 @@ pub const Function = struct {
                             code.arg,
                         });
                     },
-                    .load_table,
-                    .store_table,
+                    .load_table_k,
+                    .store_table_k,
                     => {
                         const constant = self.constants.items[code.arg];
                         switch (constant) {
                             .string => |s| {
                                 const name = self.module.moon.get_string(s);
-                                try writer.print("{x:0>6} {s} {} ; \"{}\"", .{
+                                try writer.print("{x:0>6} {s} constants.{} ; \"{}\"", .{
                                     addr,
                                     @tagName(code.op),
                                     code.arg,
@@ -2579,7 +2678,7 @@ pub const Function = struct {
                                 });
                             },
                             else => {
-                                try writer.print("{x:0>6} {s} {} ; {s}", .{
+                                try writer.print("{x:0>6} {s} constants.{} ; {s}", .{
                                     addr,
                                     @tagName(code.op),
                                     code.arg,
@@ -2592,14 +2691,14 @@ pub const Function = struct {
                     .store_global,
                     => {
                         if (self.module.get_global_index_name(code.arg)) |name| {
-                            try writer.print("{x:0>6} {s} {} ; \"{}\"", .{
+                            try writer.print("{x:0>6} {s} globals.{} ; \"{}\"", .{
                                 addr,
                                 @tagName(code.op),
                                 code.arg,
                                 std.zig.fmtEscapes(name),
                             });
                         } else {
-                            try writer.print("{x:0>6} {s} {}", .{
+                            try writer.print("{x:0>6} {s} globals.{}", .{
                                 addr,
                                 @tagName(code.op),
                                 code.arg,
@@ -4139,23 +4238,88 @@ pub const Value = union(ValueKind) {
         return false;
     }
 
+    pub fn is_boolean(self: Value) bool {
+        switch (self) {
+            .boolean => return true,
+            else => return false,
+        }
+    }
+
+    pub fn is_integer(self: Value) bool {
+        switch (self) {
+            .integer, .literal_integer => return true,
+            else => return false,
+        }
+    }
+
+    pub fn is_number(self: Value) bool {
+        switch (self) {
+            .number, .literal_number => return true,
+            else => return false,
+        }
+    }
+
+    pub fn is_string(self: Value) bool {
+        switch (self) {
+            .string => return true,
+            else => return false,
+        }
+    }
+
+    pub fn is_function(self: Value) bool {
+        switch (self) {
+            .function,
+            .cfunction,
+            => return true,
+            else => return false,
+        }
+    }
+
+    pub fn is_module(self: Value) bool {
+        switch (self) {
+            .module => return true,
+            else => return false,
+        }
+    }
+
+    pub fn is_table(self: Value) bool {
+        switch (self) {
+            .table => return true,
+            else => return false,
+        }
+    }
+
     pub fn as_string(self: Value) ?String {
         switch (self) {
             .string => |s| return s,
             else => return null,
         }
     }
+
+    pub fn as_module(self: Value) ?ModuleIndex {
+        switch (self) {
+            .module => |m| return m,
+            else => return null,
+        }
+    }
+
+    pub fn as_table(self: Value) ?TableIndex {
+        switch (self) {
+            .table => |t| return t,
+            else => return null,
+        }
+    }
 };
 
-pub fn string_value(string: String) Value {
+pub fn value_from_string(string: String) Value {
     return .{ .string = string };
 }
 
-pub fn cfunction_value(func: CFunction) Value {
+pub fn value_from_cfunction(func: CFunction) Value {
     return .{ .cfunction = func };
 }
 
-pub fn module_value(index: ModuleIndex) Value {
+pub fn value_from_module(index: ModuleIndex) Value {
     return .{ .module = index };
 }
 
@@ -5222,7 +5386,7 @@ fn test_compile(str: []const u8, result: []const u8, options: CompileOptions) !v
 
     try moon.add_std_module();
 
-    moon.trace_execute = true;
+    moon.trace_execute = false;
 
     const module = try moon.compile(str, options);
 
@@ -5969,8 +6133,6 @@ test "compile simple" {
         \\
     ,
         \\moon
-        \\  strings
-        \\    00000000 "stdprintabaddc"
         \\  tables
         \\  modules
         \\    0: "std"
@@ -5998,24 +6160,39 @@ test "compile simple" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-test "compile hello world" {
+test "compile main hello world" {
     try test_compile(
         \\ const std = @import ("std")
-        \\ std.print ("Hello, World!\n")
+        \\ fn main () {
+        \\     std.print ("Hello, World!\n")
+        \\ }
         \\
     ,
         \\moon
-        \\  strings
-        \\    00000000 "std"
         \\  tables
-        \\    #0: (0,0)
+        \\  modules
+        \\    0: "std"
+        \\    1: stdin
         \\module
         \\  globals
-        \\    0: "std" constant = table#0
+        \\    0: "std" constant = module#0
+        \\    1: "main" function = function#0
+        \\  function#0 (0 params)
+        \\    code
+        \\      000000 load_global globals.0 ; "std"
+        \\      000001 load_table_k constants.0 ; "print"
+        \\      000002 constant constants.1 ; "Hello, World!\n"
+        \\      000003 call 1
+        \\      000004 drop 1
+        \\      000005 nil
+        \\      000006 ret
+        \\    constants
+        \\      0: "print"
+        \\      1: "Hello, World!\n"
         \\
     ,
         .{
-            .trace_code = true,
+            .trace_code = false,
         },
     );
 }
@@ -6024,9 +6201,80 @@ test "compile hello world" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-fn moon_print(self: *Moon) callconv(.C) void {
-    _ = self;
-    std.debug.print("moon.std.print\n", .{});
+test "compile hello world" {
+    try test_compile(
+        \\ const std = @import ("std")
+        \\ std.print ("Hello, World!\n")
+        \\
+    ,
+        \\moon
+        \\  tables
+        \\  modules
+        \\    0: "std"
+        \\    1: stdin
+        \\module
+        \\  globals
+        \\    0: "std" constant = module#0
+        \\
+    ,
+        .{
+            .trace_code = false,
+        },
+    );
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+test "compile maths function" {
+    try test_compile(
+        \\ const std = @import ("std")
+        \\ const a = std.sqrt (12.25)
+        \\
+    ,
+        \\moon
+        \\  tables
+        \\  modules
+        \\    0: "std"
+        \\    1: stdin
+        \\module
+        \\  globals
+        \\    0: "std" constant = module#0
+        \\    1: "a" constant = 3.5
+        \\
+    ,
+        .{
+            .trace_code = false,
+        },
+    );
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn moon_std_print(moon: *Moon) callconv(.C) bool {
+    if (moon.to_string(0)) |str| {
+        const stdout = std.io.getStdOut ();
+        const writer = stdout.writer ();
+        writer.print("{s}", .{str}) catch {};
+    }
+
+    return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+fn moon_std_sqrt(moon: *Moon) callconv(.C) bool {
+    if (moon.to_number(0)) |num| {
+        moon.push_number(@sqrt(num)) catch return false;
+        return true;
+    }
+
+    return false;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
